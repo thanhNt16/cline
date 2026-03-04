@@ -24,6 +24,7 @@ import {
 	getTaskHistoryStateFilePath,
 	readTaskHistoryFromState,
 	readTaskSettingsFromStorage,
+	writeSessions,
 	writeTaskHistoryToState,
 	writeTaskSettingsToStorage,
 } from "./disk"
@@ -70,6 +71,7 @@ export class StateManager {
 	 * Do NOT access VSCode's ExtensionContext for storage — use this instead.
 	 */
 	private storage: StorageContext
+	private workspacePath: string | undefined
 	private isInitialized = false
 
 	// Cache TTL: 1 hour - long enough to prevent duplicate fetches, short enough to see new models
@@ -137,8 +139,10 @@ export class StateManager {
 		try {
 			await initializeDistinctId(storage)
 
+			StateManager.instance.workspacePath = storage.workspacePath
+
 			// Load all extension state from file-backed stores
-			const globalState = await readGlobalStateFromStorage(storage.globalState)
+			const globalState = await readGlobalStateFromStorage(storage.globalState, storage.workspacePath)
 			const secrets = readSecretsFromStorage(storage.secrets)
 			const workspaceState = readWorkspaceStateFromStorage(storage.workspaceState)
 
@@ -527,7 +531,7 @@ export class StateManager {
 	 */
 	private async setupTaskHistoryWatcher(): Promise<void> {
 		try {
-			const historyFile = await getTaskHistoryStateFilePath()
+			const historyFile = await getTaskHistoryStateFilePath(this.workspacePath)
 
 			// Close any existing watcher before creating a new one
 			if (this.taskHistoryWatcher) {
@@ -547,7 +551,7 @@ export class StateManager {
 					if (!this.isInitialized) {
 						return
 					}
-					const onDisk = await readTaskHistoryFromState()
+					const onDisk = await readTaskHistoryFromState(this.workspacePath)
 					const cached = this.globalStateCache["taskHistory"]
 					if (JSON.stringify(onDisk) !== JSON.stringify(cached)) {
 						this.globalStateCache["taskHistory"] = onDisk
@@ -807,7 +811,19 @@ export class StateManager {
 		for (const key of keys) {
 			if (key === "taskHistory") {
 				// Route task history persistence to its own file
-				await writeTaskHistoryToState(this.globalStateCache[key])
+				await writeTaskHistoryToState(this.globalStateCache[key], this.workspacePath)
+				// Also update sessions from taskHistory (top 3)
+				const taskHistory = this.globalStateCache[key] || []
+				const sessionItems = taskHistory.slice(0, 3).map((item: any) => ({
+					id: item.id,
+					task: item.task,
+					ts: item.ts,
+					isFavorited: item.isFavorited,
+				}))
+				await writeSessions(sessionItems, this.workspacePath)
+			} else if (key === "sessions") {
+				// Route sessions persistence to its own file
+				await writeSessions(this.globalStateCache[key], this.workspacePath)
 			} else {
 				regularEntries[key] = this.globalStateCache[key]
 			}
@@ -921,6 +937,13 @@ export class StateManager {
 		const settings = Object.fromEntries(ApiHandlerSettingsKeys.map((key) => [key, this.getSettingWithOverride(key)]))
 
 		return { ...secrets, ...settings } satisfies ApiConfiguration
+	}
+
+	/**
+	 * Get the workspace path (project folder) used for workspace-scoped storage.
+	 */
+	public getWorkspacePath(): string | undefined {
+		return this.workspacePath
 	}
 
 	/**

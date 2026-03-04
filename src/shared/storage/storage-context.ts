@@ -36,6 +36,9 @@ export interface StorageContext {
 
 	/** The resolved path to the workspace storage directory (contains workspaceState.json) */
 	readonly workspaceStoragePath: string
+
+	/** The resolved workspace root path (e.g. the open project folder). Used for .cellockai/ scoped data. */
+	readonly workspacePath?: string
 }
 
 export interface StorageContextOptions {
@@ -122,5 +125,6 @@ export function createStorageContext(opts: StorageContextOptions = {}): StorageC
 		workspaceState: new ClineFileStorage(path.join(workspaceDir, "workspaceState.json"), "WorkspaceState"),
 		dataDir,
 		workspaceStoragePath: workspaceDir,
+		workspacePath: opts.workspacePath,
 	}
 }

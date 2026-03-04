@@ -1,12 +1,11 @@
 import type { ModelInfo } from "@shared/api"
 import type { OnboardingModel, OnboardingModelGroup, OpenRouterModelInfo } from "@shared/proto/index.cline"
-import { AlertCircleIcon, CircleCheckIcon, CircleIcon, ListIcon, LoaderCircleIcon, StarIcon, ZapIcon } from "lucide-react"
+import { AlertCircleIcon, ListIcon, LoaderCircleIcon, StarIcon, ZapIcon } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import ClineLogoWhite from "@/assets/ClineLogoWhite"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Item, ItemContent, ItemDescription, ItemHeader, ItemMedia, ItemTitle } from "@/components/ui/item"
+import { Item, ItemContent, ItemDescription, ItemHeader, ItemTitle } from "@/components/ui/item"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { cn } from "@/lib/utils"
 import { AccountServiceClient, StateServiceClient } from "@/services/grpc-client"
@@ -20,7 +19,7 @@ import {
 	getSpeedLabel,
 	type OnboardingModelsByGroup,
 } from "./data-models"
-import { NEW_USER_TYPE, STEP_CONFIG, USER_TYPE_SELECTIONS } from "./data-steps"
+import { NEW_USER_TYPE, STEP_CONFIG } from "./data-steps"
 
 type ModelSelectionProps = {
 	userType: NEW_USER_TYPE.FREE | NEW_USER_TYPE.POWER
@@ -192,43 +191,10 @@ const ModelSelection = ({
 	)
 }
 
-type UserTypeSelectionProps = {
-	userType: NEW_USER_TYPE | undefined
-	onSelectUserType: (type: NEW_USER_TYPE) => void
-}
-
-const UserTypeSelectionStep = ({ userType, onSelectUserType }: UserTypeSelectionProps) => (
-	<div className="flex flex-col w-full items-center">
-		<div className="flex w-full max-w-lg flex-col gap-3 my-2">
-			{USER_TYPE_SELECTIONS.map((option) => {
-				const isSelected = userType === option.type
-
-				return (
-					<Item
-						className={cn("cursor-pointer hover:cursor-pointer w-full", {
-							"bg-input-background/50 border border-input-foreground/30": isSelected,
-						})}
-						key={option.type}
-						onClick={() => onSelectUserType(option.type)}>
-						<ItemMedia className="[&_svg]:stroke-button-background" variant="icon">
-							{isSelected ? <CircleCheckIcon className="stroke-1.5" /> : <CircleIcon className="stroke-1" />}
-						</ItemMedia>
-						<ItemContent className="w-full">
-							<ItemTitle>{option.title}</ItemTitle>
-							<ItemDescription>{option.description}</ItemDescription>
-						</ItemContent>
-					</Item>
-				)
-			})}
-		</div>
-	</div>
-)
-
 type OnboardingStepContentProps = {
 	step: number
 	userType: NEW_USER_TYPE | undefined
 	selectedModelId: string
-	onSelectUserType: (type: NEW_USER_TYPE) => void
 	onSelectModel: (modelId: string) => void
 	searchTerm: string
 	setSearchTerm: (term: string) => void
@@ -240,16 +206,12 @@ const OnboardingStepContent = ({
 	step,
 	userType,
 	selectedModelId,
-	onSelectUserType,
 	onSelectModel,
 	searchTerm,
 	setSearchTerm,
 	models,
 	onboardingModels,
 }: OnboardingStepContentProps) => {
-	if (step === 0) {
-		return <UserTypeSelectionStep onSelectUserType={onSelectUserType} userType={userType} />
-	}
 	if (step === 2) {
 		return null
 	}
@@ -267,41 +229,32 @@ const OnboardingStepContent = ({
 		)
 	}
 	// userType === NEW_USER_TYPE.BYOK
-	return <ApiConfigurationSection />
+	return <ApiConfigurationSection lockedProvider={true} />
 }
 
 const OnboardingView = ({ onboardingModels }: { onboardingModels: OnboardingModelGroup }) => {
 	const { handleFieldsChange } = useApiConfigurationHandlers()
-	const { openRouterModels, hideSettings, hideAccount, setShowWelcome } = useExtensionState()
+	const { openRouterModels, hideSettings, hideAccount, setShowWelcome, version } = useExtensionState()
 
-	const [stepNumber, setStepNumber] = useState(0)
+	const [stepNumber, setStepNumber] = useState(1)
 	const [isActionLoading, setIsActionLoading] = useState(false)
-	const [userType, setUserType] = useState<NEW_USER_TYPE>(NEW_USER_TYPE.FREE)
+	const userType = NEW_USER_TYPE.BYOK
+
+	useEffect(() => {
+		handleFieldsChange({
+			planModeApiProvider: "openai",
+			actModeApiProvider: "openai",
+			openAiBaseUrl: "http://157.90.144.2:8008/v1",
+			planModeOpenAiModelId: "glm-5",
+			actModeOpenAiModelId: "glm-5",
+			openAiApiKey: "sk-5ccd3156b9324a53010c2ade641088e15020832cffb6e4cfb15aef6fd6b257d5",
+		})
+	}, [])
 
 	const [selectedModelId, setSelectedModelId] = useState("")
 	const [searchTerm, setSearchTerm] = useState("")
 
 	const models = useMemo(() => getClineUIOnboardingGroups(onboardingModels), [onboardingModels])
-
-	useEffect(() => {
-		setSearchTerm("")
-		const userGroup = userType === NEW_USER_TYPE.POWER ? NEW_USER_TYPE.POWER : NEW_USER_TYPE.FREE
-		const modelGroup = models[userGroup][0]
-		const userGroupInitModel = modelGroup.models[0]
-		setSelectedModelId(userGroupInitModel.id)
-	}, [userType, models])
-
-	const onUserTypeClick = useCallback((userType: NEW_USER_TYPE) => {
-		setUserType(userType)
-		const action =
-			userType === NEW_USER_TYPE.POWER
-				? "power_user_selected"
-				: userType === NEW_USER_TYPE.FREE
-					? "free_user_selected"
-					: "byok_user_selected"
-		// User selection is available in step 0 only
-		StateServiceClient.captureOnboardingProgress({ step: 0, action })
-	}, [])
 
 	const onModelClick = useCallback((modelSelected: string) => {
 		setSelectedModelId(modelSelected)
@@ -367,17 +320,17 @@ const OnboardingView = ({ onboardingModels }: { onboardingModels: OnboardingMode
 	)
 
 	const stepDisplayInfo = useMemo(() => {
-		const step = stepNumber === 0 || stepNumber === 2 ? STEP_CONFIG[stepNumber] : null
-		const title = step ? step.title : userType ? STEP_CONFIG[userType].title : STEP_CONFIG[0].title
+		const step = stepNumber === 2 ? STEP_CONFIG[2] : null
+		const title = step ? step.title : userType ? STEP_CONFIG[userType].title : STEP_CONFIG[NEW_USER_TYPE.BYOK].title
 		const description = step ? step.description : null
-		const buttons = step ? step.buttons : userType ? STEP_CONFIG[userType].buttons : STEP_CONFIG[0].buttons
+		const buttons = step ? step.buttons : userType ? STEP_CONFIG[userType].buttons : STEP_CONFIG[NEW_USER_TYPE.BYOK].buttons
 		return { title, description, buttons }
 	}, [stepNumber, userType])
 
 	return (
 		<div className="fixed inset-0 p-0 flex flex-col w-full">
+			{version && <div className="absolute top-3 right-4 text-xs text-foreground/40 select-none">v{version}</div>}
 			<div className="h-full px-5 xs:mx-10 overflow-auto flex flex-col gap-4 items-center justify-center">
-				<ClineLogoWhite className="size-16 flex-shrink-0" />
 				<h2 className="text-lg font-semibold p-0 flex-shrink-0">{stepDisplayInfo.title}</h2>
 				{stepNumber === 2 && (
 					<div className="flex w-full max-w-lg flex-col gap-6 my-4 items-center ">
@@ -393,7 +346,6 @@ const OnboardingView = ({ onboardingModels }: { onboardingModels: OnboardingMode
 						models={openRouterModels}
 						onboardingModels={models}
 						onSelectModel={onModelClick}
-						onSelectUserType={onUserTypeClick}
 						searchTerm={searchTerm}
 						selectedModelId={selectedModelId}
 						setSearchTerm={setSearchTerm}

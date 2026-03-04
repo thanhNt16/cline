@@ -5,7 +5,6 @@ import assert from "node:assert"
 import { DIFF_VIEW_URI_SCHEME } from "@hosts/vscode/VscodeDiffViewProvider"
 import * as vscode from "vscode"
 import { Logger } from "@/shared/services/Logger"
-import { sendAccountButtonClickedEvent } from "./core/controller/ui/subscribeToAccountButtonClicked"
 import { sendChatButtonClickedEvent } from "./core/controller/ui/subscribeToChatButtonClicked"
 import { sendHistoryButtonClickedEvent } from "./core/controller/ui/subscribeToHistoryButtonClicked"
 import { sendMcpButtonClickedEvent } from "./core/controller/ui/subscribeToMcpButtonClicked"
@@ -135,7 +134,6 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(vscode.commands.registerCommand(commands.McpButton, () => sendMcpButtonClickedEvent()))
 	context.subscriptions.push(vscode.commands.registerCommand(commands.SettingsButton, () => sendSettingsButtonClickedEvent()))
 	context.subscriptions.push(vscode.commands.registerCommand(commands.HistoryButton, () => sendHistoryButtonClickedEvent()))
-	context.subscriptions.push(vscode.commands.registerCommand(commands.AccountButton, () => sendAccountButtonClickedEvent()))
 	context.subscriptions.push(vscode.commands.registerCommand(commands.WorktreesButton, () => sendWorktreesButtonClickedEvent()))
 
 	/*
@@ -293,31 +291,31 @@ export async function activate(context: vscode.ExtensionContext) {
 					}
 					actions.push(addAction)
 
-					// Explain with Cline (Always available)
-					const explainAction = new vscode.CodeAction("Explain with Cline", vscode.CodeActionKind.RefactorExtract) // Using a refactor kind
+					// Explain with CellockAI (Always available)
+					const explainAction = new vscode.CodeAction("Explain with CellockAI", vscode.CodeActionKind.RefactorExtract) // Using a refactor kind
 					explainAction.command = {
 						command: commands.ExplainCode,
-						title: "Explain with Cline",
+						title: "Explain with CellockAI",
 						arguments: [expandedRange],
 					}
 					actions.push(explainAction)
 
-					// Improve with Cline (Always available)
-					const improveAction = new vscode.CodeAction("Improve with Cline", vscode.CodeActionKind.RefactorRewrite) // Using a refactor kind
+					// Improve with CellockAI (Always available)
+					const improveAction = new vscode.CodeAction("Improve with CellockAI", vscode.CodeActionKind.RefactorRewrite) // Using a refactor kind
 					improveAction.command = {
 						command: commands.ImproveCode,
-						title: "Improve with Cline",
+						title: "Improve with CellockAI",
 						arguments: [expandedRange],
 					}
 					actions.push(improveAction)
 
-					// Fix with Cline (Only if diagnostics exist)
+					// Fix with CellockAI (Only if diagnostics exist)
 					if (context.diagnostics.length > 0) {
-						const fixAction = new vscode.CodeAction("Fix with Cline", vscode.CodeActionKind.QuickFix)
+						const fixAction = new vscode.CodeAction("Fix with CellockAI", vscode.CodeActionKind.QuickFix)
 						fixAction.isPreferred = true
 						fixAction.command = {
 							command: commands.FixWithCline,
-							title: "Fix with Cline",
+							title: "Fix with CellockAI",
 							arguments: [expandedRange, context.diagnostics],
 						}
 						actions.push(fixAction)

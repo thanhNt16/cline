@@ -14,7 +14,7 @@ import {
 } from "@shared/storage/state-keys"
 import { Logger } from "@/shared/services/Logger"
 import { ClineMemento } from "@/shared/storage"
-import { readTaskHistoryFromState } from "../disk"
+import { readSessions, readTaskHistoryFromState } from "../disk"
 import { StateManager } from "../StateManager"
 
 // ─── File-backed storage readers (used by StateManager) ────────────────────
@@ -41,8 +41,9 @@ export function readWorkspaceStateFromStorage(store: ClineFileStorage): LocalSta
 
 /**
  * Read global state from a ClineFileStorage instance.
+ * @param workspacePath When provided, task history is loaded from {workspace}/.cellockai/
  */
-export async function readGlobalStateFromStorage(store: ClineMemento): Promise<GlobalStateAndSettings> {
+export async function readGlobalStateFromStorage(store: ClineMemento, workspacePath?: string): Promise<GlobalStateAndSettings> {
 	try {
 		// Batch read all state values in a single optimized pass
 		const stateValues = new Map<string, any>()
@@ -76,7 +77,7 @@ export async function readGlobalStateFromStorage(store: ClineMemento): Promise<G
 		}
 
 		await handleComputedProperties(result, stateValues)
-		await handleAsyncProperties(result)
+		await handleAsyncProperties(result, workspacePath)
 
 		return result as GlobalStateAndSettings
 	} catch (error) {
@@ -107,11 +108,54 @@ async function handleComputedProperties(result: any, stateValues: Map<string, an
 }
 
 /**
- * Handle properties that require async operations
+ * Handle properties that require async operations.
+ * When workspacePath is provided, history is read from {workspace}/.cellockai/.
+ * On first use of a workspace (no history file yet), any existing global history
+ * items matching the workspace are migrated to the workspace-scoped file.
  */
-async function handleAsyncProperties(result: any): Promise<void> {
-	// Task history requires async disk read
-	result.taskHistory = await readTaskHistoryFromState()
+async function handleAsyncProperties(result: any, workspacePath?: string): Promise<void> {
+	if (!workspacePath) {
+		result.taskHistory = await readTaskHistoryFromState()
+		result.sessions = await readSessions()
+		return
+	}
+
+	const workspaceHistory = await readTaskHistoryFromState(workspacePath)
+
+	if (workspaceHistory.length === 0 && !(await import("../disk").then((d) => d.taskHistoryStateFileExists(workspacePath)))) {
+		// First time opening this workspace — migrate matching items from global history
+		try {
+			const globalHistory = await readTaskHistoryFromState()
+			const { arePathsEqual } = await import("../../../utils/path")
+			const migrated = globalHistory.filter(
+				(item) =>
+					(item.cwdOnTaskInitialization && arePathsEqual(item.cwdOnTaskInitialization, workspacePath)) ||
+					(item.shadowGitConfigWorkTree && arePathsEqual(item.shadowGitConfigWorkTree, workspacePath)),
+			)
+			if (migrated.length > 0) {
+				await (await import("../disk")).writeTaskHistoryToState(migrated, workspacePath)
+				result.taskHistory = migrated
+				// Also create sessions from migrated history
+				const sessionItems = migrated.slice(0, 3).map((item: any) => ({
+					id: item.id,
+					task: item.task,
+					ts: item.ts,
+					isFavorited: item.isFavorited,
+				}))
+				await (await import("../disk")).writeSessions(sessionItems, workspacePath)
+				result.sessions = sessionItems
+				return
+			}
+		} catch (err) {
+			Logger.warn("[StateHelpers] Failed to migrate global history to workspace:", err)
+		}
+	}
+
+	result.taskHistory = workspaceHistory
+
+	// Also load sessions for this workspace
+	const workspaceSessions = await readSessions(workspacePath)
+	result.sessions = workspaceSessions
 }
 
 export async function resetWorkspaceState() {

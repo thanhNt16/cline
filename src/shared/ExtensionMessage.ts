@@ -58,6 +58,7 @@ export interface ExtensionState {
 	environment?: Environment
 	shouldShowAnnouncement: boolean
 	taskHistory: HistoryItem[]
+	sessions: { id: string; task: string; ts: number; isFavorited?: boolean }[]
 	telemetrySetting: TelemetrySetting
 	shellIntegrationTimeout: number
 	terminalReuseEnabled?: boolean

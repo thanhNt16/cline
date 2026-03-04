@@ -230,6 +230,7 @@ export const ExtensionStateContextProvider: React.FC<{
 		version: "",
 		clineMessages: [],
 		taskHistory: [],
+		sessions: [],
 		shouldShowAnnouncement: false,
 		autoApprovalSettings: DEFAULT_AUTO_APPROVAL_SETTINGS,
 		browserSettings: DEFAULT_BROWSER_SETTINGS,

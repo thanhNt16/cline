@@ -46,6 +46,7 @@ import {
 	ensureCacheDirectoryExists,
 	ensureMcpServersDirectoryExists,
 	ensureSettingsDirectoryExists,
+	ensureWorkspaceDataDir,
 	GlobalFileNames,
 	writeMcpMarketplaceCatalogToCache,
 } from "../storage/disk"
@@ -143,7 +144,14 @@ export class Controller {
 
 		this.mcpHub = new McpHub(
 			() => ensureMcpServersDirectoryExists(),
-			() => ensureSettingsDirectoryExists(),
+			async () => {
+				// Use workspace-scoped MCP settings if workspace is available
+				const workspacePath = this.stateManager.getWorkspacePath()
+				if (workspacePath) {
+					return ensureWorkspaceDataDir(workspacePath)
+				}
+				return ensureSettingsDirectoryExists()
+			},
 			ExtensionRegistryInfo.version,
 			telemetryService,
 		)
@@ -848,6 +856,7 @@ export class Controller {
 		const apiConfiguration = this.stateManager.getApiConfiguration()
 		const lastShownAnnouncementId = this.stateManager.getGlobalStateKey("lastShownAnnouncementId")
 		const taskHistory = this.stateManager.getGlobalStateKey("taskHistory")
+		const sessions = this.stateManager.getGlobalStateKey("sessions")
 		const autoApprovalSettings = this.stateManager.getGlobalSettingsKey("autoApprovalSettings")
 		const browserSettings = this.stateManager.getGlobalSettingsKey("browserSettings")
 		const focusChainSettings = this.stateManager.getGlobalSettingsKey("focusChainSettings")
@@ -966,6 +975,7 @@ export class Controller {
 			maxConsecutiveMistakes,
 			customPrompt,
 			taskHistory: processedTaskHistory,
+			sessions: sessions ?? [],
 			shouldShowAnnouncement,
 			favoritedModelIds,
 			backgroundCommandRunning: this.backgroundCommandRunning,

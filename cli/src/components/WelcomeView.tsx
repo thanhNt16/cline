@@ -246,14 +246,14 @@ export const WelcomeView: React.FC<WelcomeViewProps> = ({ onSubmit, onExit, cont
 			)}
 
 			{/* Cline logo - centered */}
-			<Box alignItems="center" flexDirection="column">
+			{/* <Box alignItems="center" flexDirection="column">
 				{CLINE_LOGO.map((line, idx) => (
 					// biome-ignore lint/suspicious/noArrayIndexKey: static array that never changes
 					<Text color="white" key={idx}>
 						{line}
 					</Text>
 				))}
-			</Box>
+			</Box> */}
 
 			{/* Main prompt - centered, bold */}
 			<Box justifyContent="center" marginTop={1}>

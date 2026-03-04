@@ -4,7 +4,6 @@ import type { Worktree } from "@shared/proto/cline/worktree"
 import { TrackWorktreeViewOpenedRequest } from "@shared/proto/cline/worktree"
 import { GitBranch } from "lucide-react"
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import BannerCarousel from "@/components/common/BannerCarousel"
 import WhatsNewModal from "@/components/common/WhatsNewModal"
 import HistoryPreview from "@/components/history/HistoryPreview"
 import { useApiConfigurationHandlers } from "@/components/settings/utils/useApiConfigurationHandlers"
@@ -28,7 +27,7 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
 	hideAnnouncement,
 	showHistoryView,
 	version,
-	taskHistory,
+	sessions,
 	shouldShowQuickWins,
 }) => {
 	const { lastDismissedInfoBannerVersion, lastDismissedCliBannerVersion, lastDismissedModelBannerVersion, dismissedBanners } =
@@ -195,7 +194,10 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
 						planModeApiProvider: "cline",
 						actModeApiProvider: "cline",
 					})
-					navigateToSettingsModelPicker({ targetSection: "api-config", initialModelTab })
+					navigateToSettingsModelPicker({
+						targetSection: "api-config",
+						initialModelTab,
+					})
 					break
 				}
 
@@ -280,7 +282,7 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
 			<WhatsNewModal
 				onBannerAction={handleBannerAction}
 				onClose={handleCloseWhatsNewModal}
-				open={showWhatsNewModal}
+				open={false}
 				version={version}
 				welcomeBanners={welcomeBanners}
 			/>
@@ -288,8 +290,8 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
 				<HomeHeader shouldShowQuickWins={shouldShowQuickWins} />
 				{!showWhatsNewModal && (
 					<>
-						<BannerCarousel banners={activeBanners} />
-						{!shouldShowQuickWins && taskHistory.length > 0 && <HistoryPreview showHistoryView={showHistoryView} />}
+						{/* <BannerCarousel banners={activeBanners} /> */}
+						{!shouldShowQuickWins && sessions.length > 0 && <HistoryPreview showHistoryView={showHistoryView} />}
 						{/* Quick launch worktree button */}
 						{isGitRepo && worktreesEnabled?.featureFlag && worktreesEnabled?.user && (
 							<div className="flex flex-col items-center gap-3 mt-2 mb-4 px-5">

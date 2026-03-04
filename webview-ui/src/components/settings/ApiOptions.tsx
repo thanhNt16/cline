@@ -62,6 +62,7 @@ interface ApiOptionsProps {
 	isPopup?: boolean
 	currentMode: Mode
 	initialModelTab?: "recommended" | "free"
+	lockedProvider?: boolean
 }
 
 // This is necessary to ensure dropdown opens downward, important for when this is used in popup
@@ -95,6 +96,7 @@ const ApiOptions = ({
 	isPopup,
 	currentMode,
 	initialModelTab,
+	lockedProvider,
 }: ApiOptionsProps) => {
 	// Use full context state for immediate save payload
 	const { apiConfiguration, remoteConfigSettings } = useExtensionState()
@@ -293,65 +295,69 @@ const ApiOptions = ({
 						<span style={{ fontWeight: 500 }}>API Provider</span>
 					</label>
 				)}
-				<ProviderDropdownWrapper ref={dropdownRef}>
-					<VSCodeTextField
-						data-testid="provider-selector-input"
-						id="api-provider"
-						onFocus={() => {
-							setIsDropdownVisible(true)
-							setSearchTerm("")
-						}}
-						onInput={(e) => {
-							setSearchTerm((e.target as HTMLInputElement)?.value || "")
-							setIsDropdownVisible(true)
-						}}
-						onKeyDown={handleKeyDown}
-						placeholder="Search and select provider..."
-						role="combobox"
-						style={{
-							width: "100%",
-							zIndex: DROPDOWN_Z_INDEX,
-							position: "relative",
-							minWidth: 130,
-						}}
-						value={searchTerm}>
-						{searchTerm && searchTerm !== currentProviderLabel && (
-							<div
-								aria-label="Clear search"
-								className="input-icon-button codicon codicon-close"
-								onClick={() => {
-									setSearchTerm("")
-									setIsDropdownVisible(true)
-								}}
-								slot="end"
-								style={{
-									display: "flex",
-									justifyContent: "center",
-									alignItems: "center",
-									height: "100%",
-								}}
-							/>
-						)}
-					</VSCodeTextField>
-					{isDropdownVisible && (
-						<ProviderDropdownList ref={dropdownListRef} role="listbox">
-							{providerSearchResults.map((item, index) => (
-								<ProviderDropdownItem
-									data-testid={`provider-option-${item.value}`}
-									isSelected={index === selectedIndex}
-									key={item.value}
-									onClick={() => handleProviderChange(item.value)}
-									onMouseEnter={() => setSelectedIndex(index)}
-									ref={(el) => {
-										itemRefs.current[index] = el
+				{lockedProvider ? (
+					<span style={{ fontSize: 13 }}>OpenAI Compatible</span>
+				) : (
+					<ProviderDropdownWrapper ref={dropdownRef}>
+						<VSCodeTextField
+							data-testid="provider-selector-input"
+							id="api-provider"
+							onFocus={() => {
+								setIsDropdownVisible(true)
+								setSearchTerm("")
+							}}
+							onInput={(e) => {
+								setSearchTerm((e.target as HTMLInputElement)?.value || "")
+								setIsDropdownVisible(true)
+							}}
+							onKeyDown={handleKeyDown}
+							placeholder="Search and select provider..."
+							role="combobox"
+							style={{
+								width: "100%",
+								zIndex: DROPDOWN_Z_INDEX,
+								position: "relative",
+								minWidth: 130,
+							}}
+							value={searchTerm}>
+							{searchTerm && searchTerm !== currentProviderLabel && (
+								<div
+									aria-label="Clear search"
+									className="input-icon-button codicon codicon-close"
+									onClick={() => {
+										setSearchTerm("")
+										setIsDropdownVisible(true)
 									}}
-									role="option">
-									<span>{item.html}</span>
-								</ProviderDropdownItem>
-							))}
-						</ProviderDropdownList>
-					)}
-				</ProviderDropdownWrapper>
+									slot="end"
+									style={{
+										display: "flex",
+										justifyContent: "center",
+										alignItems: "center",
+										height: "100%",
+									}}
+								/>
+							)}
+						</VSCodeTextField>
+						{isDropdownVisible && (
+							<ProviderDropdownList ref={dropdownListRef} role="listbox">
+								{providerSearchResults.map((item, index) => (
+									<ProviderDropdownItem
+										data-testid={`provider-option-${item.value}`}
+										isSelected={index === selectedIndex}
+										key={item.value}
+										onClick={() => handleProviderChange(item.value)}
+										onMouseEnter={() => setSelectedIndex(index)}
+										ref={(el) => {
+											itemRefs.current[index] = el
+										}}
+										role="option">
+										<span>{item.html}</span>
+									</ProviderDropdownItem>
+								))}
+							</ProviderDropdownList>
+						)}
+					</ProviderDropdownWrapper>
+				)}
 			</DropdownContainer>
 
 			{apiConfiguration && selectedProvider === "hicap" && (

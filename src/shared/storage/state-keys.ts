@@ -68,6 +68,7 @@ const GLOBAL_STATE_FIELDS = {
 	"cline.generatedMachineId": { default: undefined as string | undefined }, // Note, distinctId reads/writes this directly from/to StorageContext before StateManager is initialized.
 	lastShownAnnouncementId: { default: undefined as string | undefined },
 	taskHistory: { default: [] as HistoryItem[], isAsync: true },
+	sessions: { default: [] as { id: string; task: string; ts: number; isFavorited?: boolean }[], isAsync: true },
 	userInfo: { default: undefined as UserInfo | undefined },
 	favoritedModelIds: { default: [] as string[] },
 	mcpMarketplaceEnabled: { default: true as boolean },
@@ -249,7 +250,7 @@ const USER_SETTINGS_FIELDS = {
 		default: DEFAULT_BROWSER_SETTINGS as BrowserSettings,
 		transform: (v: any) => ({ ...DEFAULT_BROWSER_SETTINGS, ...v }),
 	},
-	telemetrySetting: { default: "unset" as TelemetrySetting },
+	telemetrySetting: { default: "disabled" as TelemetrySetting },
 	planActSeparateModelsSetting: { default: false as boolean, isComputed: true },
 	enableCheckpointsSetting: { default: true as boolean },
 	shellIntegrationTimeout: { default: 4000 as number },

@@ -41,6 +41,19 @@ async function atomicWriteFile(filePath: string, data: string): Promise<void> {
 	}
 }
 
+/** Directory name used for workspace-scoped CellockAI data stored inside each project folder. */
+export const CELLOCKAI_DIR = ".cellockai"
+
+/**
+ * Ensures the workspace-scoped data directory exists and returns its path.
+ * Creates {workspace}/.cellockai/{...subdirs}
+ */
+export async function ensureWorkspaceDataDir(workspacePath: string, ...subdirs: string[]): Promise<string> {
+	const fullPath = path.join(workspacePath, CELLOCKAI_DIR, ...subdirs)
+	await fs.mkdir(fullPath, { recursive: true })
+	return fullPath
+}
+
 export const GlobalFileNames = {
 	apiConversationHistory: "api_conversation_history.json",
 	contextHistory: "context_history.json",
@@ -52,12 +65,12 @@ export const GlobalFileNames = {
 	groqModels: "groq_models.json",
 	basetenModels: "baseten_models.json",
 	hicapModels: "hicap_models.json",
-	mcpSettings: "cline_mcp_settings.json",
+	mcpSettings: "mcp_settings.json",
 	clineRules: ".clinerules",
 	workflows: ".clinerules/workflows",
 	hooksDir: ".clinerules/hooks",
 	clineruleSkillsDir: ".clinerules/skills",
-	clineSkillsDir: ".cline/skills",
+	clineSkillsDir: ".cellockai/skills",
 	claudeSkillsDir: ".claude/skills",
 	agentsSkillsDir: ".agents/skills",
 	cursorRulesDir: ".cursor/rules",
@@ -115,20 +128,23 @@ export async function getDocumentsPath(): Promise<string> {
  * This is intended to eventually replace ~/Documents/Cline as the global config location.
  */
 export function getClineHomePath(): string {
-	return path.join(os.homedir(), ".cline")
+	return path.join(os.homedir(), ".cellockai")
 }
 
-export async function ensureTaskDirectoryExists(taskId: string): Promise<string> {
+export async function ensureTaskDirectoryExists(taskId: string, workspacePath?: string): Promise<string> {
+	if (workspacePath) {
+		return ensureWorkspaceDataDir(workspacePath, "tasks", taskId)
+	}
 	return getGlobalStorageDir("tasks", taskId)
 }
 
 export async function ensureRulesDirectoryExists(): Promise<string> {
 	const userDocumentsPath = await getDocumentsPath()
-	const clineRulesDir = path.join(userDocumentsPath, "Cline", "Rules")
+	const clineRulesDir = path.join(userDocumentsPath, "CellockAI", "Rules")
 	try {
 		await fs.mkdir(clineRulesDir, { recursive: true })
 	} catch (_error) {
-		return path.join(os.homedir(), "Documents", "Cline", "Rules") // in case creating a directory in documents fails for whatever reason (e.g. permissions) - this is fine because we will fail gracefully with a path that does not exist
+		return path.join(os.homedir(), "Documents", "CellockAI", "Rules") // in case creating a directory in documents fails for whatever reason (e.g. permissions) - this is fine because we will fail gracefully with a path that does not exist
 	}
 	return clineRulesDir
 }
@@ -167,7 +183,7 @@ export async function ensureHooksDirectoryExists(): Promise<string> {
 }
 
 /**
- * Returns the global skills directory path (~/.cline/skills) without creating it.
+ * Returns the global skills directory path (~/.cellockai/skills) without creating it.
  */
 function getClineSkillsDirectoryPath(): string {
 	return path.join(getClineHomePath(), "skills")
@@ -375,18 +391,21 @@ async function getGlobalStorageDir(...subdirs: string[]) {
 	return fullPath
 }
 
-export async function getTaskHistoryStateFilePath(): Promise<string> {
+export async function getTaskHistoryStateFilePath(workspacePath?: string): Promise<string> {
+	if (workspacePath) {
+		return path.join(await ensureWorkspaceDataDir(workspacePath, "state"), "taskHistory.json")
+	}
 	return path.join(await ensureStateDirectoryExists(), "taskHistory.json")
 }
 
-export async function taskHistoryStateFileExists(): Promise<boolean> {
-	const filePath = await getTaskHistoryStateFilePath()
+export async function taskHistoryStateFileExists(workspacePath?: string): Promise<boolean> {
+	const filePath = await getTaskHistoryStateFilePath(workspacePath)
 	return fileExistsAtPath(filePath)
 }
 
-export async function readTaskHistoryFromState(): Promise<HistoryItem[]> {
+export async function readTaskHistoryFromState(workspacePath?: string): Promise<HistoryItem[]> {
 	try {
-		const filePath = await getTaskHistoryStateFilePath()
+		const filePath = await getTaskHistoryStateFilePath(workspacePath)
 		if (!(await fileExistsAtPath(filePath))) {
 			return []
 		}
@@ -398,15 +417,16 @@ export async function readTaskHistoryFromState(): Promise<HistoryItem[]> {
 		} catch (parseError) {
 			telemetryService.captureExtensionStorageError(parseError, "parseError_attemptingRecovery")
 
-			const result = await reconstructTaskHistory(false)
-			if (result && result.reconstructedTasks > 0) {
-				// Read the reconstructed file
-				const newContents = await fs.readFile(filePath, "utf8")
-				return JSON.parse(newContents)
+			if (!workspacePath) {
+				// Only attempt reconstruction for global (non-workspace) history
+				const result = await reconstructTaskHistory(false)
+				if (result && result.reconstructedTasks > 0) {
+					const newContents = await fs.readFile(filePath, "utf8")
+					return JSON.parse(newContents)
+				}
 			}
 
-			// Recovery failed, all we can do is return an empty array or throw an error, thus preventing the app from starting up
-			// This will wipe out the taskHistory
+			// Recovery failed or workspace-scoped — return empty array
 			return []
 		}
 	} catch (error) {
@@ -416,12 +436,59 @@ export async function readTaskHistoryFromState(): Promise<HistoryItem[]> {
 	}
 }
 
-export async function writeTaskHistoryToState(items: HistoryItem[]): Promise<void> {
+export async function writeTaskHistoryToState(items: HistoryItem[], workspacePath?: string): Promise<void> {
 	try {
-		const filePath = await getTaskHistoryStateFilePath()
+		const filePath = await getTaskHistoryStateFilePath(workspacePath)
 		await atomicWriteFile(filePath, JSON.stringify(items))
 	} catch (error) {
 		Logger.error("[Disk] Failed to write task history:", error)
+		throw error
+	}
+}
+
+/**
+ * Session storage - lightweight session metadata for recent sessions display
+ * Stored at .cellockai/sessions/sessions.json per workspace
+ */
+export interface SessionItem {
+	id: string
+	task: string
+	ts: number
+	isFavorited?: boolean
+}
+
+export async function getSessionsFilePath(workspacePath?: string): Promise<string> {
+	if (workspacePath) {
+		const sessionsDir = await ensureWorkspaceDataDir(workspacePath, "sessions")
+		return path.join(sessionsDir, "sessions.json")
+	}
+	// Fallback to global storage
+	return path.join(await ensureStateDirectoryExists(), "sessions.json")
+}
+
+export async function readSessions(workspacePath?: string): Promise<SessionItem[]> {
+	try {
+		const filePath = await getSessionsFilePath(workspacePath)
+		if (!(await fileExistsAtPath(filePath))) {
+			return []
+		}
+		const content = await fs.readFile(filePath, "utf8")
+		const parsed = JSON.parse(content)
+		return Array.isArray(parsed) ? parsed : []
+	} catch (error) {
+		Logger.error("[Disk] Failed to read sessions:", error)
+		return []
+	}
+}
+
+export async function writeSessions(items: SessionItem[], workspacePath?: string): Promise<void> {
+	try {
+		const filePath = await getSessionsFilePath(workspacePath)
+		// Keep only top 3 most recent
+		const topItems = items.slice(0, 3)
+		await atomicWriteFile(filePath, JSON.stringify(topItems))
+	} catch (error) {
+		Logger.error("[Disk] Failed to write sessions:", error)
 		throw error
 	}
 }

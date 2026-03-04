@@ -150,7 +150,7 @@ export interface WelcomeSectionProps {
 	showHistoryView: () => void
 	telemetrySetting: string
 	version: string
-	taskHistory: any[]
+	sessions: { id: string; task: string; ts: number; isFavorited?: boolean }[]
 	shouldShowQuickWins: boolean
 }
 

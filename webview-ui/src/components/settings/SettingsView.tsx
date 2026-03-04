@@ -5,7 +5,6 @@ import {
 	CheckCheck,
 	FlaskConical,
 	HardDriveDownload,
-	Info,
 	type LucideIcon,
 	SlidersHorizontal,
 	SquareMousePointer,
@@ -23,7 +22,6 @@ import { isAdminOrOwner } from "../account/helpers"
 import { Tab, TabContent, TabList, TabTrigger } from "../common/Tab"
 import ViewHeader from "../common/ViewHeader"
 import SectionHeader from "./SectionHeader"
-import AboutSection from "./sections/AboutSection"
 import ApiConfigurationSection from "./sections/ApiConfigurationSection"
 import BrowserSettingsSection from "./sections/BrowserSettingsSection"
 import DebugSection from "./sections/DebugSection"
@@ -35,7 +33,7 @@ import TerminalSettingsSection from "./sections/TerminalSettingsSection"
 const IS_DEV = process.env.IS_DEV
 
 // Tab definitions
-type SettingsTabID = "api-config" | "features" | "browser" | "terminal" | "general" | "about" | "debug" | "remote-config"
+type SettingsTabID = "api-config" | "features" | "browser" | "terminal" | "general" | "debug" | "remote-config"
 interface SettingsTab {
 	id: SettingsTabID
 	name: string
@@ -90,13 +88,6 @@ export const SETTINGS_TABS: SettingsTab[] = [
 		hidden: ({ activeOrganization } = { activeOrganization: null }) =>
 			!activeOrganization || !isAdminOrOwner(activeOrganization),
 	},
-	{
-		id: "about",
-		name: "About",
-		tooltipText: "About Cline",
-		headerText: "About",
-		icon: Info,
-	},
 	// Only show in dev mode
 	{
 		id: "debug",
@@ -140,13 +131,12 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 			browser: BrowserSettingsSection,
 			terminal: TerminalSettingsSection,
 			"remote-config": RemoteConfigSection,
-			about: AboutSection,
 			debug: DebugSection,
 		}),
 		[],
 	) // Empty deps - these imports never change
 
-	const { version, environment, settingsInitialModelTab } = useExtensionState()
+	const { environment, settingsInitialModelTab } = useExtensionState()
 	const { activeOrganization } = useClineAuth()
 
 	const [activeTab, setActiveTab] = useState<string>(targetSection || SETTINGS_TABS[0].id)
@@ -247,14 +237,13 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 		const props: any = { renderSectionHeader }
 		if (activeTab === "debug") {
 			props.onResetState = handleResetState
-		} else if (activeTab === "about") {
-			props.version = version
 		} else if (activeTab === "api-config") {
 			props.initialModelTab = settingsInitialModelTab
+			props.lockedProvider = true
 		}
 
 		return <Component {...props} />
-	}, [activeTab, handleResetState, settingsInitialModelTab, version])
+	}, [activeTab, handleResetState, settingsInitialModelTab])
 
 	return (
 		<Tab>
