@@ -85,6 +85,7 @@ function getBuildArtifactPatterns(): string[] {
 		".vs/",
 		".vscode/",
 		".clinerules/",
+		".cellockai/",
 		"Pods/",
 		"__pycache__/",
 		"bin/",

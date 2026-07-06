@@ -14,7 +14,7 @@ import { isOpenTelemetryConfigValid, remoteConfigToOtelConfig } from "@/shared/s
 import { Logger } from "@/shared/services/Logger"
 import { syncWorker } from "@/shared/services/worker/sync"
 import { BlobStoreSettings } from "@/shared/storage"
-import { ensureSettingsDirectoryExists } from "../disk"
+import { getProjectSettingsDirectoryPath } from "../disk"
 import { StateManager } from "../StateManager"
 import { syncRemoteMcpServersToSettings } from "./syncRemoteMcpServers"
 
@@ -373,7 +373,10 @@ export async function applyRemoteConfig(
 	// - No dependency on in-memory state that would be lost across restarts
 	try {
 		const serversToSync = remoteConfig.remoteMCPServers ?? []
-		const settingsPath = await ensureSettingsDirectoryExists()
+		// CellockAI: remote-synced MCP servers are written to the project-scoped
+		// settings file (<workspace>/.cellockai/mcp_settings.json), the same file
+		// McpHub reads from.
+		const settingsPath = await getProjectSettingsDirectoryPath()
 		await syncRemoteMcpServersToSettings(serversToSync, settingsPath, mcpHub)
 		stateManager.setRemoteConfigField("previousRemoteMCPServers", serversToSync)
 	} catch (error) {

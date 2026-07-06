@@ -1,0 +1,12 @@
+{
+  "activeProfileId": "8824f169-fd21-40ee-bad4-68c438072b36",
+  "profiles": [
+    {
+      "id": "8824f169-fd21-40ee-bad4-68c438072b36",
+      "name": "Proxy",
+      "baseUrl": "http://157.90.144.2:8001/v1",
+      "modelId": "glm-5.2",
+      "apiKey": ""
+    }
+  ]
+}

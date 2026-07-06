@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "github.com/mem0ai/mem0-mcp": {
+      "command": "uvx",
+      "args": ["mem0-mcp-server"],
+      "env": {
+        "MEM0_API_KEY": "m0-bDkLQnA3da3p8leTDsVXFFf8WwxDREuxM99tJTsM",
+        "MEM0_DEFAULT_USER_ID": "cline-user"
+      },
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}

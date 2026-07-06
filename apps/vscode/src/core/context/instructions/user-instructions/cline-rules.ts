@@ -46,7 +46,7 @@ export const getGlobalClineRules = async (
 					activatedConditionalRules.push(...rulesFilesTotal.activatedConditionalRules)
 				}
 			} catch {
-				Logger.error(`Failed to read .clinerules directory at ${globalClineRulesFilePath}`)
+				Logger.error(`Failed to read global rules directory at ${globalClineRulesFilePath}`)
 			}
 		} else {
 			Logger.error(`${globalClineRulesFilePath} is not a directory`)
@@ -92,9 +92,9 @@ export const getLocalClineRules = async (
 		if (await isDirectory(clineRulesFilePath)) {
 			try {
 				const rulesFilePaths = await readDirectory(clineRulesFilePath, [
-					[".clinerules", "workflows"],
-					[".clinerules", "hooks"],
-					[".clinerules", "skills"],
+					GlobalFileNames.workflows.split("/"),
+					GlobalFileNames.hooksDir.split("/"),
+					GlobalFileNames.clineruleSkillsDir.split("/"),
 				])
 
 				const rulesFilesTotal = await getRuleFilesTotalContentWithMetadata(rulesFilePaths, cwd, toggles, {
@@ -106,14 +106,14 @@ export const getLocalClineRules = async (
 					activatedConditionalRules.push(...rulesFilesTotal.activatedConditionalRules)
 				}
 			} catch {
-				Logger.error(`Failed to read .clinerules directory at ${clineRulesFilePath}`)
+				Logger.error(`Failed to read rules directory at ${clineRulesFilePath}`)
 			}
 		} else {
 			try {
 				if (clineRulesFilePath in toggles && toggles[clineRulesFilePath] !== false) {
 					const raw = (await fs.readFile(clineRulesFilePath, "utf8")).trim()
 					if (raw) {
-						// Keep single-file .clinerules behavior consistent with directory/remote rules:
+						// Keep single-file rules behavior consistent with directory/remote rules:
 						// - Parse YAML frontmatter (fail-open on parse errors)
 						// - Evaluate conditionals against the request's evaluation context
 						const parsed = parseYamlFrontmatter(raw)
@@ -138,7 +138,7 @@ export const getLocalClineRules = async (
 					}
 				}
 			} catch {
-				Logger.error(`Failed to read .clinerules file at ${clineRulesFilePath}`)
+				Logger.error(`Failed to read rules file at ${clineRulesFilePath}`)
 			}
 		}
 	}
@@ -163,9 +163,9 @@ export async function refreshClineRulesToggles(
 	const localClineRulesToggles = controller.stateManager.getWorkspaceStateKey("localClineRulesToggles")
 	const localClineRulesFilePath = path.resolve(workingDirectory, GlobalFileNames.clineRules)
 	const updatedLocalToggles = await synchronizeRuleToggles(localClineRulesFilePath, localClineRulesToggles, "", [
-		[".clinerules", "workflows"],
-		[".clinerules", "hooks"],
-		[".clinerules", "skills"],
+		GlobalFileNames.workflows.split("/"),
+		GlobalFileNames.hooksDir.split("/"),
+		GlobalFileNames.clineruleSkillsDir.split("/"),
 	])
 	controller.stateManager.setWorkspaceState("localClineRulesToggles", updatedLocalToggles)
 

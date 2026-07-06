@@ -56,12 +56,15 @@ export const GlobalFileNames = {
 	groqModels: "groq_models.json",
 	basetenModels: "baseten_models.json",
 	hicapModels: "hicap_models.json",
-	mcpSettings: "cline_mcp_settings.json",
-	clineRules: ".clinerules",
-	workflows: ".clinerules/workflows",
-	hooksDir: ".clinerules/hooks",
-	clineruleSkillsDir: ".clinerules/skills",
-	clineSkillsDir: ".cline/skills",
+	// CellockAI: MCP config is project-scoped. The settings file lives at
+	// <workspace>/.cellockai/mcp_settings.json (see getProjectSettingsDirectoryPath).
+	mcpSettings: "mcp_settings.json",
+	clineRules: ".cellockai/rules",
+	workflows: ".cellockai/rules/workflows",
+	hooksDir: ".cellockai/rules/hooks",
+	clineruleSkillsDir: ".cellockai/skills",
+	clineSkillsDir: ".cellockai/skills",
+	projectMcpSettings: ".cellockai/mcp.json",
 	claudeSkillsDir: ".claude/skills",
 	agentsSkillsDir: ".agents/skills",
 	cursorRulesDir: ".cursor/rules",
@@ -134,22 +137,22 @@ export async function ensureTaskDirectoryExists(
 
 export async function ensureRulesDirectoryExists(): Promise<string> {
 	const userDocumentsPath = await getDocumentsPath();
-	const clineRulesDir = path.join(userDocumentsPath, "Cline", "Rules");
+	const clineRulesDir = path.join(userDocumentsPath, "CellockAI", "Rules");
 	try {
 		await fs.mkdir(clineRulesDir, { recursive: true });
 	} catch (_error) {
-		return path.join(os.homedir(), "Documents", "Cline", "Rules"); // in case creating a directory in documents fails for whatever reason (e.g. permissions) - this is fine because we will fail gracefully with a path that does not exist
+		return path.join(os.homedir(), "Documents", "CellockAI", "Rules"); // in case creating a directory in documents fails for whatever reason (e.g. permissions) - this is fine because we will fail gracefully with a path that does not exist
 	}
 	return clineRulesDir;
 }
 
 export async function ensureWorkflowsDirectoryExists(): Promise<string> {
 	const userDocumentsPath = await getDocumentsPath();
-	const clineWorkflowsDir = path.join(userDocumentsPath, "Cline", "Workflows");
+	const clineWorkflowsDir = path.join(userDocumentsPath, "CellockAI", "Workflows");
 	try {
 		await fs.mkdir(clineWorkflowsDir, { recursive: true });
 	} catch (_error) {
-		return path.join(os.homedir(), "Documents", "Cline", "Workflows"); // in case creating a directory in documents fails for whatever reason (e.g. permissions) - this is fine because we will fail gracefully with a path that does not exist
+		return path.join(os.homedir(), "Documents", "CellockAI", "Workflows"); // in case creating a directory in documents fails for whatever reason (e.g. permissions) - this is fine because we will fail gracefully with a path that does not exist
 	}
 	return clineWorkflowsDir;
 }
@@ -177,10 +180,12 @@ export async function ensureHooksDirectoryExists(): Promise<string> {
 }
 
 /**
- * Returns the global skills directory path (~/.cline/skills) without creating it.
+ * Returns the global skills directory path (~/.cellockai/skills) without creating it.
+ * CellockAI: matches the Makefile `make copy-skills` install location so global
+ * skills installed there are picked up by the scan.
  */
 function getClineSkillsDirectoryPath(): string {
-	return path.join(getClineHomePath(), "skills");
+	return path.join(os.homedir(), ".cellockai", "skills");
 }
 
 function getAgentSkillsDirectoryPath(): string {
@@ -263,6 +268,60 @@ export async function getMcpSettingsFilePath(
 		);
 	}
 	return mcpSettingsFilePath;
+}
+
+/**
+ * Returns the paths to each workspace root's project-level MCP settings file
+ * (`.cellockai/mcp.json`) that actually exist on disk. Returns an empty array
+ * when no workspace roots are registered (e.g. no folder open, or during tests
+ * where StateManager is not initialized) so callers can merge defensively.
+ */
+export async function getProjectMcpSettingsFilePaths(): Promise<string[]> {
+	let workspaceRootPaths: string[] = [];
+	try {
+		workspaceRootPaths =
+			StateManager.get()
+				.getGlobalStateKey("workspaceRoots")
+				?.map((root) => root.path) || [];
+	} catch {
+		// StateManager not initialized (e.g. unit tests) — no project sources.
+		return [];
+	}
+
+	const candidates = workspaceRootPaths.map((root) =>
+		path.join(root, GlobalFileNames.projectMcpSettings),
+	);
+	const exists = await Promise.all(candidates.map((p) => fileExistsAtPath(p)));
+	return candidates.filter((_, i) => exists[i]);
+}
+
+/**
+ * CellockAI: resolves the directory that holds the project-scoped MCP settings
+ * file (<primaryWorkspaceRoot>/.cellockai), creating it if necessary. All MCP
+ * configuration is read from and written to <workspace>/.cellockai/mcp_settings.json.
+ *
+ * When no workspace root is available (no folder open, or the host isn't ready
+ * yet during early init), this falls back to the global settings directory so
+ * MCP still functions. The McpHub callback that uses this is async and
+ * re-resolves on every call, so the project path is picked up as soon as a
+ * workspace folder is open.
+ */
+export async function getProjectSettingsDirectoryPath(): Promise<string> {
+	try {
+		const workspacePaths = await HostProvider.workspace.getWorkspacePaths({});
+		const primaryRoot = workspacePaths.paths?.[0];
+		if (primaryRoot) {
+			const dir = path.join(primaryRoot, ".cellockai");
+			await fs.mkdir(dir, { recursive: true });
+			return dir;
+		}
+	} catch (error) {
+		Logger.error(
+			"Failed to resolve project settings directory; falling back to global:",
+			error,
+		);
+	}
+	return ensureSettingsDirectoryExists();
 }
 
 export async function getSavedApiConversationHistory(
@@ -633,7 +692,7 @@ export function setRuntimeHooksDir(dir: string | undefined): void {
  * Gets the paths to all hooks directories to search for hooks, including:
  * 1. The runtime hooks directory (if set via --hooks-dir CLI flag)
  * 2. The global hooks directory (if it exists)
- * 3. Each workspace root's .clinerules/hooks directory (if they exist)
+ * 3. Each workspace root's .cellockai/rules/hooks directory (if they exist)
  *
  * Note: Hooks from different directories may be executed concurrently.
  * No execution order is guaranteed between hooks from different directories.
@@ -662,7 +721,7 @@ export async function getAllHooksDirs(): Promise<string[]> {
 }
 
 /**
- * Gets the paths to the workspace's .clinerules/hooks directories to search for
+ * Gets the paths to the workspace's .cellockai/rules/hooks directories to search for
  * hooks. A workspace may not use hooks, and the resulting array will be empty. A
  * multi-root workspace may have multiple hooks directories.
  */
@@ -675,7 +734,7 @@ export async function getWorkspaceHooksDirs(): Promise<string[]> {
 	return (
 		await Promise.all(
 			workspaceRootPaths.map(async (workspaceRootPath) => {
-				// Look for a .clinerules/hooks folder in this workspace root.
+				// Look for a .cellockai/rules/hooks folder in this workspace root.
 				const candidate = path.join(
 					workspaceRootPath,
 					GlobalFileNames.hooksDir,

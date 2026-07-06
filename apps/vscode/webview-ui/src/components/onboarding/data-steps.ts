@@ -35,10 +35,7 @@ export const STEP_CONFIG = {
 	},
 	[NEW_USER_TYPE.BYOK]: {
 		title: "Configure your provider",
-		buttons: [
-			{ text: "Continue", action: "done", variant: "default" },
-			{ text: "Back", action: "back", variant: "secondary" },
-		],
+		buttons: [{ text: "Continue", action: "done", variant: "default" }],
 	},
 	2: {
 		title: "Almost there!",

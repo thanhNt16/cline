@@ -215,6 +215,7 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 		const {
 			mode,
 			apiConfiguration,
+			activeProfileModelId,
 			openRouterModels,
 			platform,
 			localWorkflowToggles,
@@ -1088,6 +1089,11 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 
 		// Get model display name
 		const modelDisplayName = useMemo(() => {
+			// CellockAI: when a workspace model profile is active, the bar shows the
+			// profile's model (the overlay forces OpenAI Compatible at task time).
+			if (activeProfileModelId) {
+				return activeProfileModelId
+			}
 			const { selectedProvider, selectedModelId } = normalizeApiConfiguration(apiConfiguration, mode)
 			const {
 				vsCodeLmModelSelector,
@@ -1127,7 +1133,7 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 				default:
 					return `${selectedProvider}:${selectedModelId}`
 			}
-		}, [apiConfiguration, mode])
+		}, [apiConfiguration, mode, activeProfileModelId])
 
 		// Function to show error message for unsupported files for drag and drop
 		const showUnsupportedFileErrorMessage = () => {
@@ -1615,7 +1621,7 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 							className="text-xs px-2 flex flex-col gap-1"
 							hidden={shownTooltipMode === null}
 							side="top">
-							{`In ${shownTooltipMode === "act" ? "Act" : "Plan"}  mode, Cline will ${shownTooltipMode === "act" ? "complete the task immediately" : "gather information to architect a plan"}`}
+							{`In ${shownTooltipMode === "act" ? "Act" : "Plan"}  mode, CellockAI will ${shownTooltipMode === "act" ? "complete the task immediately" : "gather information to architect a plan"}`}
 							<p className="text-description/80 text-xs mb-0">
 								Toggle w/ <kbd className="text-muted-foreground mx-1">{togglePlanActKeys}</kbd>
 							</p>

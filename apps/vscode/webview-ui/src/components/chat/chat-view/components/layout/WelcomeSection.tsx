@@ -251,7 +251,13 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
 	}, [bannerConfig, banners, clineUser, handleBannerAction, handleBannerDismiss])
 
 	return (
-		<div className="flex flex-col flex-1 w-full h-full p-0 m-0">
+		<div className="flex flex-col flex-1 w-full h-full p-0 m-0 relative">
+			{/* CellockAI: version badge pinned to the top-right of the welcome screen */}
+			{version && (
+				<div className="absolute top-2 right-3 z-10 select-none text-[10px] font-medium px-1.5 py-0.5 rounded border border-[var(--vscode-panel-border)] text-[var(--vscode-descriptionForeground)] bg-[var(--vscode-editor-background)]/80">
+					v{version}
+				</div>
+			)}
 			<WhatsNewModal
 				onBannerAction={handleBannerAction}
 				onClose={handleCloseWhatsNewModal}
@@ -281,7 +287,7 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
 									</TooltipTrigger>
 									<TooltipContent side="top">
 										Create a new git worktree and open it in a separate window. Great for running parallel
-										Cline tasks.
+										CellockAI tasks.
 									</TooltipContent>
 								</Tooltip>
 								*/}
@@ -305,7 +311,7 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
 											</button>
 										</TooltipTrigger>
 										<TooltipContent side="bottom">
-											View and manage git worktrees. Great for running parallel Cline tasks.
+											View and manage git worktrees. Great for running parallel CellockAI tasks.
 										</TooltipContent>
 									</Tooltip>
 								)}

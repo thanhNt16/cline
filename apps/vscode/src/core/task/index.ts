@@ -13,6 +13,7 @@ import {
 import { ContextManager } from "@core/context/context-management/ContextManager";
 import { checkContextWindowExceededError } from "@core/context/context-management/context-error-handling";
 import { getContextWindowInfo } from "@core/context/context-management/context-window-utils";
+import { overlayActiveProfile } from "@core/controller/state/active-profile-overlay";
 import { EnvironmentContextTracker } from "@core/context/context-tracking/EnvironmentContextTracker";
 import { FileContextTracker } from "@core/context/context-tracking/FileContextTracker";
 import { ModelContextTracker } from "@core/context/context-tracking/ModelContextTracker";
@@ -520,8 +521,13 @@ export class Task {
 			}
 		}
 
-		// Prepare effective API configuration
-		const apiConfiguration = this.stateManager.getApiConfiguration();
+		// Prepare effective API configuration.
+		// Overlay the active workspace model profile (OpenAI-compatible) so profile
+		// fields win. Non-fatal: no-op if no workspace is open or no profiles file exists.
+		const apiConfiguration = overlayActiveProfile(
+			this.stateManager.getApiConfiguration(),
+			this.cwd,
+		);
 		const effectiveApiConfiguration: ApiConfiguration = {
 			...apiConfiguration,
 			ulid: this.ulid,
@@ -1085,7 +1091,7 @@ export class Task {
 	) {
 		await this.say(
 			"error",
-			`Cline tried to use ${toolName}${
+			`CellockAI tried to use ${toolName}${
 				relPath ? ` for '${relPath.toPosix()}'` : ""
 			} without value for required parameter '${paramName}'. Retrying...`,
 		);
@@ -2826,14 +2832,14 @@ export class Task {
 				showSystemNotification({
 					subtitle: "Error",
 					message:
-						"Cline is having trouble. Would you like to continue the task?",
+						"CellockAI is having trouble. Would you like to continue the task?",
 				});
 			}
 			const { response, text, images, files } = await this.ask(
 				"mistake_limit_reached",
 				this.api.getModel().id.includes("claude")
-					? `This may indicate a failure in Cline's thought process or inability to use a tool properly, which can be mitigated with some user guidance (e.g. "Try breaking down the task into smaller steps").`
-					: "Cline uses complex prompts and iterative task execution that may be challenging for less capable models. For best results, it's recommended to use Claude 4.5 Sonnet for its advanced agentic coding capabilities.",
+					? `This may indicate a failure in CellockAI's thought process or inability to use a tool properly, which can be mitigated with some user guidance (e.g. "Try breaking down the task into smaller steps").`
+					: "CellockAI uses complex prompts and iterative task execution that may be challenging for less capable models. For best results, it's recommended to use Claude 4.5 Sonnet for its advanced agentic coding capabilities.",
 			);
 			if (response === "messageResponse") {
 				// Display the user's message in the chat UI
@@ -3041,11 +3047,11 @@ export class Task {
 				);
 		}
 
-		// error handling if the user uses the /newrule command & their .clinerules is a file, for file read operations didnt work properly
+		// error handling if the user uses the /newrule command & their .cellockai/rules is a file, for file read operations didnt work properly
 		if (clinerulesError === true) {
 			await this.say(
 				"error",
-				"Issue with processing the /newrule command. Double check that, if '.clinerules' already exists, it's a directory and not a file. Otherwise there was an issue referencing this file/directory.",
+				"Issue with processing the /newrule command. Double check that, if '.cellockai/rules' already exists, it's a directory and not a file. Otherwise there was an issue referencing this file/directory.",
 			);
 		}
 
@@ -3821,7 +3827,7 @@ export class Task {
 				});
 
 				const baseErrorMessage =
-					"Invalid API Response: The provider returned an empty or unparsable response. This is a provider-side issue where the model failed to generate valid output or returned tool calls that Cline cannot process. Retrying the request may help resolve this issue.";
+					"Invalid API Response: The provider returned an empty or unparsable response. This is a provider-side issue where the model failed to generate valid output or returned tool calls that CellockAI cannot process. Retrying the request may help resolve this issue.";
 				const errorText = reqId
 					? `${baseErrorMessage} (Request ID: ${reqId})`
 					: baseErrorMessage;

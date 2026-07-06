@@ -1,5 +1,4 @@
 import { Mode } from "@shared/storage/types"
-import { ClineAccountInfoCard } from "../ClineAccountInfoCard"
 import ClineModelPicker from "../ClineModelPicker"
 
 /**
@@ -18,11 +17,6 @@ interface ClineProviderProps {
 export const ClineProvider = ({ showModelOptions, isPopup, currentMode, initialModelTab }: ClineProviderProps) => {
 	return (
 		<div>
-			{/* Cline Account Info Card */}
-			<div style={{ marginBottom: 14, marginTop: 4 }}>
-				<ClineAccountInfoCard />
-			</div>
-
 			{showModelOptions && (
 				<>
 					<ClineModelPicker

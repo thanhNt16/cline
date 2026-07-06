@@ -5,8 +5,6 @@ import type { UserOrganization } from "@shared/proto/index.cline";
 import {
 	CheckCheck,
 	FlaskConical,
-	HardDriveDownload,
-	Info,
 	type LucideIcon,
 	SlidersHorizontal,
 	SquareMousePointer,
@@ -24,17 +22,14 @@ import { type ClineUser, useClineAuth } from "@/context/ClineAuthContext";
 import { useExtensionState } from "@/context/ExtensionStateContext";
 import { cn } from "@/lib/utils";
 import { StateServiceClient } from "@/services/grpc-client";
-import { isAdminOrOwner } from "../account/helpers";
 import { Tab, TabContent, TabList, TabTrigger } from "../common/Tab";
 import ViewHeader from "../common/ViewHeader";
 import SectionHeader from "./SectionHeader";
-import AboutSection from "./sections/AboutSection";
 import ApiConfigurationSection from "./sections/ApiConfigurationSection";
 import BrowserSettingsSection from "./sections/BrowserSettingsSection";
 import DebugSection from "./sections/DebugSection";
 import FeatureSettingsSection from "./sections/FeatureSettingsSection";
 import GeneralSettingsSection from "./sections/GeneralSettingsSection";
-import { RemoteConfigSection } from "./sections/RemoteConfigSection";
 import TerminalSettingsSection from "./sections/TerminalSettingsSection";
 
 const IS_DEV = process.env.IS_DEV;
@@ -46,9 +41,7 @@ type SettingsTabID =
 	| "browser"
 	| "terminal"
 	| "general"
-	| "about"
-	| "debug"
-	| "remote-config";
+	| "debug";
 interface SettingsTab {
 	id: SettingsTabID;
 	name: string;
@@ -97,23 +90,6 @@ export const SETTINGS_TABS: SettingsTab[] = [
 		headerText: "General Settings",
 		icon: Wrench,
 	},
-	{
-		id: "remote-config",
-		name: "Remote Config",
-		tooltipText: "Remotely configured fields",
-		headerText: "Remote Config",
-		icon: HardDriveDownload,
-		hidden: (
-			{ activeOrganization } = { user: null, activeOrganization: null },
-		) => !activeOrganization || !isAdminOrOwner(activeOrganization),
-	},
-	{
-		id: "about",
-		name: "About",
-		tooltipText: "About Cline",
-		headerText: "About",
-		icon: Info,
-	},
 	// Only show in dev mode
 	{
 		id: "debug",
@@ -157,14 +133,12 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 			features: FeatureSettingsSection,
 			browser: BrowserSettingsSection,
 			terminal: TerminalSettingsSection,
-			"remote-config": RemoteConfigSection,
-			about: AboutSection,
 			debug: DebugSection,
 		}),
 		[],
 	); // Empty deps - these imports never change
 
-	const { version, environment, settingsInitialModelTab } = useExtensionState();
+	const { environment, settingsInitialModelTab } = useExtensionState();
 	const { activeOrganization, clineUser } = useClineAuth();
 
 	const [activeTab, setActiveTab] = useState<string>(
@@ -276,8 +250,6 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 		const props: any = { renderSectionHeader };
 		if (activeTab === "debug") {
 			props.onResetState = handleResetState;
-		} else if (activeTab === "about") {
-			props.version = version;
 		} else if (activeTab === "api-config") {
 			props.initialModelTab = settingsInitialModelTab;
 		}
@@ -287,7 +259,6 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 		activeTab,
 		handleResetState,
 		settingsInitialModelTab,
-		version,
 		TAB_CONTENT_MAP,
 	]);
 

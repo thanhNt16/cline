@@ -105,12 +105,12 @@ export async function createHookTestEnv(): Promise<HookTestEnv> {
 /**
  * Creates a hooks directory structure at the specified location.
  *
- * @param baseDir Base directory where .clinerules/hooks will be created
+ * @param baseDir Base directory where hooks will be created (subdirectory under baseDir)
  * @returns Path to the created hooks directory
  *
  * @example
  * const hooksDir = await createHooksDirectory("/tmp/test")
- * // Returns: "/tmp/test/.clinerules/hooks"
+ * // Returns: "/tmp/test/<hooksDir>"
  */
 export async function createHooksDirectory(baseDir: string): Promise<string> {
 	const hooksDir = path.join(baseDir, ".clinerules", "hooks")

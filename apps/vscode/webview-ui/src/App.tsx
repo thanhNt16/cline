@@ -69,7 +69,7 @@ const AppContent = () => {
 			{showSettings && <SettingsView onDone={hideSettings} targetSection={settingsTargetSection} />}
 			{showHistory && <HistoryView onDone={hideHistory} />}
 			{showMcp && <McpView initialTab={mcpTab} onDone={closeMcpView} />}
-			{showAccount && (
+			{false && showAccount && (
 				<AccountView
 					activeOrganization={activeOrganization}
 					clineUser={clineUser}

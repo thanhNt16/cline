@@ -181,8 +181,9 @@ export function normalizeApiConfiguration(
 	apiConfiguration: ApiConfiguration | undefined,
 	currentMode: Mode,
 ): NormalizedApiConfig {
+	// CellockAI: default to OpenAI Compatible when no provider is configured.
 	const provider =
-		(currentMode === "plan" ? apiConfiguration?.planModeApiProvider : apiConfiguration?.actModeApiProvider) || "anthropic"
+		(currentMode === "plan" ? apiConfiguration?.planModeApiProvider : apiConfiguration?.actModeApiProvider) || "openai"
 
 	const modelId = currentMode === "plan" ? apiConfiguration?.planModeApiModelId : apiConfiguration?.actModeApiModelId
 
@@ -300,7 +301,8 @@ export function normalizeApiConfiguration(
 				currentMode === "plan" ? apiConfiguration?.planModeOpenAiModelInfo : apiConfiguration?.actModeOpenAiModelInfo
 			return {
 				selectedProvider: provider,
-				selectedModelId: openAiModelId || "",
+				// CellockAI: default model id for OpenAI Compatible profiles.
+				selectedModelId: openAiModelId || "glm-5.2",
 				selectedModelInfo: openAiModelInfo || openAiModelInfoSaneDefaults,
 			}
 		case "hicap":

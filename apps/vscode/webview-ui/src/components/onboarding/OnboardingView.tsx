@@ -269,9 +269,11 @@ const OnboardingViewContent = ({ onboardingModels }: { onboardingModels: Onboard
 	const { handleFieldsChange } = useApiConfigurationHandlers()
 	const { openRouterModels, hideSettings, hideAccount, setShowWelcome } = useExtensionState()
 
-	const [stepNumber, setStepNumber] = useState(0)
+	// CellockAI: skip the "How will you use Cline?" selection screen and default
+	// straight to "Bring my own API key" (BYOK).
+	const [stepNumber, setStepNumber] = useState(1)
 	const [isActionLoading, setIsActionLoading] = useState(false)
-	const [userType, setUserType] = useState<NEW_USER_TYPE>(NEW_USER_TYPE.FREE)
+	const [userType, setUserType] = useState<NEW_USER_TYPE>(NEW_USER_TYPE.BYOK)
 
 	const [selectedModelId, setSelectedModelId] = useState("")
 	const [searchTerm, setSearchTerm] = useState("")

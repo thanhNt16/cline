@@ -41,6 +41,9 @@ export interface ExtensionState {
 	welcomeViewCompleted: boolean
 	onboardingModels: OnboardingModelGroup | undefined
 	apiConfiguration?: ApiConfiguration
+	// CellockAI: model id of the active workspace model profile, when one is set.
+	// The chat bar displays this so it reflects the model a task will actually use.
+	activeProfileModelId?: string
 	autoApprovalSettings: AutoApprovalSettings
 	browserSettings: BrowserSettings
 	remoteBrowserHost?: string

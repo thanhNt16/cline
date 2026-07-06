@@ -1,6 +1,7 @@
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
+import { GlobalFileNames } from "@/core/storage/disk"
 import { HostProvider } from "@/hosts/host-provider"
 import { getCwd, getDesktopDir } from "@/utils/path"
 
@@ -62,12 +63,12 @@ export async function resolveHooksDirectory(
 		if (!targetWorkspace) {
 			throw new Error(`Workspace "${workspaceName}" not found`)
 		}
-		return path.join(targetWorkspace, ".clinerules", "hooks")
+		return path.join(targetWorkspace, GlobalFileNames.hooksDir)
 	}
 
 	// Single workspace: use getCwd
 	const cwd = await getCwd(getDesktopDir())
-	return path.join(cwd, ".clinerules", "hooks")
+	return path.join(cwd, GlobalFileNames.hooksDir)
 }
 
 /**

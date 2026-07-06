@@ -1,6 +1,9 @@
 import { setTimeout as setTimeoutPromise } from "node:timers/promises"
 import { sendMcpServersUpdate } from "@core/controller/mcp/subscribeToMcpServers"
-import { getMcpSettingsFilePath as getMcpSettingsFilePathHelper } from "@core/storage/disk"
+import {
+	getMcpSettingsFilePath as getMcpSettingsFilePathHelper,
+	getProjectMcpSettingsFilePaths,
+} from "@core/storage/disk"
 import { StateManager } from "@core/storage/StateManager"
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
@@ -170,40 +173,76 @@ export class McpHub {
 			const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
 			const content = await fs.readFile(settingsPath, "utf-8")
 
-			let config: any
+			let globalServers: Record<string, any>
 
 			// Handle empty or minimal files silently - this is a valid state meaning "no MCP servers"
 			const trimmedContent = content.trim()
 			if (!trimmedContent || trimmedContent === "{}" || trimmedContent === '{"mcpServers":{}}') {
-				return { mcpServers: {} }
+				globalServers = {}
+			} else {
+				// Parse JSON file content
+				let config: any
+				try {
+					config = JSON.parse(content)
+				} catch (_error) {
+					HostProvider.window.showMessage({
+						type: ShowMessageType.ERROR,
+						message: "Invalid MCP settings format. Please ensure your settings follow the correct JSON format.",
+					})
+					return undefined
+				}
+
+				// Expand environment variables before validation
+				// This allows ${env:VAR_NAME} syntax in URLs, headers, env vars, etc.
+				config = expandEnvironmentVariables(config)
+
+				// Validate against schema
+				const result = McpSettingsSchema.safeParse(config)
+				if (!result.success) {
+					HostProvider.window.showMessage({
+						type: ShowMessageType.ERROR,
+						message: "Invalid MCP settings schema.",
+					})
+					return undefined
+				}
+
+				globalServers = (result.data?.mcpServers ?? {}) as Record<string, any>
 			}
 
-			// Parse JSON file content
-			try {
-				config = JSON.parse(content)
-			} catch (_error) {
-				HostProvider.window.showMessage({
-					type: ShowMessageType.ERROR,
-					message: "Invalid MCP settings format. Please ensure your settings follow the correct JSON format.",
-				})
-				return undefined
+			// Merge project-level MCP sources (.cellockai/mcp.json from each workspace
+			// root) over the global map. Project entries win on name collision. A
+			// malformed project file is logged and skipped without failing the load.
+			const projectFilePaths = await getProjectMcpSettingsFilePaths()
+			const mergedServers: Record<string, any> = { ...globalServers }
+			for (const projectFilePath of projectFilePaths) {
+				try {
+					const projectContent = (await fs.readFile(projectFilePath, "utf-8")).trim()
+					if (!projectContent || projectContent === "{}" || projectContent === '{"mcpServers":{}}') {
+						continue
+					}
+					let projectConfig: any
+					try {
+						projectConfig = JSON.parse(projectContent)
+					} catch (_error) {
+						Logger.error(`Invalid MCP settings format in project file: ${projectFilePath}`)
+						continue
+					}
+					projectConfig = expandEnvironmentVariables(projectConfig)
+					const projectResult = McpSettingsSchema.safeParse(projectConfig)
+					if (!projectResult.success) {
+						Logger.error(`Invalid MCP settings schema in project file: ${projectFilePath}`)
+						continue
+					}
+					const projectServers = (projectResult.data?.mcpServers ?? {}) as Record<string, any>
+					for (const [name, server] of Object.entries(projectServers)) {
+						mergedServers[name] = server
+					}
+				} catch (error) {
+					Logger.error(`Failed to read project MCP settings (${projectFilePath}):`, error)
+				}
 			}
 
-			// Expand environment variables before validation
-			// This allows ${env:VAR_NAME} syntax in URLs, headers, env vars, etc.
-			config = expandEnvironmentVariables(config)
-
-			// Validate against schema
-			const result = McpSettingsSchema.safeParse(config)
-			if (!result.success) {
-				HostProvider.window.showMessage({
-					type: ShowMessageType.ERROR,
-					message: "Invalid MCP settings schema.",
-				})
-				return undefined
-			}
-
-			return result.data
+			return { mcpServers: mergedServers }
 		} catch (error) {
 			Logger.error("Failed to read MCP settings:", error)
 			return undefined

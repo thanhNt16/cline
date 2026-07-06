@@ -39,8 +39,7 @@ describe("Skills Utility Functions", () => {
 		statStub = sandbox.stub(fs.promises, "stat")
 		readFileStub = sandbox.stub(fs.promises, "readFile")
 		sandbox.stub(disk, "getSkillsDirectoriesForScan").returns([
-			{ path: path.join(TEST_CWD, ".clinerules", "skills"), source: "project" },
-			{ path: path.join(TEST_CWD, ".cline", "skills"), source: "project" },
+			{ path: path.join(TEST_CWD, ".cellockai", "skills"), source: "project" },
 			{ path: path.join(TEST_CWD, ".claude", "skills"), source: "project" },
 			{ path: path.join(TEST_CWD, ".agents", "skills"), source: "project" },
 			{ path: GLOBAL_SKILLS_DIR, source: "global" },
@@ -80,8 +79,8 @@ Instructions here`)
 			expect(skills[0].source).to.equal("global")
 		})
 
-		it("should discover skills from project .clinerules/skills directory", async () => {
-			const projectSkillsDir = path.join(TEST_CWD, ".clinerules", "skills")
+		it("should discover skills from project .cellockai/skills directory", async () => {
+			const projectSkillsDir = path.join(TEST_CWD, ".cellockai", "skills")
 			const skillDir = path.join(projectSkillsDir, "explaining-code")
 			const skillMdPath = path.join(skillDir, "SKILL.md")
 
@@ -100,29 +99,6 @@ Use analogies and ASCII diagrams when explaining code.`)
 
 			expect(skills).to.have.lengthOf(1)
 			expect(skills[0].name).to.equal("explaining-code")
-			expect(skills[0].source).to.equal("project")
-		})
-
-		it("should discover skills from project .cline/skills directory", async () => {
-			const clineSkillsDir = path.join(TEST_CWD, ".cline", "skills")
-			const skillDir = path.join(clineSkillsDir, "debugging")
-			const skillMdPath = path.join(skillDir, "SKILL.md")
-
-			fileExistsStub.withArgs(clineSkillsDir).resolves(true)
-			fileExistsStub.withArgs(skillMdPath).resolves(true)
-			isDirectoryStub.withArgs(clineSkillsDir).resolves(true)
-			readdirStub.withArgs(clineSkillsDir).resolves(["debugging"])
-			statStub.withArgs(skillDir).resolves({ isDirectory: () => true })
-			readFileStub.withArgs(skillMdPath, "utf-8").resolves(`---
-name: debugging
-description: Debug code systematically
----
-Use systematic debugging approaches.`)
-
-			const skills = await discoverSkills(TEST_CWD)
-
-			expect(skills).to.have.lengthOf(1)
-			expect(skills[0].name).to.equal("debugging")
 			expect(skills[0].source).to.equal("project")
 		})
 
@@ -239,7 +215,7 @@ description: Global coding skill
 Global instructions`)
 
 			// Setup project skill with same name (lower priority)
-			const projectSkillsDir = path.join(TEST_CWD, ".clinerules", "skills")
+			const projectSkillsDir = path.join(TEST_CWD, ".cellockai", "skills")
 			const projectSkillDir = path.join(projectSkillsDir, "coding")
 			const projectSkillMdPath = path.join(projectSkillDir, "SKILL.md")
 
@@ -279,7 +255,7 @@ description: A global skill
 Content`)
 
 			// Setup project skill with different name
-			const projectSkillsDir = path.join(TEST_CWD, ".clinerules", "skills")
+			const projectSkillsDir = path.join(TEST_CWD, ".cellockai", "skills")
 			const projectSkillDir = path.join(projectSkillsDir, "project-skill")
 			const projectSkillMdPath = path.join(projectSkillDir, "SKILL.md")
 
@@ -601,7 +577,7 @@ description: Test
 
 			it("remote overrides project skill of same name", async () => {
 				const entries = [makeEntry("coding", "Remote coding")]
-				const projDir = path.join(TEST_CWD, ".clinerules", "skills")
+				const projDir = path.join(TEST_CWD, ".cellockai", "skills")
 				const projSkillDir = path.join(projDir, "coding")
 				const projMd = path.join(projSkillDir, "SKILL.md")
 				fileExistsStub.withArgs(projDir).resolves(true)

@@ -37,6 +37,10 @@ service StateService {
   rpc refreshRemoteConfig(EmptyRequest) returns (Empty);
   rpc testOtelConnection(EmptyRequest) returns (TestConnectionResult);
   rpc testPromptUploading(EmptyRequest) returns (TestConnectionResult);
+  rpc getProfiles(EmptyRequest) returns (ProfilesResponse);
+  rpc upsertProfile(UpsertProfileRequest) returns (ProfilesResponse);
+  rpc setActiveProfile(SetActiveProfileRequest) returns (ProfilesResponse);
+  rpc deleteProfile(DeleteProfileRequest) returns (ProfilesResponse);
 }
 
 message AutoApprovalActions {
@@ -482,4 +486,30 @@ message TestConnectionResult {
   bool success = 1;
   optional string message = 2;
   optional string error = 3;
+}
+
+// Model Profiles — OpenAI-compatible provider presets managed per-workspace.
+message ModelProfile {
+  string id = 1;
+  string name = 2;
+  string base_url = 3;
+  string model_id = 4;
+  string api_key = 5;
+}
+
+message ProfilesResponse {
+  string active_profile_id = 1;
+  repeated ModelProfile profiles = 2;
+}
+
+message UpsertProfileRequest {
+  ModelProfile profile = 1; // empty id = create
+}
+
+message SetActiveProfileRequest {
+  string id = 1;
+}
+
+message DeleteProfileRequest {
+  string id = 1;
 }

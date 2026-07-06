@@ -13,7 +13,6 @@ import { AccountServiceClient } from "@/services/grpc-client"
 import ViewHeader from "../common/ViewHeader"
 import VSCodeButtonLink from "../common/VSCodeButtonLink"
 import { updateSetting } from "../settings/utils/settingsHandlers"
-import { AccountWelcomeView } from "./AccountWelcomeView"
 import { CreditBalance } from "./CreditBalance"
 import CreditsHistoryTable from "./CreditsHistoryTable"
 import { convertProtoUsageTransactions, getClineUris, getMainRole } from "./helpers"
@@ -57,9 +56,7 @@ const AccountView = ({ onDone, clineUser, organizations, activeOrganization }: A
 						key={clineUser.uid}
 						userOrganizations={organizations}
 					/>
-				) : (
-					<AccountWelcomeView />
-				)}
+				) : null}
 			</div>
 		</div>
 	)
@@ -390,7 +387,7 @@ export const ClineAccountView = ({ clineUser, userOrganizations, activeOrganizat
 				{isClineTester && environment !== "selfHosted" && (
 					<div className="w-full gap-1 items-end">
 						<VSCodeDivider className="w-full my-3" />
-						<div className="text-sm font-semibold">Cline Environment</div>
+						<div className="text-sm font-semibold">CellockAI Environment</div>
 						<VSCodeDropdown
 							className="w-full mt-1"
 							currentValue={clineEnv}

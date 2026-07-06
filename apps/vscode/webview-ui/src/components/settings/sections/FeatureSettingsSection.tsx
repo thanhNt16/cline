@@ -36,7 +36,7 @@ const agentFeatures: FeatureToggle[] = [
 	{
 		id: "subagents",
 		label: "Subagents",
-		description: "Let Cline run focused subagents in parallel to explore the codebase for you.",
+		description: "Let CellockAI run focused subagents in parallel to explore the codebase for you.",
 		stateKey: "subagentsEnabled",
 		settingKey: "subagentsEnabled",
 	},
@@ -82,7 +82,7 @@ const editorFeatures: FeatureToggle[] = [
 	{
 		id: "show-feature-tips",
 		label: "Feature Tips",
-		description: "Show rotating tips during the thinking phase to help you discover Cline features.",
+		description: "Show rotating tips during the thinking phase to help you discover CellockAI features.",
 		stateKey: "showFeatureTips",
 		settingKey: "showFeatureTips",
 	},
@@ -102,7 +102,7 @@ const editorFeatures: FeatureToggle[] = [
 	},
 	{
 		id: "cline-web-tools",
-		label: "Cline Web Tools",
+		label: "CellockAI Web Tools",
 		description: "Access web browsing and search capabilities",
 		stateKey: "clineWebToolsEnabled",
 		settingKey: "clineWebToolsEnabled",
@@ -110,7 +110,7 @@ const editorFeatures: FeatureToggle[] = [
 	{
 		id: "worktrees",
 		label: "Worktrees",
-		description: "Enables git worktree management for running parallel Cline tasks.",
+		description: "Enables git worktree management for running parallel CellockAI tasks.",
 		stateKey: "worktreesEnabled",
 		settingKey: "worktreesEnabled",
 	},
@@ -136,7 +136,7 @@ const experimentalFeatures: FeatureToggle[] = [
 	{
 		id: "lazy-teammate",
 		label: "Lazy Teammate Mode",
-		description: "Sometimes Cline just isn't feeling it today. For entertainment purposes only.",
+		description: "Sometimes CellockAI just isn't feeling it today. For entertainment purposes only.",
 		stateKey: "lazyTeammateModeEnabled",
 		settingKey: "lazyTeammateModeEnabled",
 	},

@@ -259,6 +259,7 @@ export const ExtensionStateContextProvider: React.FC<{
 		isNewUser: false,
 		welcomeViewCompleted: false,
 		onboardingModels: undefined,
+		activeProfileModelId: undefined,
 		mcpResponsesCollapsed: false, // Default value (expanded), will be overwritten by extension state
 		strictPlanModeEnabled: false,
 		yoloModeToggled: false,
