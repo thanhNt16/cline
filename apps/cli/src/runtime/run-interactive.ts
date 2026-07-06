@@ -4,10 +4,12 @@ import {
 	ProviderSettingsManager,
 	type UserInstructionConfigService,
 } from "@cline/core";
+import { formatModeSwitchNotice } from "@cline/shared";
 import type { CliMigrationNotice } from "../kanban-migration/notice";
 import { logCliError } from "../logging/errors";
 import {
 	loadClineAccountSnapshot,
+	loadIndividualSubscriptionPlans,
 	onProviderChange,
 	switchClineAccount,
 } from "../tui/cline-account";
@@ -24,6 +26,11 @@ import { disableOpenTuiGraphicsProbe } from "../tui/opentui-env";
 import type { QueuedPromptItem } from "../tui/types";
 import { type ChatCommandState, chatCommandHost } from "../utils/chat-commands";
 import { applyCliCompactionMode } from "../utils/compaction-mode";
+import {
+	shouldZeroClineFreeModelCost,
+	zeroCliAgentEventCost,
+	zeroCliUsageCost,
+} from "../utils/free-model-cost";
 import {
 	prepareTerminalForPostTuiOutput,
 	writeErr,
@@ -46,11 +53,34 @@ import {
 	type InteractiveExitSummary,
 } from "./interactive/exit-summary";
 import { createMistakeLimitDecisionResolver } from "./interactive/mistakes";
-import { createInteractiveModeSwitchTool } from "./interactive/mode";
+import {
+	type AppliedModeChange,
+	createInteractiveModeSwitchTool,
+	createModeSwitchNoticeTracker,
+	type PendingModeChange,
+	sendTurnWithActModeContinuation,
+} from "./interactive/mode";
 import { assertInteractivePreflight } from "./interactive/preflight";
 import { createInteractiveSessionRuntime } from "./interactive/session-runtime";
 import { buildUserInputMessage } from "./prompt";
 import { getUIEventEmitter } from "./session-events";
+
+type ModelChangeReasoningConfig = {
+	thinking?: boolean;
+	reasoningEffort?: Config["reasoningEffort"];
+};
+
+export function resolveReasoningForModelChange(
+	config: ModelChangeReasoningConfig,
+	existing: Pick<ProviderSettings, "reasoning">,
+): ProviderSettings["reasoning"] {
+	if (config.thinking === false) return { enabled: false };
+	if (config.reasoningEffort) {
+		return { enabled: true, effort: config.reasoningEffort };
+	}
+	if (config.thinking === true) return { enabled: true };
+	return existing.reasoning;
+}
 
 export async function runInteractive(
 	config: Config,
@@ -121,12 +151,14 @@ export async function runInteractive(
 		autoApproveAllRef,
 		setInteractiveAutoApprove,
 		requestToolApproval,
+		resolveToolPolicy,
 		tuiToolApprover,
 		tuiAskQuestion,
 	} = createInteractiveApprovalController(config);
 
-	const pendingModeChange: { current: "plan" | "act" | null } = {
+	const pendingModeChange: PendingModeChange = {
 		current: null,
+		source: null,
 	};
 	const tuiModeChanged: {
 		current: ((mode: "plan" | "act") => void) | null;
@@ -152,6 +184,7 @@ export async function runInteractive(
 		askQuestionRef: tuiAskQuestion,
 	});
 	const providerSettingsManager = new ProviderSettingsManager();
+	let zeroCurrentTurnCost = false;
 
 	const sessionRuntime = createInteractiveSessionRuntime({
 		config,
@@ -160,11 +193,12 @@ export async function runInteractive(
 		resumeSessionId,
 		chatCommandState,
 		requestToolApproval,
+		resolveToolPolicy,
 		askQuestionRef: tuiAskQuestion,
 		resolveMistakeLimitDecision,
 		switchToActModeTool,
 		onAgentEvent: (event) => {
-			uiEvents.emit("agent", event);
+			uiEvents.emit("agent", zeroCliAgentEventCost(event, zeroCurrentTurnCost));
 		},
 		onTeamEvent: (event) => {
 			uiEvents.emit("team", event);
@@ -178,6 +212,7 @@ export async function runInteractive(
 	});
 	let modeChangePromise: Promise<void> | undefined;
 	let modeChangeTarget: "plan" | "act" | undefined;
+	const modeSwitchNotice = createModeSwitchNoticeTracker();
 
 	const isInteractiveMode = (mode: unknown): mode is "plan" | "act" =>
 		mode === "plan" || mode === "act";
@@ -192,7 +227,11 @@ export async function runInteractive(
 				await modeChangePromise;
 			}
 			await sessionRuntime.ensureReady();
+			const from = config.mode;
 			await sessionRuntime.applyMode(mode);
+			if (isInteractiveMode(from)) {
+				modeSwitchNotice.record(from, mode);
+			}
 		})().finally(() => {
 			if (modeChangePromise === next) {
 				modeChangePromise = undefined;
@@ -363,7 +402,7 @@ export async function runInteractive(
 		? async () => {
 				try {
 					await sessionRuntime.ensureReady();
-					const messages = await sessionRuntime.readCurrentMessages();
+					const { messages } = await sessionRuntime.readCurrentMessages();
 					const usage = await sessionRuntime.getAccumulatedUsage({
 						inputTokens: 0,
 						outputTokens: 0,
@@ -402,6 +441,12 @@ export async function runInteractive(
 				config,
 				clineApiBaseUrl: options?.clineApiBaseUrl,
 			}),
+		loadIndividualSubscriptionPlans: async () =>
+			await loadIndividualSubscriptionPlans({
+				config,
+				clineApiBaseUrl: options?.clineApiBaseUrl,
+				clineProviderSettings: options?.clineProviderSettings,
+			}),
 		switchClineAccount: async (organizationId) =>
 			await switchClineAccount({
 				config,
@@ -430,6 +475,7 @@ export async function runInteractive(
 		},
 		onSubmit: async (input, mode, delivery, attachments, onCommandOutput) => {
 			let commandOutput: string | undefined;
+			let zeroTurnCost = false;
 			try {
 				await sessionRuntime.ensureReady();
 				await waitForSubmittedMode(mode);
@@ -476,6 +522,8 @@ export async function runInteractive(
 				}
 				input = chatCommandResult.input;
 				commandOutput = chatCommandResult.commandOutput;
+				zeroTurnCost = await shouldZeroClineFreeModelCost(config);
+				zeroCurrentTurnCost = zeroTurnCost;
 				const {
 					prompt: userInput,
 					userImages,
@@ -485,26 +533,49 @@ export async function runInteractive(
 					...(attachments?.userImages ?? []),
 					...userImages,
 				];
+				// Mark a preceding user-initiated mode switch on this message so
+				// the model sees exactly when the rules changed, instead of only
+				// inferring it from the user_input mode attribute flipping.
+				const switchNotice = modeSwitchNotice.consume();
+				const noticedUserInput = switchNotice
+					? `${formatModeSwitchNotice(switchNotice.from, switchNotice.to)}\n${userInput}`
+					: userInput;
 
-				const applyPendingModeChange = async () => {
+				const applyPendingModeChange = async (): Promise<
+					AppliedModeChange | undefined
+				> => {
 					if (!pendingModeChange.current) return undefined;
-					const newMode = pendingModeChange.current;
+					const applied: AppliedModeChange = {
+						mode: pendingModeChange.current,
+						source: pendingModeChange.source ?? "ui",
+					};
 					pendingModeChange.current = null;
-					await sessionRuntime.applyMode(newMode);
-					tuiModeChanged.current?.(newMode);
-					return newMode;
+					pendingModeChange.source = null;
+					const from = config.mode;
+					await sessionRuntime.applyMode(applied.mode);
+					tuiModeChanged.current?.(applied.mode);
+					// The switch_to_act_mode path announces itself through the
+					// continuation prompt; only UI toggles need a notice.
+					if (applied.source === "ui" && isInteractiveMode(from)) {
+						modeSwitchNotice.record(from, applied.mode);
+					}
+					return applied;
 				};
 
-				const result = await sessionRuntime.sendCurrentTurn({
-					prompt: userInput,
-					mode,
-					userImages:
-						mergedUserImages.length > 0 ? mergedUserImages : undefined,
-					userFiles: userFiles.length > 0 ? userFiles : undefined,
-					delivery,
+				const result = await sendTurnWithActModeContinuation({
+					sendInitialTurn: () =>
+						sessionRuntime.sendCurrentTurn({
+							prompt: noticedUserInput,
+							mode,
+							userImages:
+								mergedUserImages.length > 0 ? mergedUserImages : undefined,
+							userFiles: userFiles.length > 0 ? userFiles : undefined,
+							delivery,
+						}),
+					sendContinuationTurn: (prompt) =>
+						sessionRuntime.sendCurrentTurn({ prompt, mode: "act" }),
+					applyPendingModeChange,
 				});
-
-				await applyPendingModeChange();
 
 				if (!result) {
 					return {
@@ -517,8 +588,9 @@ export async function runInteractive(
 				}
 				if (result.finishReason !== "completed") {
 					if (result.finishReason === "aborted" || isAbortInProgress()) {
-						const usage = await sessionRuntime.getAccumulatedUsage(
-							result.usage,
+						const usage = zeroCliUsageCost(
+							await sessionRuntime.getAccumulatedUsage(result.usage),
+							zeroTurnCost,
 						);
 						return {
 							usage,
@@ -533,7 +605,10 @@ export async function runInteractive(
 						errorText || `Turn finished with ${result.finishReason}`,
 					);
 				}
-				const usage = await sessionRuntime.getAccumulatedUsage(result.usage);
+				const usage = zeroCliUsageCost(
+					await sessionRuntime.getAccumulatedUsage(result.usage),
+					zeroTurnCost,
+				);
 				return {
 					usage,
 					currentContextSize: getCurrentContextSize(result.messages),
@@ -557,6 +632,7 @@ export async function runInteractive(
 				});
 				throw error;
 			} finally {
+				zeroCurrentTurnCost = false;
 				if (!delivery) {
 					isRunning = false;
 					clearAbortInProgress();
@@ -602,6 +678,7 @@ export async function runInteractive(
 			if (!isInteractiveMode(mode)) return;
 			if (isRunning) {
 				pendingModeChange.current = mode;
+				pendingModeChange.source = "ui";
 				sessionRuntime.abortAll();
 				return;
 			}
@@ -621,12 +698,11 @@ export async function runInteractive(
 			) ?? {
 				provider: config.providerId,
 			};
+			const reasoning = resolveReasoningForModelChange(config, existing);
 			providerSettingsManager.saveProviderSettings({
 				...existing,
 				model: config.modelId,
-				reasoning: config.reasoningEffort
-					? { enabled: true, effort: config.reasoningEffort }
-					: { enabled: false },
+				...(reasoning === undefined ? {} : { reasoning }),
 			});
 			await sessionRuntime.restartWithCurrentMessages();
 		},

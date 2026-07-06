@@ -18,6 +18,25 @@ export {
 } from "./connectors/events";
 export type * from "./connectors/options";
 export type {
+	ActiveConnectorRecord,
+	ConfiguredConnectorRecord,
+	ConnectorCatalogEntry,
+	ConnectorChannel,
+	ConnectorChannelsResponse,
+	ConnectorFieldCondition,
+	ConnectorFieldDef,
+	ConnectorPlatformDef,
+	ConnectorSecurityDef,
+	ConnectorSecurityFieldDef,
+} from "./connectors/platforms";
+export {
+	CONNECTOR_CATALOG,
+	CONNECTOR_PLATFORMS,
+	connectorChannelsFromPlatforms,
+	listConnectorCatalog,
+	shouldIncludeConnectorField,
+} from "./connectors/platforms";
+export type {
 	AutomationEventEnvelope,
 	CronEventSpec,
 	CronOneOffSpec,
@@ -47,6 +66,13 @@ export type {
 	AgentExtensionCommand,
 	AgentExtensionCommandResult,
 	AgentExtensionHooks,
+	AgentExtensionMcpEnv,
+	AgentExtensionMcpEnvValue,
+	AgentExtensionMcpServer,
+	AgentExtensionMcpSseTransport,
+	AgentExtensionMcpStdioTransport,
+	AgentExtensionMcpStreamableHttpTransport,
+	AgentExtensionMcpTransport,
 	AgentExtensionMessageBuilder,
 	AgentExtensionProvider,
 	AgentExtensionRegistry,
@@ -116,7 +142,33 @@ export {
 	sanitizeSurrogates,
 	toAiSdkToolResultOutput,
 } from "./llms/ai-sdk-format";
-export type * from "./llms/gateway";
+export * from "./llms/gateway";
+export {
+	createMediaBudgetState,
+	DEFAULT_MAX_IMAGE_BASE64_BYTES,
+	DEFAULT_MAX_IMAGE_DECODED_BYTES,
+	DEFAULT_MAX_IMAGE_ENCODED_BYTES,
+	DEFAULT_MAX_TOTAL_MEDIA_BYTES,
+	IMAGE_OMITTED_PLACEHOLDER,
+	type ImageMediaLimits,
+	type ImageMediaValidationFailure,
+	type ImageMediaValidationResult,
+	type ImageMediaValidationSuccess,
+	imageBase64DecodedByteLength,
+	imageBase64EncodedByteLength,
+	imageBase64LengthForDecodedBytes,
+	imageFileMaxDecodedBytesForBase64Limit,
+	isBase64Char,
+	isCanonicalBase64,
+	type MediaBudgetOptions,
+	type MediaBudgetState,
+	type ResolvedMediaBudget,
+	reserveImageMediaBytes,
+	resolveMediaBudget,
+	SUPPORTED_IMAGE_MEDIA_TYPES,
+	validateAndReserveImageMedia,
+	validateImageMedia,
+} from "./llms/media";
 export type {
 	ContentBlock,
 	FileContent,
@@ -147,6 +199,7 @@ export {
 	type ThinkingConfig,
 	ThinkingConfigSchema,
 } from "./llms/model-info";
+export { mergeModelOptions } from "./llms/model-options";
 export {
 	DEFAULT_REASONING_EFFORT,
 	REASONING_EFFORT_RATIOS,
@@ -155,7 +208,7 @@ export {
 	resolveReasoningEffortRatio,
 } from "./llms/reasoning-effort";
 export { DEFAULT_REQUEST_HEADERS, serializeAbortReason } from "./llms/requests";
-export { estimateTokens } from "./llms/tokens";
+export { CHARS_PER_TOKEN, estimateTokens } from "./llms/tokens";
 export type {
 	ToolApprovalRequest,
 	ToolApprovalResult,
@@ -169,14 +222,17 @@ export {
 	noopBasicLogger,
 } from "./logging/logger";
 export {
+	normalizeJsonLikeStringsForSchema,
 	parseJsonStream,
 	safeJsonParse,
 	safeJsonStringify,
 } from "./parse/json";
+export { type OmitUndefinedValues, omitUndefinedValues } from "./parse/object";
 export { getDefaultShell, getShellArgs } from "./parse/shell";
 export {
 	maskSecret,
 	sanitizeFileName,
+	trimNonEmpty,
 	truncateSplit,
 	truncateStr,
 } from "./parse/string";
@@ -187,10 +243,12 @@ export { buildClineSystemPrompt, processWorkspaceInfo } from "./prompt/cline";
 export {
 	formatDisplayUserInput,
 	formatFileContentBlock,
+	formatModeSwitchNotice,
 	formatUserCommandBlock,
 	formatUserInputBlock,
 	normalizeUserInput,
 	parseUserCommandEnvelope,
+	stripModeNotices,
 	xmlTagsRemoval,
 } from "./prompt/format";
 export { isClineProvider } from "./providers/utils";
@@ -349,6 +407,7 @@ export {
 	isHubDaemonProcess,
 } from "./runtime/hub-daemon-env";
 export type {
+	CaptureAgentUnexpectedReasoningTokensInput,
 	CaptureSdkErrorInput,
 	ITelemetryService,
 	OpenTelemetryClientConfig,
@@ -362,7 +421,9 @@ export type {
 	TelemetryValue,
 } from "./services/telemetry";
 export {
+	AGENT_UNEXPECTED_REASONING_TOKENS_EVENT,
 	buildSdkErrorProperties,
+	captureAgentUnexpectedReasoningTokens,
 	captureSdkError,
 	normalizeSdkError,
 	SDK_ERROR_TELEMETRY_EVENT,

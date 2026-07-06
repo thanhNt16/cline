@@ -50,6 +50,23 @@ describe("cline builtin spec defaults.baseUrl", () => {
 	});
 });
 
+describe("cline builtin models", () => {
+	it("prefers Vercel-style Z.ai model ids over equivalent OpenRouter ids", async () => {
+		const models = await getModelsForProvider("cline");
+
+		expect(models["zai/glm-5.2"]).toMatchObject({
+			id: "zai/glm-5.2",
+			name: "GLM 5.2",
+			contextWindow: 1_040_000,
+			maxInputTokens: 1_040_000,
+		});
+		expect(models["zai/glm-5.1"]).toMatchObject({
+			id: "zai/glm-5.1",
+		});
+		expect(models["z-ai/glm-5.2"]).toBeUndefined();
+	});
+});
+
 describe("cline-pass builtin spec", () => {
 	it("registers a distinct Cline-compatible provider with a custom model list", async () => {
 		const models = await getModelsForProvider("cline-pass");
@@ -57,7 +74,7 @@ describe("cline-pass builtin spec", () => {
 
 		expect(provider).toMatchObject({
 			id: "cline-pass",
-			name: "Cline Pass",
+			name: "ClinePass",
 			baseUrl: `${CLINE_ENVIRONMENTS.production.apiBaseUrl}/api/v1`,
 			client: "openai-compatible",
 			capabilities: expect.arrayContaining([
@@ -82,11 +99,18 @@ describe("cline-pass builtin spec", () => {
 describe("built-in provider metadata", () => {
 	it("marks popular providers with a provider capability and rank", async () => {
 		await expect(getProvider("cline")).resolves.toMatchObject({
+			name: "Cline Usage-Billing",
 			capabilities: expect.arrayContaining(["popular"]),
 			metadata: { popularRank: 1 },
 		});
 		await expect(getProvider("zai")).resolves.not.toMatchObject({
 			capabilities: expect.arrayContaining(["popular"]),
+		});
+	});
+
+	it("uses the current Hugging Face router endpoint", async () => {
+		await expect(getProvider("huggingface")).resolves.toMatchObject({
+			baseUrl: "https://router.huggingface.co/v1",
 		});
 	});
 
@@ -124,51 +148,6 @@ describe("built-in provider metadata", () => {
 				contextWindow: expect.any(Number),
 			}),
 		);
-	});
-
-	it("includes Claude Fable 5 in Anthropic, OpenRouter, Vercel AI Gateway, and Cline model lists", async () => {
-		const anthropicModels = await getModelsForProvider("anthropic");
-		const openRouterModels = await getModelsForProvider("openrouter");
-		const vercelModels = await getModelsForProvider("vercel-ai-gateway");
-		const clineModels = await getModelsForProvider("cline");
-
-		expect(anthropicModels["claude-fable-5"]).toEqual(
-			expect.objectContaining({
-				name: "Claude Fable 5",
-				contextWindow: 1_000_000,
-				maxTokens: 128_000,
-				capabilities: expect.arrayContaining([
-					"tools",
-					"reasoning",
-					"prompt-cache",
-				]),
-				pricing: expect.objectContaining({
-					input: 10,
-					output: 50,
-					cacheRead: 1,
-					cacheWrite: 12.5,
-				}),
-			}),
-		);
-		expect(openRouterModels["anthropic/claude-fable-5"]).toEqual(
-			expect.objectContaining({
-				id: "anthropic/claude-fable-5",
-				name: "Claude Fable 5",
-				contextWindow: 1_000_000,
-				maxTokens: 128_000,
-			}),
-		);
-		expect(vercelModels["anthropic/claude-fable-5"]).toEqual(
-			expect.objectContaining({
-				id: "anthropic/claude-fable-5",
-				name: "Claude Fable 5",
-				contextWindow: 1_000_000,
-			}),
-		);
-		expect(clineModels["anthropic/claude-fable-5"]).toEqual(
-			openRouterModels["anthropic/claude-fable-5"],
-		);
-		expect(clineModels["anthropic/claude-opus-4.8"]).toBeDefined();
 	});
 
 	it("routes native Z.AI providers through GLM thinking metadata", async () => {

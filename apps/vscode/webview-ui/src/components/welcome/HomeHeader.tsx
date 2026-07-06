@@ -1,6 +1,5 @@
 import { EmptyRequest } from "@shared/proto/cline/common"
 import CellockAILogo from "@/assets/CellockAILogo"
-import { useExtensionState } from "@/context/ExtensionStateContext"
 import { UiServiceClient } from "@/services/grpc-client"
 
 interface HomeHeaderProps {
@@ -8,8 +7,6 @@ interface HomeHeaderProps {
 }
 
 const HomeHeader = ({ shouldShowQuickWins = false }: HomeHeaderProps) => {
-	const { lazyTeammateModeEnabled } = useExtensionState()
-
 	const handleTakeATour = async () => {
 		try {
 			await UiServiceClient.openWalkthrough(EmptyRequest.create())
@@ -19,7 +16,7 @@ const HomeHeader = ({ shouldShowQuickWins = false }: HomeHeaderProps) => {
 	}
 
 	// CellockAI: always show the CellockAI brand mark on the chat header.
-	const headingText = lazyTeammateModeEnabled ? "I guess I'm here to help" : "What can I do for you?"
+	const headingText = "What can I do for you?"
 
 	return (
 		<div className="flex flex-col items-center mb-5">

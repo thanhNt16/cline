@@ -1,9 +1,11 @@
 import type { AgentEvent, TeamEvent } from "@cline/core";
+import { formatDisplayUserInput } from "@cline/shared";
 import { useCallback, useRef } from "react";
 import type {
 	PendingPromptSnapshot,
 	PendingPromptSubmittedEvent,
 } from "../../runtime/session-events";
+import { formatCliErrorMessage } from "../../utils/cline-pass-errors";
 import { resolveStatusNoticeLabel } from "../../utils/events";
 import {
 	formatToolInput,
@@ -171,7 +173,10 @@ export function useAgentEventHandlers(deps: AgentEventDeps) {
 					turnErrorReportedRef.current = true;
 					onTurnErrorReported(true);
 					if (!event.recoverable || verbose) {
-						appendEntry({ kind: "error", text: event.error.message });
+						appendEntry({
+							kind: "error",
+							text: formatCliErrorMessage(event.error),
+						});
 					}
 					break;
 				case "notice":
@@ -292,7 +297,13 @@ export function useAgentEventHandlers(deps: AgentEventDeps) {
 	const handlePendingPromptSubmitted = useCallback(
 		(event: PendingPromptSubmittedEvent) => {
 			knownPendingPromptIdsRef.current.delete(event.id);
-			appendEntry({ kind: "user_submitted", text: event.prompt });
+			// Display boundary: formatDisplayUserInput strips runtime-generated
+			// notice elements (e.g. mode_notice) that normalizeUserInput must
+			// preserve, since the latter also sanitizes model-bound prompts.
+			appendEntry({
+				kind: "user_submitted",
+				text: formatDisplayUserInput(event.prompt),
+			});
 		},
 		[appendEntry],
 	);

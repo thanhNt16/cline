@@ -152,7 +152,10 @@ function deferred<T>() {
 
 function makeRuntime(
 	manager: ReturnType<typeof makeManager>,
-	options: { resumeSessionId?: string } = {},
+	options: {
+		resumeSessionId?: string;
+		resolveToolPolicy?: (toolName: string) => Config["toolPolicies"][string];
+	} = {},
 ) {
 	mockCreateCliCore.mockResolvedValue(manager);
 	const config = makeConfig();
@@ -164,6 +167,8 @@ function makeRuntime(
 		requestToolApproval: async (
 			_request: ToolApprovalRequest,
 		): Promise<ToolApprovalResult> => ({ approved: true }),
+		resolveToolPolicy:
+			options.resolveToolPolicy ?? (() => ({ autoApprove: true })),
 		askQuestionRef: { current: null },
 		resolveMistakeLimitDecision: undefined,
 		switchToActModeTool: makeSwitchToActModeTool(),
@@ -203,6 +208,102 @@ describe("createInteractiveSessionRuntime", () => {
 
 		expect(manager.start).toHaveBeenCalledTimes(2);
 		expect(runtime.getActiveSessionId()).toBe("session-2");
+	});
+
+	it("holds concurrent ensureReady during a restart instead of booting an empty session", async () => {
+		const manager = makeManager();
+		const runtime = makeRuntime(manager);
+
+		await runtime.ensureReady();
+		expect(runtime.getActiveSessionId()).toBe("session-1");
+
+		// Keep the replacement session's start in flight so the restart window
+		// (old session stopped, no active session yet) stays open.
+		const gate = deferred<void>();
+		manager.start.mockImplementationOnce(async () => {
+			await gate.promise;
+			return {
+				sessionId: "session-restarted",
+				manifest: { session_id: "session-restarted" },
+			};
+		});
+
+		const restart = runtime.restartWithCurrentMessages();
+		await vi.waitFor(() => {
+			expect(manager.start).toHaveBeenCalledTimes(2);
+		});
+
+		// A message submitted mid-restart (e.g. right after a plan/act toggle)
+		// calls ensureReady; it must wait for the restart instead of booting a
+		// blank session that races the replacement for the active slot.
+		const ready = runtime.ensureReady();
+		gate.resolve();
+		await Promise.all([restart, ready]);
+
+		expect(manager.start).toHaveBeenCalledTimes(2);
+		expect(runtime.getActiveSessionId()).toBe("session-restarted");
+	});
+
+	it("adds a live interactive approval policy hook to started sessions", async () => {
+		const manager = makeManager();
+		const upstreamBeforeTool = vi.fn(async () => ({
+			input: { text: "updated" },
+		}));
+		mockCreateRuntimeHooks.mockReturnValueOnce({
+			hooks: {
+				beforeTool: upstreamBeforeTool,
+			},
+			shutdown: vi.fn(async () => {}),
+		});
+		const runtime = makeRuntime(manager, {
+			resolveToolPolicy: (toolName) => ({
+				autoApprove: toolName === "echo",
+			}),
+		});
+
+		await runtime.ensureReady();
+
+		const startInput = manager.start.mock.calls[0]?.[0] as
+			| { config?: Config }
+			| undefined;
+		const beforeTool = startInput?.config?.hooks?.beforeTool;
+		expect(beforeTool).toBeTypeOf("function");
+
+		const result = await beforeTool?.({
+			snapshot: {
+				agentId: "agent-1",
+				conversationId: "conversation-1",
+				status: "running",
+				iteration: 1,
+				messages: [],
+				pendingToolCalls: [],
+				usage: {
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+				},
+			},
+			tool: {
+				name: "echo",
+				description: "",
+				inputSchema: {},
+				execute: async () => "ok",
+			},
+			toolCall: {
+				type: "tool-call",
+				toolCallId: "call-1",
+				toolName: "echo",
+				input: { text: "original" },
+			},
+			input: { text: "original" },
+		});
+
+		expect(upstreamBeforeTool).toHaveBeenCalledOnce();
+		expect(result).toEqual({
+			input: { text: "updated" },
+			policy: { autoApprove: true },
+		});
 	});
 
 	it("starts fresh after resetting an initially resumed session", async () => {
@@ -295,6 +396,48 @@ describe("createInteractiveSessionRuntime", () => {
 			2,
 			expect.objectContaining({ sessionId: "session-2" }),
 		);
+		expect(runtime.getActiveSessionId()).toBe("session-2");
+	});
+
+	it("recovers empty read-driven restarts when the active interactive session disappeared", async () => {
+		const manager = makeManager();
+		manager.readMessages.mockRejectedValueOnce(
+			new SessionNotFoundError("session-1"),
+		);
+		const runtime = makeRuntime(manager);
+
+		await runtime.ensureReady();
+		await runtime.restartWithCurrentMessages();
+
+		expect(manager.readMessages).toHaveBeenCalledWith("session-1");
+		expect(manager.start).toHaveBeenCalledTimes(2);
+		expect(manager.start).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({
+				initialMessages: [],
+			}),
+		);
+		expect(runtime.getActiveSessionId()).toBe("session-2");
+	});
+
+	it("does not restart with stale messages when another operation changes the active session during a read", async () => {
+		const manager = makeManager();
+		let runtime!: ReturnType<typeof makeRuntime>;
+		manager.readMessages.mockImplementationOnce(async () => {
+			await runtime.restartEmpty();
+			return [
+				{
+					role: "user" as const,
+					content: [{ type: "text" as const, text: "stale" }],
+				},
+			];
+		});
+		runtime = makeRuntime(manager);
+
+		await runtime.ensureReady();
+		await runtime.restartWithCurrentMessages();
+
+		expect(manager.start).toHaveBeenCalledTimes(2);
 		expect(runtime.getActiveSessionId()).toBe("session-2");
 	});
 

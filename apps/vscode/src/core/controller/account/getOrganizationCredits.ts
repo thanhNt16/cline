@@ -42,7 +42,7 @@ export async function getOrganizationCredits(
 				: { currentBalance: 0 },
 			organizationId: balanceData?.organizationId || "",
 			usageTransactions:
-				usageTransactions?.map((tx) =>
+				usageTransactions?.map((tx: any) =>
 					OrganizationUsageTransaction.create({
 						aiInferenceProviderName: tx.aiInferenceProviderName,
 						aiModelName: tx.aiModelName,

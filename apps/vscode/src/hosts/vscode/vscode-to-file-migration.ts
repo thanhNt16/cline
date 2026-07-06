@@ -32,20 +32,23 @@
  *   and vice versa. See also: checkpoints at {globalStorageFsPath}/checkpoints/.
  */
 
-import type * as vscode from "vscode";
-import { Logger } from "@/shared/services/Logger";
-import {
-	GlobalStateAndSettingKeys,
-	LocalStateKeys,
-	SecretKeys,
-} from "@/shared/storage/state-keys";
-import type { StorageContext } from "@/shared/storage/storage-context";
+import type * as vscode from "vscode"
+import { Logger } from "@/shared/services/Logger"
+import { GlobalStateAndSettingKeys, LocalStateKeys, SecretKeys } from "@/shared/storage/state-keys"
+import type { StorageContext } from "@/shared/storage/storage-context"
+import { migrateLegacyMcpSettings } from "./mcp-settings-legacy-migration"
+
+/** Version 1 exported VSCode memento/secrets/workspace state to file-backed stores. */
+const FILE_BACKED_STORAGE_EXPORT_VERSION = 1
+
+/** Version 2 imports legacy MCP settings files into the shared SDK/CLI settings path. */
+const MCP_SETTINGS_MIGRATION_VERSION = 2
 
 /** Bump this when adding new migration steps. */
-const CURRENT_MIGRATION_VERSION = 1;
+const CURRENT_MIGRATION_VERSION = MCP_SETTINGS_MIGRATION_VERSION
 
 /** Sentinel key written to both globalState and workspaceState to track migration independently. */
-const MIGRATION_VERSION_KEY = "__vscodeMigrationVersion";
+const MIGRATION_VERSION_KEY = "__vscodeMigrationVersion"
 
 /**
  * Keys that should NOT be migrated from VSCode storage.
@@ -55,14 +58,16 @@ const MIGRATION_VERSION_KEY = "__vscodeMigrationVersion";
  */
 const SKIP_GLOBAL_STATE_KEYS = new Set<string>([
 	"taskHistory", // Already file-based in tasks/taskHistory.json
-]);
+])
 
 export interface MigrationResult {
-	migrated: boolean;
-	globalStateCount: number;
-	secretsCount: number;
-	workspaceStateCount: number;
-	skippedExisting: number;
+	migrated: boolean
+	globalStateCount: number
+	secretsCount: number
+	workspaceStateCount: number
+	skippedExisting: number
+	mcpServersAdded: number
+	mcpServersSkippedExisting: number
 }
 
 /**
@@ -89,133 +94,146 @@ export async function exportVSCodeStorageToSharedFiles(
 		secretsCount: 0,
 		workspaceStateCount: 0,
 		skippedExisting: 0,
-	};
+		mcpServersAdded: 0,
+		mcpServersSkippedExisting: 0,
+	}
 
 	// Check sentinels independently
-	const globalVersion = storage.globalState.get<number>(MIGRATION_VERSION_KEY);
-	const workspaceVersion = storage.workspaceState.get<number>(
-		MIGRATION_VERSION_KEY,
-	);
+	const globalVersion = storage.globalState.get<number>(MIGRATION_VERSION_KEY)
+	const workspaceVersion = storage.workspaceState.get<number>(MIGRATION_VERSION_KEY)
 
-	const needGlobalMigration =
-		globalVersion === undefined || globalVersion < CURRENT_MIGRATION_VERSION;
-	const needWorkspaceMigration =
-		workspaceVersion === undefined ||
-		workspaceVersion < CURRENT_MIGRATION_VERSION;
+	const needGlobalMigration = globalVersion === undefined || globalVersion < FILE_BACKED_STORAGE_EXPORT_VERSION
+	const needWorkspaceMigration = workspaceVersion === undefined || workspaceVersion < FILE_BACKED_STORAGE_EXPORT_VERSION
+	const needMcpSettingsMigration = globalVersion === undefined || globalVersion < MCP_SETTINGS_MIGRATION_VERSION
 
-	if (!needGlobalMigration && !needWorkspaceMigration) {
+	if (!needGlobalMigration && !needWorkspaceMigration && !needMcpSettingsMigration) {
 		Logger.info(
 			`[Migration] File-backed stores already current (global: v${globalVersion}, workspace: v${workspaceVersion}), skipping.`,
-		);
-		return result;
+		)
+		return result
 	}
 
 	Logger.info(
 		`[Migration] Starting VSCode → file-backed migration (global: ${globalVersion ?? "none"}, workspace: ${workspaceVersion ?? "none"}, target: ${CURRENT_MIGRATION_VERSION})`,
-	);
+	)
 
 	try {
+		// ─── 0. Migrate legacy MCP settings files (if needed) ───────────
+		if (needMcpSettingsMigration) {
+			const mcpMigration = await migrateLegacyMcpSettings(vscodeContext, storage)
+			result.mcpServersAdded = mcpMigration.serversAdded
+			result.mcpServersSkippedExisting = mcpMigration.serversSkippedExisting
+		}
+
 		// ─── 1. Migrate global state + secrets (if needed) ─────────────
 		if (needGlobalMigration) {
 			// Batch global state keys
-			const globalStateBatch: Record<string, any> = {};
+			const globalStateBatch: Record<string, any> = {}
 			for (const key of GlobalStateAndSettingKeys) {
 				if (SKIP_GLOBAL_STATE_KEYS.has(key)) {
-					continue;
+					continue
 				}
 
-				const vscodeValue = vscodeContext.globalState.get(key);
+				const vscodeValue = vscodeContext.globalState.get(key)
 				if (vscodeValue === undefined) {
-					continue;
+					continue
 				}
 
-				const existingFileValue = storage.globalState.get(key);
+				const existingFileValue = storage.globalState.get(key)
 				if (existingFileValue !== undefined) {
-					result.skippedExisting++;
-					continue;
+					result.skippedExisting++
+					continue
 				}
 
-				globalStateBatch[key] = vscodeValue;
-				result.globalStateCount++;
+				globalStateBatch[key] = vscodeValue
+				result.globalStateCount++
 			}
 
-			// Add sentinel to batch
-			globalStateBatch[MIGRATION_VERSION_KEY] = CURRENT_MIGRATION_VERSION;
+			// Add sentinel to batch. This advances straight to CURRENT because the
+			// v2 MCP migration already ran above when needed.
+			globalStateBatch[MIGRATION_VERSION_KEY] = CURRENT_MIGRATION_VERSION
 
 			// Write all global state in one operation
-			storage.globalState.setBatch(globalStateBatch);
+			storage.globalState.setBatch(globalStateBatch)
 
 			// Batch secrets
-			const secretsBatch: Record<string, string> = {};
+			const secretsBatch: Record<string, string> = {}
 			for (const key of SecretKeys) {
 				try {
-					const vscodeValue = await vscodeContext.secrets.get(key);
+					const vscodeValue = await vscodeContext.secrets.get(key)
 					if (vscodeValue === undefined || vscodeValue === "") {
-						continue;
+						continue
 					}
 
-					const existingFileValue = storage.secrets.get(key);
+					const existingFileValue = storage.secrets.get(key)
 					if (existingFileValue !== undefined && existingFileValue !== "") {
-						result.skippedExisting++;
-						continue;
+						result.skippedExisting++
+						continue
 					}
 
-					secretsBatch[key] = vscodeValue;
-					result.secretsCount++;
+					secretsBatch[key] = vscodeValue
+					result.secretsCount++
 				} catch (error) {
-					Logger.error(
-						`[Migration] Failed to read secret '${key}' from VSCode:`,
-						error,
-					);
+					Logger.error(`[Migration] Failed to read secret '${key}' from VSCode:`, error)
 				}
 			}
 
 			// Write all secrets in one operation
-			storage.secrets.setBatch(secretsBatch);
+			storage.secrets.setBatch(secretsBatch)
 		}
 
 		// ─── 2. Migrate workspace state (if needed) ────────────────────
 		if (needWorkspaceMigration) {
 			// Batch workspace state keys
-			const workspaceStateBatch: Record<string, any> = {};
+			const workspaceStateBatch: Record<string, any> = {}
 			for (const key of LocalStateKeys) {
-				const vscodeValue = vscodeContext.workspaceState.get(key);
+				const vscodeValue = vscodeContext.workspaceState.get(key)
 				if (vscodeValue === undefined) {
-					continue;
+					continue
 				}
 
-				const existingFileValue = storage.workspaceState.get(key);
+				const existingFileValue = storage.workspaceState.get(key)
 				if (existingFileValue !== undefined) {
-					result.skippedExisting++;
-					continue;
+					result.skippedExisting++
+					continue
 				}
 
-				workspaceStateBatch[key] = vscodeValue;
-				result.workspaceStateCount++;
+				workspaceStateBatch[key] = vscodeValue
+				result.workspaceStateCount++
 			}
 
-			// Add sentinel to batch
-			workspaceStateBatch[MIGRATION_VERSION_KEY] = CURRENT_MIGRATION_VERSION;
+			// Add sentinel to batch. This advances straight to CURRENT because any
+			// global v2-only migrations already ran above when needed.
+			workspaceStateBatch[MIGRATION_VERSION_KEY] = CURRENT_MIGRATION_VERSION
 
 			// Write all workspace state in one operation
-			storage.workspaceState.setBatch(workspaceStateBatch);
+			storage.workspaceState.setBatch(workspaceStateBatch)
 		}
 
-		result.migrated = true;
+		// If the original v1 export was already complete, still advance sentinels
+		// for this workspace after the v2 MCP migration attempt so future startups
+		// don't re-run it. New workspaces still have no workspace sentinel and will
+		// get their v1 workspace-state export when first opened.
+		if (!needGlobalMigration && needMcpSettingsMigration) {
+			storage.globalState.update(MIGRATION_VERSION_KEY, CURRENT_MIGRATION_VERSION)
+		}
+		if (!needWorkspaceMigration && needMcpSettingsMigration) {
+			storage.workspaceState.set(MIGRATION_VERSION_KEY, CURRENT_MIGRATION_VERSION)
+		}
+
+		result.migrated = needGlobalMigration || needWorkspaceMigration || needMcpSettingsMigration || result.mcpServersAdded > 0
 
 		Logger.info(
 			`[Migration] Complete: ${result.globalStateCount} global state keys, ` +
 				`${result.secretsCount} secrets, ${result.workspaceStateCount} workspace state keys migrated. ` +
-				`${result.skippedExisting} keys skipped (already in file store).`,
-		);
+				`${result.skippedExisting} keys skipped (already in file store). ` +
+				`Legacy MCP migration added ${result.mcpServersAdded} server(s), skipped ${result.mcpServersSkippedExisting} existing server(s).`,
+		)
 	} catch (error) {
-		Logger.error(
-			"[Migration] Fatal error during VSCode → file-backed migration:",
-			error,
-		);
+		Logger.error("[Migration] Fatal error during VSCode → file-backed migration:", error)
 		// Don't write sentinel on failure — migration will retry next startup
-		throw error;
+		throw error
 	}
 
-	return result;
+	return result
 }

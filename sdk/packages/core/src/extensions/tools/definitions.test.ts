@@ -5,17 +5,29 @@ import {
 	getToolContextTelemetry,
 } from "../../services/telemetry/tool-context";
 import {
-	createBashTool,
 	createDefaultTools,
 	createReadFilesTool,
 	createSearchTool,
+	createShellTool,
 	createSkillsTool,
-	createWindowsShellTool,
 } from "./definitions";
 import { CommandExitError } from "./executors/bash";
 import { RUN_COMMAND_QUERY_PREVIEW_LIMIT, TimeoutError } from "./helpers";
 import { INPUT_ARG_CHAR_LIMIT } from "./schemas";
 import type { SkillsExecutorWithMetadata } from "./types";
+
+function hasSchemaKey(value: unknown, key: string): boolean {
+	if (Array.isArray(value)) {
+		return value.some((item) => hasSchemaKey(item, key));
+	}
+	if (value && typeof value === "object") {
+		return Object.entries(value).some(
+			([entryKey, entryValue]) =>
+				entryKey === key || hasSchemaKey(entryValue, key),
+		);
+	}
+	return false;
+}
 
 function createMockSkillsExecutor(
 	fn: (...args: unknown[]) => Promise<string> = async () => "ok",
@@ -508,7 +520,7 @@ describe("default run_commands tool", () => {
 		const execute = vi.fn(async (command: string | { command: string }) =>
 			typeof command === "string" ? `ran:${command}` : `ran:${command.command}`,
 		);
-		const tool = createWindowsShellTool(execute);
+		const tool = createShellTool(execute);
 
 		const result = await tool.execute({ commands: "ls" } as never, {
 			agentId: "agent-1",
@@ -540,7 +552,7 @@ describe("default run_commands tool", () => {
 			async (command: string | { command: string }) =>
 				`ran:${typeof command === "string" ? command : command.command}`,
 		);
-		const tool = createWindowsShellTool(execute);
+		const tool = createShellTool(execute);
 
 		await tool.execute({ command: "pwd" } as never, {
 			agentId: "agent-1",
@@ -574,7 +586,7 @@ describe("default run_commands tool", () => {
 					? `ran:${command}`
 					: `ran:${command.command}:${(command.args ?? []).join(",")}`,
 		);
-		const tool = createWindowsShellTool(execute);
+		const tool = createShellTool(execute);
 
 		const result = await tool.execute(
 			{
@@ -611,6 +623,62 @@ describe("default run_commands tool", () => {
 		);
 	});
 
+	it("accepts mixed structured and string command arrays", async () => {
+		const execute = vi.fn(
+			async (command: string | { command: string; args?: string[] }) =>
+				typeof command === "string"
+					? `ran:${command}`
+					: `ran:${command.command}:${(command.args ?? []).join(",")}`,
+		);
+		const tool = createShellTool(execute);
+
+		const result = await tool.execute(
+			{
+				commands: ["pwd", { command: "node", args: ["--version"] }],
+			} as never,
+			{
+				agentId: "agent-1",
+				conversationId: "conv-1",
+				iteration: 1,
+			},
+		);
+
+		expect(result).toEqual([
+			{ query: "pwd", result: "ran:pwd", success: true },
+			{
+				query: "node --version",
+				result: "ran:node:--version",
+				success: true,
+			},
+		]);
+		expect(execute).toHaveBeenNthCalledWith(
+			1,
+			"pwd",
+			process.cwd(),
+			expect.objectContaining({ iteration: 1 }),
+		);
+		expect(execute).toHaveBeenNthCalledWith(
+			2,
+			{ command: "node", args: ["--version"] },
+			process.cwd(),
+			expect.objectContaining({ iteration: 1 }),
+		);
+	});
+
+	it("rejects invalid text-object command entries", async () => {
+		const execute = vi.fn(async () => "ran");
+		const tool = createShellTool(execute);
+
+		await expect(
+			tool.execute({ commands: [{ $text: "pwd" }] } as never, {
+				agentId: "agent-1",
+				conversationId: "conv-1",
+				iteration: 1,
+			}),
+		).rejects.toThrow("Invalid input");
+		expect(execute).not.toHaveBeenCalled();
+	});
+
 	it("preserves args on direct structured command objects", async () => {
 		const execute = vi.fn(
 			async (command: string | { command: string; args?: string[] }) =>
@@ -618,7 +686,7 @@ describe("default run_commands tool", () => {
 					? `ran:${command}`
 					: `ran:${command.command}:${(command.args ?? []).join(",")}`,
 		);
-		const tool = createWindowsShellTool(execute);
+		const tool = createShellTool(execute);
 
 		const result = await tool.execute(
 			{ command: "git", args: ["status", "--short"] } as never,
@@ -652,7 +720,7 @@ describe("default run_commands tool", () => {
 			async (command: string | { command: string }) =>
 				`ran:${typeof command === "string" ? command : command.command}`,
 		);
-		const tool = createBashTool(execute);
+		const tool = createShellTool(execute);
 
 		const result = await tool.execute(
 			{ commands: ["git status --short"] },
@@ -679,7 +747,7 @@ describe("default run_commands tool", () => {
 				"[Command exited with code 1]\nfailed assertion details",
 			);
 		});
-		const tool = createBashTool(execute);
+		const tool = createShellTool(execute);
 
 		const result = await tool.execute(
 			{ commands: ["bun test"] },
@@ -700,12 +768,281 @@ describe("default run_commands tool", () => {
 		]);
 	});
 
+	it("coalesces split heredoc command arrays before execution", async () => {
+		const execute = vi.fn(
+			async (command: string | { command: string }) =>
+				`ran:${typeof command === "string" ? command : command.command}`,
+		);
+		const tool = createShellTool(execute);
+
+		const result = await tool.execute(
+			{
+				commands: [
+					"cd /app && python3 << 'PYEOF'",
+					"import csv",
+					"print('ok')",
+					"PYEOF",
+				],
+			},
+			{
+				sessionId: "session-split-heredoc",
+				agentId: "agent-1",
+				conversationId: "conv-1",
+				iteration: 1,
+			},
+		);
+
+		const expectedCommand =
+			"cd /app && python3 << 'PYEOF'\nimport csv\nprint('ok')\nPYEOF";
+		expect(execute).toHaveBeenCalledTimes(1);
+		expect(execute).toHaveBeenCalledWith(
+			expectedCommand,
+			process.cwd(),
+			expect.objectContaining({ sessionId: "session-split-heredoc" }),
+		);
+		expect(result).toEqual([
+			expect.objectContaining({
+				query: expect.stringContaining("cd /app && python3"),
+				result: `ran:${expectedCommand}`,
+				success: true,
+			}),
+		]);
+	});
+
+	it("coalesces split heredocs while preserving surrounding command order", async () => {
+		const execute = vi.fn(
+			async (command: string | { command: string }) =>
+				`ran:${typeof command === "string" ? command : command.command}`,
+		);
+		const tool = createShellTool(execute);
+
+		const result = await tool.execute(
+			{
+				commands: [
+					"pwd",
+					"python3 << 'PYEOF'",
+					"print('ok')",
+					"PYEOF",
+					"ls /app",
+				],
+			},
+			{
+				sessionId: "session-surrounding-heredoc",
+				agentId: "agent-1",
+				conversationId: "conv-1",
+				iteration: 1,
+			},
+		);
+
+		const expectedCommand = "python3 << 'PYEOF'\nprint('ok')\nPYEOF";
+		expect(execute).toHaveBeenCalledTimes(3);
+		expect(execute).toHaveBeenNthCalledWith(
+			1,
+			"pwd",
+			process.cwd(),
+			expect.objectContaining({ sessionId: "session-surrounding-heredoc" }),
+		);
+		expect(execute).toHaveBeenNthCalledWith(
+			2,
+			expectedCommand,
+			process.cwd(),
+			expect.objectContaining({ sessionId: "session-surrounding-heredoc" }),
+		);
+		expect(execute).toHaveBeenNthCalledWith(
+			3,
+			"ls /app",
+			process.cwd(),
+			expect.objectContaining({ sessionId: "session-surrounding-heredoc" }),
+		);
+		expect(result).toEqual([
+			expect.objectContaining({ query: "pwd", result: "ran:pwd" }),
+			expect.objectContaining({
+				query: expectedCommand,
+				result: `ran:${expectedCommand}`,
+			}),
+			expect.objectContaining({ query: "ls /app", result: "ran:ls /app" }),
+		]);
+	});
+
+	it("coalesces split tab-stripping heredocs", async () => {
+		const execute = vi.fn(
+			async (command: string | { command: string }) =>
+				`ran:${typeof command === "string" ? command : command.command}`,
+		);
+		const tool = createShellTool(execute);
+
+		const result = await tool.execute(
+			{
+				commands: ["cat <<- EOF", "\tindented body", "EOF"],
+			},
+			{
+				sessionId: "session-tab-stripping-heredoc",
+				agentId: "agent-1",
+				conversationId: "conv-1",
+				iteration: 1,
+			},
+		);
+
+		const expectedCommand = "cat <<- EOF\n\tindented body\nEOF";
+		expect(execute).toHaveBeenCalledTimes(1);
+		expect(execute).toHaveBeenCalledWith(
+			expectedCommand,
+			process.cwd(),
+			expect.objectContaining({
+				sessionId: "session-tab-stripping-heredoc",
+			}),
+		);
+		expect(result).toEqual([
+			expect.objectContaining({
+				query: expectedCommand,
+				result: `ran:${expectedCommand}`,
+			}),
+		]);
+	});
+
+	it("does not coalesce independent command arrays", async () => {
+		const execute = vi.fn(
+			async (command: string | { command: string }) =>
+				`ran:${typeof command === "string" ? command : command.command}`,
+		);
+		const tool = createShellTool(execute);
+
+		const result = await tool.execute(
+			{ commands: ["pwd", "ls /app"] },
+			{
+				sessionId: "session-independent-commands",
+				agentId: "agent-1",
+				conversationId: "conv-1",
+				iteration: 1,
+			},
+		);
+
+		expect(execute).toHaveBeenCalledTimes(2);
+		expect(result).toEqual([
+			expect.objectContaining({ query: "pwd", result: "ran:pwd" }),
+			expect.objectContaining({ query: "ls /app", result: "ran:ls /app" }),
+		]);
+	});
+
+	it("coalesces consecutive split heredoc command arrays independently", async () => {
+		const execute = vi.fn(
+			async (command: string | { command: string }) =>
+				`ran:${typeof command === "string" ? command : command.command}`,
+		);
+		const tool = createShellTool(execute);
+
+		const result = await tool.execute(
+			{
+				commands: [
+					"cat << 'FOO'",
+					"foo body",
+					"FOO",
+					"cat << 'BAR'",
+					"bar body",
+					"BAR",
+				],
+			},
+			{
+				sessionId: "session-consecutive-heredocs",
+				agentId: "agent-1",
+				conversationId: "conv-1",
+				iteration: 1,
+			},
+		);
+
+		const expectedFirstCommand = "cat << 'FOO'\nfoo body\nFOO";
+		const expectedSecondCommand = "cat << 'BAR'\nbar body\nBAR";
+		expect(execute).toHaveBeenCalledTimes(2);
+		expect(execute).toHaveBeenNthCalledWith(
+			1,
+			expectedFirstCommand,
+			process.cwd(),
+			expect.objectContaining({ sessionId: "session-consecutive-heredocs" }),
+		);
+		expect(execute).toHaveBeenNthCalledWith(
+			2,
+			expectedSecondCommand,
+			process.cwd(),
+			expect.objectContaining({ sessionId: "session-consecutive-heredocs" }),
+		);
+		expect(result).toEqual([
+			expect.objectContaining({
+				query: "cat << 'FOO'\nfoo body\nFOO",
+				result: `ran:${expectedFirstCommand}`,
+			}),
+			expect.objectContaining({
+				query: "cat << 'BAR'\nbar body\nBAR",
+				result: `ran:${expectedSecondCommand}`,
+			}),
+		]);
+	});
+
+	it("does not treat here-strings as split heredocs", async () => {
+		const execute = vi.fn(
+			async (command: string | { command: string }) =>
+				`ran:${typeof command === "string" ? command : command.command}`,
+		);
+		const tool = createShellTool(execute);
+
+		const result = await tool.execute(
+			{ commands: ['wc -c <<< "hello"', "hello"] },
+			{
+				sessionId: "session-here-string",
+				agentId: "agent-1",
+				conversationId: "conv-1",
+				iteration: 1,
+			},
+		);
+
+		expect(execute).toHaveBeenCalledTimes(2);
+		expect(result).toEqual([
+			expect.objectContaining({
+				query: 'wc -c <<< "hello"',
+				result: 'ran:wc -c <<< "hello"',
+			}),
+			expect.objectContaining({
+				query: "hello",
+				result: "ran:hello",
+			}),
+		]);
+	});
+
+	it("does not coalesce unterminated heredoc command arrays", async () => {
+		const execute = vi.fn(
+			async (command: string | { command: string }) =>
+				`ran:${typeof command === "string" ? command : command.command}`,
+		);
+		const tool = createShellTool(execute);
+
+		const result = await tool.execute(
+			{ commands: ["python3 << 'PYEOF'", "print('ok')"] },
+			{
+				sessionId: "session-unterminated-heredoc",
+				agentId: "agent-1",
+				conversationId: "conv-1",
+				iteration: 1,
+			},
+		);
+
+		expect(execute).toHaveBeenCalledTimes(2);
+		expect(result).toEqual([
+			expect.objectContaining({
+				query: "python3 << 'PYEOF'",
+				result: "ran:python3 << 'PYEOF'",
+			}),
+			expect.objectContaining({
+				query: "print('ok')",
+				result: "ran:print('ok')",
+			}),
+		]);
+	});
+
 	it("truncates long command echoes in tool results without affecting execution", async () => {
 		const execute = vi.fn(
 			async (command: string | { command: string }) =>
 				`ran:${typeof command === "string" ? command.length : command.command.length}`,
 		);
-		const tool = createBashTool(execute);
+		const tool = createShellTool(execute);
 		const largeSource = "x".repeat(14000);
 		const command = `cat > /app/eval.scm << 'EOF'\n${largeSource}\nEOF`;
 
@@ -739,7 +1076,7 @@ describe("default run_commands tool", () => {
 		const execute = vi.fn(async () => {
 			throw new Error("boom");
 		});
-		const tool = createBashTool(execute);
+		const tool = createShellTool(execute);
 		const command = `cat > /app/big.txt << 'EOF'\n${"y".repeat(10000)}\nEOF`;
 
 		const result = (await tool.execute(
@@ -761,7 +1098,7 @@ describe("default run_commands tool", () => {
 
 	it("truncates long command echoes for the structured windows shell tool", async () => {
 		const execute = vi.fn(async () => "ok");
-		const tool = createWindowsShellTool(execute);
+		const tool = createShellTool(execute);
 		const command = `powershell -Command "${"z".repeat(9000)}"`;
 
 		const result = (await tool.execute({ commands: [command] } as never, {
@@ -778,11 +1115,11 @@ describe("default run_commands tool", () => {
 	});
 
 	it("emits timeout telemetry without leaking raw command data", async () => {
-		const execute = vi.fn(
-			async (): Promise<string> =>
-				await new Promise((resolve) => setTimeout(() => resolve("ok"), 20)),
-		);
-		const tool = createWindowsShellTool(execute, { bashTimeoutMs: 5 });
+		// Never resolves, so the configured timeout deterministically wins the
+		// race regardless of host load (a tight real-timer margin flaked under
+		// heavy parallel CI runs).
+		const execute = vi.fn((): Promise<string> => new Promise<string>(() => {}));
+		const tool = createShellTool(execute, { bashTimeoutMs: 5 });
 		const telemetry = createTelemetryStub();
 
 		const result = await tool.execute(
@@ -853,7 +1190,7 @@ describe("default run_commands tool", () => {
 			throw new Error("Command timed out after 5000ms");
 		});
 
-		await createWindowsShellTool(executorTimeout, {
+		await createShellTool(executorTimeout, {
 			bashTimeoutMs: 5000,
 		}).execute({ commands: ["echo timeout"] } as never, {
 			agentId: "agent-1",
@@ -861,7 +1198,7 @@ describe("default run_commands tool", () => {
 			iteration: 1,
 			metadata: { [CLINE_INTERNAL_TELEMETRY_METADATA_KEY]: telemetry },
 		});
-		await createWindowsShellTool(plainFailure, { bashTimeoutMs: 5000 }).execute(
+		await createShellTool(plainFailure, { bashTimeoutMs: 5000 }).execute(
 			{ commands: ["echo not-timeout"] } as never,
 			{
 				agentId: "agent-1",
@@ -882,11 +1219,11 @@ describe("default run_commands tool", () => {
 
 	it("emits timeout telemetry on the default bash tool path", async () => {
 		const telemetry = createTelemetryStub();
-		const execute = vi.fn(
-			async (): Promise<string> =>
-				await new Promise((resolve) => setTimeout(() => resolve("ok"), 20)),
-		);
-		const tool = createBashTool(execute, { bashTimeoutMs: 5 });
+		// Never resolves, so the configured timeout deterministically wins the
+		// race regardless of host load (a tight real-timer margin flaked under
+		// heavy parallel CI runs).
+		const execute = vi.fn((): Promise<string> => new Promise<string>(() => {}));
+		const tool = createShellTool(execute, { bashTimeoutMs: 5 });
 
 		const result = await tool.execute(
 			{ commands: ["echo secret-token", "pwd"] },
@@ -938,7 +1275,7 @@ describe("default run_commands tool", () => {
 
 	it("does not emit timeout telemetry for normal command success", async () => {
 		const execute = vi.fn(async () => "ok");
-		const tool = createWindowsShellTool(execute, { bashTimeoutMs: 50 });
+		const tool = createShellTool(execute, { bashTimeoutMs: 50 });
 		const telemetry = createTelemetryStub();
 
 		await tool.execute({ commands: ["echo hi"] } as never, {
@@ -1227,6 +1564,22 @@ describe("default read_files tool", () => {
 });
 
 describe("zod schema conversion", () => {
+	it("advertises run_commands as string-only command arrays", () => {
+		const tool = createShellTool(async () => "ok");
+		const inputSchema = tool.inputSchema as Record<string, unknown>;
+		const serialized = JSON.stringify(inputSchema);
+
+		expect(serialized).not.toContain('"anyOf"');
+		expect(serialized).not.toContain("Prefer structured");
+		expect(hasSchemaKey(inputSchema, "command")).toBe(false);
+
+		const properties = inputSchema.properties as Record<string, unknown>;
+		const commands = properties.commands as {
+			items?: { type?: string };
+		};
+		expect(commands.items?.type).toBe("string");
+	});
+
 	it("preserves read_files required properties in generated JSON schema", () => {
 		const tool = createReadFilesTool(async () => "ok");
 		const inputSchema = tool.inputSchema as Record<string, unknown>;

@@ -76,9 +76,10 @@ export function normalizeClineRecommendedProviderModels(
 		const capabilities = findORModelCapabilities(entry, openRouterModelsByName);
 
 		models[entry.id] = {
+			// We should use the OR name, unless there is not one (like when using defaults)
+			name: entry.name,
 			...capabilities,
 			id: entry.id,
-			name: entry.name,
 			description: entry.description,
 		};
 	});
@@ -90,10 +91,9 @@ export function normalizeClineRecommendedProviderModels(
 	return { [CLINE_PASS_PROVIDER_ID]: models };
 }
 
-export async function fetchClineRecommendedProviderModels(
+export async function fetchClineRecommendedModelsPayload(
 	fetcher: typeof fetch = fetch,
-	openRouterModels: Record<string, ModelInfo>,
-): Promise<Record<string, Record<string, ModelInfo>>> {
+): Promise<ClineRecommendedModelsPayload> {
 	const url = `${getClineEnvironmentConfig().apiBaseUrl}/api/v1/ai/cline/recommended-models`;
 	const response = await fetcher(url);
 	if (!response.ok) {
@@ -102,6 +102,13 @@ export async function fetchClineRecommendedProviderModels(
 		);
 	}
 
-	const payload = (await response.json()) as ClineRecommendedModelsPayload;
+	return (await response.json()) as ClineRecommendedModelsPayload;
+}
+
+export async function fetchClineRecommendedProviderModels(
+	fetcher: typeof fetch = fetch,
+	openRouterModels: Record<string, ModelInfo>,
+): Promise<Record<string, Record<string, ModelInfo>>> {
+	const payload = await fetchClineRecommendedModelsPayload(fetcher);
 	return normalizeClineRecommendedProviderModels(payload, openRouterModels);
 }

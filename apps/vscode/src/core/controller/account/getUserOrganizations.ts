@@ -26,7 +26,7 @@ export async function getUserOrganizations(
 
 		return UserOrganizationsResponse.create({
 			organizations:
-				organizations?.map((org) =>
+				organizations?.map((org: any) =>
 					UserOrganization.create({
 						active: org.active,
 						memberId: org.memberId,
