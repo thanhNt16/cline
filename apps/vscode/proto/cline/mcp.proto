@@ -12,6 +12,7 @@ service McpService {
   rpc toggleMcpServer(ToggleMcpServerRequest) returns (McpServers);
   rpc updateMcpTimeout(UpdateMcpTimeoutRequest) returns (McpServers);
   rpc addRemoteMcpServer(AddRemoteMcpServerRequest) returns (McpServers);
+  rpc addStdioMcpServer(AddStdioMcpServerRequest) returns (McpServers);
   rpc restartMcpServer(StringRequest) returns (McpServers);
   rpc deleteMcpServer(StringRequest) returns (McpServers);
   rpc toggleToolAutoApprove(ToggleToolAutoApproveRequest) returns (McpServers);
@@ -40,6 +41,15 @@ message AddRemoteMcpServerRequest {
   string server_name = 2;
   string server_url = 3;
   optional string transport_type = 4;
+}
+
+message AddStdioMcpServerRequest {
+  Metadata metadata = 1;
+  string server_name = 2;
+  string command = 3;
+  repeated string args = 4;
+  map<string, string> env = 5;
+  optional string cwd = 6;
 }
 
 message ToggleToolAutoApproveRequest {

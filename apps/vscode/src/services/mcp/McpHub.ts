@@ -1759,6 +1759,55 @@ export class McpHub {
 		}
 	}
 
+	public async addStdioServer(
+		serverName: string,
+		command: string,
+		args: string[],
+		env: Record<string, string>,
+		cwd?: string,
+	): Promise<McpServer[]> {
+		try {
+			const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
+			await updateMcpSettingsFile(settingsPath, (current) => {
+				const servers = current.mcpServers as Record<string, any>
+				if (servers[serverName]) {
+					throw new Error(`An MCP server with the name "${serverName}" already exists`)
+				}
+
+				const serverConfig: Record<string, any> = {
+					command,
+					args,
+					env,
+					type: "stdio",
+					disabled: false,
+					autoApprove: [],
+				}
+				if (cwd) {
+					serverConfig.cwd = cwd
+				}
+
+				const expandedConfig = expandEnvironmentVariables(serverConfig)
+
+				const parsedConfig = ServerConfigSchema.parse(expandedConfig)
+
+				servers[serverName] = parsedConfig
+
+				const serversToWrite = { ...servers, [serverName]: serverConfig }
+				current.mcpServers = serversToWrite
+				return current
+			})
+			const settings = await this.readPostWriteMcpSettings()
+
+			await this.updateServerConnectionsRPC(settings.mcpServers as Record<string, McpServerConfig>)
+
+			const serverOrder = Object.keys(settings.mcpServers || {})
+			return this.getSortedMcpServers(serverOrder)
+		} catch (error) {
+			Logger.error("Failed to add stdio MCP server:", error)
+			throw error
+		}
+	}
+
 	/**
 	 * RPC variant of deleteServer that returns the updated server list directly
 	 * @param serverName The name of the server to delete
