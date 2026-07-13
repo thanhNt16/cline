@@ -40,6 +40,7 @@ import { UrlContentFetcher } from "@/services/browser/UrlContentFetcher"
 import { ClineError } from "@/services/error/ClineError"
 import { McpHub } from "@/services/mcp/McpHub"
 import { telemetryService } from "@/services/telemetry"
+import { CodebaseMemoryFacade } from "@/services/codebase-memory/CodebaseMemoryFacade"
 import type { ClineExtensionContext } from "@/shared/cline"
 import { ShowMessageRequest, ShowMessageType } from "@/shared/proto/host/window"
 import { Logger } from "@/shared/services/Logger"
@@ -182,6 +183,7 @@ export class Controller {
 	accountService: ClineAccountService
 	authService: AuthService
 	ocaAuthService: OcaAuthService
+	codebaseMemory: CodebaseMemoryFacade
 	readonly stateManager: StateManager
 
 	// Lazy terminal manager for foreground terminal execution.
@@ -244,10 +246,26 @@ export class Controller {
 			telemetryService,
 		)
 
+		// Re-target the MCP settings file watcher when workspace folders change
+		// (handles the case where the watcher was set up before the workspace loaded).
+		import("vscode")
+			.then((mod) => {
+				const vscode = mod.default ?? mod
+				this.context.subscriptions.push(
+					vscode.workspace.onDidChangeWorkspaceFolders(async () => {
+						await this.mcpHub?.rewatchMcpSettingsFile()
+					}),
+				)
+			})
+			.catch(() => {
+				// Not in VSCode host — skip
+			})
+
 		// Initialize SDK-backed auth and account services.
 		this.authService = AuthService.getInstance(this)
 		this.ocaAuthService = OcaAuthService.initialize(this)
 		this.accountService = ClineAccountService.getInstance()
+		this.codebaseMemory = new CodebaseMemoryFacade(this.context, this.mcpHub)
 
 		// Initialize message translator state
 		this.messageTranslatorState = new MessageTranslatorState(undefined, () => this.getActiveProviderId())
@@ -668,6 +686,7 @@ export class Controller {
 		await this.sessions.dispose("SdkController.dispose")
 		await this.taskHistory.dispose()
 		this.mcpHub?.dispose?.()
+		this.codebaseMemory?.dispose()
 		this.messages.dispose()
 		await this.sdkTelemetry.dispose()
 		Logger.log("[SdkController] Disposed")
