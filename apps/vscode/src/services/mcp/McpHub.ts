@@ -396,6 +396,28 @@ export class McpHub {
 		})
 	}
 
+	/**
+	 * Re-target the settings file watcher if the resolved settings path has
+	 * changed (e.g. workspace folder opened after constructor ran). Called
+	 * from SdkController on workspace folder change.
+	 */
+	public async rewatchMcpSettingsFile(): Promise<void> {
+		const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
+		if (settingsPath === this.watchedSettingsPath) {
+			return
+		}
+		// Close the old watcher
+		if (this.settingsWatcher) {
+			await this.settingsWatcher.close()
+			this.settingsWatcher = undefined
+			this.watchedSettingsPath = undefined
+		}
+		// Start a new watcher on the correct path
+		await this.watchMcpSettingsFile()
+		// Re-initialize servers from the new settings file
+		await this.initializeMcpServers()
+	}
+
 	private async initializeMcpServers(): Promise<void> {
 		const settings = await this.readAndValidateMcpSettingsFile()
 		if (settings) {
