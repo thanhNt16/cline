@@ -18,6 +18,7 @@ describe("McpHub rewatchMcpSettingsFile", () => {
 		hub = Object.create(McpHub.prototype) as McpHub
 		;(hub as any).connections = []
 		;(hub as any).fileWatchers = new Map()
+		;(hub as any).projectSettingsWatchers = []
 	})
 
 	afterEach(async () => {
