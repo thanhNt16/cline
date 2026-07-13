@@ -4,9 +4,10 @@ import { ResetStateRequest } from "@shared/proto/cline/state"
 import type { UserOrganization } from "@shared/proto/index.cline"
 import {
 	CheckCheck,
+	Database,
 	FlaskConical,
+	Folder,
 	HardDriveDownload,
-	Info,
 	type LucideIcon,
 	SlidersHorizontal,
 	SquareTerminal,
@@ -23,18 +24,19 @@ import { isAdminOrOwner } from "../account/helpers"
 import { Tab, TabContent, TabList, TabTrigger } from "../common/Tab"
 import ViewHeader from "../common/ViewHeader"
 import SectionHeader from "./SectionHeader"
-import AboutSection from "./sections/AboutSection"
 import ApiConfigurationSection from "./sections/ApiConfigurationSection"
 import DebugSection from "./sections/DebugSection"
 import FeatureSettingsSection from "./sections/FeatureSettingsSection"
 import GeneralSettingsSection from "./sections/GeneralSettingsSection"
 import { RemoteConfigSection } from "./sections/RemoteConfigSection"
 import TerminalSettingsSection from "./sections/TerminalSettingsSection"
+import CodebaseMemorySection from "./sections/CodebaseMemorySection"
+import { ProjectConfigSection } from "./sections/ProjectConfigSection"
 
 const IS_DEV = process.env.IS_DEV
 
 // Tab definitions
-type SettingsTabID = "api-config" | "features" | "terminal" | "general" | "about" | "debug" | "remote-config"
+type SettingsTabID = "api-config" | "features" | "terminal" | "general" | "project" | "debug" | "remote-config" | "codebase-memory"
 interface SettingsTab {
 	id: SettingsTabID
 	name: string
@@ -74,6 +76,13 @@ const SETTINGS_TABS: SettingsTab[] = [
 		icon: Wrench,
 	},
 	{
+		id: "project",
+		name: "Project",
+		tooltipText: "Project Configuration",
+		headerText: "Project Configuration",
+		icon: Folder,
+	},
+	{
 		id: "remote-config",
 		name: "Remote Config",
 		tooltipText: "Remotely configured fields",
@@ -83,11 +92,11 @@ const SETTINGS_TABS: SettingsTab[] = [
 			!activeOrganization || !isAdminOrOwner(activeOrganization),
 	},
 	{
-		id: "about",
-		name: "About",
-		tooltipText: "About Cline",
-		headerText: "About",
-		icon: Info,
+		id: "codebase-memory",
+		name: "Codebase Index",
+		tooltipText: "Codebase Memory & Graph",
+		headerText: "Codebase Memory",
+		icon: Database,
 	},
 	// Only show in dev mode
 	{
@@ -130,8 +139,9 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 			general: GeneralSettingsSection,
 			features: FeatureSettingsSection,
 			terminal: TerminalSettingsSection,
+			project: ProjectConfigSection,
 			"remote-config": RemoteConfigSection,
-			about: AboutSection,
+			"codebase-memory": CodebaseMemorySection,
 			debug: DebugSection,
 		}),
 		[],
@@ -238,8 +248,6 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 		const props: any = { renderSectionHeader }
 		if (activeTab === "debug") {
 			props.onResetState = handleResetState
-		} else if (activeTab === "about") {
-			props.version = version
 		} else if (activeTab === "api-config") {
 			props.initialModelTab = settingsInitialModelTab
 		}
