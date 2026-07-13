@@ -392,6 +392,25 @@ export class McpHub {
 			}
 		})
 
+		this.settingsWatcher.on("add", async () => {
+			// File was created — trigger the same reload as a change event.
+			// This handles the case where the settings file is created after
+			// the watcher starts (e.g. first-time .cellockai setup).
+			const settings = await this.readAndValidateMcpSettingsFile()
+			if (settings) {
+				const fingerprint = this.computeConnectionFingerprint(
+					settings.mcpServers as Record<string, McpServerConfig>,
+				)
+				if (fingerprint === this.lastConnectionFingerprint) return
+				this.lastConnectionFingerprint = fingerprint
+				try {
+					await this.updateServerConnections(settings.mcpServers)
+				} catch (error) {
+					Logger.error("Failed to process MCP settings file creation:", error)
+				}
+			}
+		})
+
 		this.settingsWatcher.on("error", (error) => {
 			Logger.error("Error watching MCP settings file:", error)
 		})
