@@ -2,7 +2,7 @@ import { useState } from "react"
 import { AddStdioMcpServerRequest, McpServers } from "@shared/proto/cline/mcp"
 import { McpServiceClient } from "@/services/grpc-client"
 import { useExtensionState } from "@/context/ExtensionStateContext"
-import { convertProtoMcpServersToMcpServers } from "@/shared/proto-conversions/mcp/mcp-server-conversion"
+import { convertProtoMcpServersToMcpServers } from "@shared/proto-conversions/mcp/mcp-server-conversion"
 
 interface EnvEntry {
 	key: string

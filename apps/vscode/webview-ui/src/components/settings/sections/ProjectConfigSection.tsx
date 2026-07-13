@@ -2,7 +2,7 @@ import { useMemo } from "react"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 
 export const ProjectConfigSection = () => {
-	const { mcpServers, globalSkills, localSkills } = useExtensionState()
+	const { mcpServers } = useExtensionState()
 
 	const connectedCount = useMemo(
 		() => (mcpServers || []).filter((s) => s.status === "connected").length,
@@ -12,7 +12,6 @@ export const ProjectConfigSection = () => {
 		() => (mcpServers || []).filter((s) => s.status === "disconnected").length,
 		[mcpServers],
 	)
-	const totalSkills = (globalSkills?.length || 0) + (localSkills?.length || 0)
 
 	return (
 		<div className="flex flex-col gap-6 p-4">
@@ -70,37 +69,6 @@ export const ProjectConfigSection = () => {
 				</div>
 				<p className="text-xs text-vscode-descriptionForeground mt-2">
 					File: <code>.cellockai/mcp_settings.json</code>
-				</p>
-			</div>
-
-			{/* Skills Overview */}
-			<div className="rounded border border-vscode-panel-border p-4">
-				<div className="flex items-center justify-between mb-2">
-					<h3 className="font-medium">Skills</h3>
-					<span className="text-sm text-vscode-descriptionForeground">
-						{totalSkills} total
-					</span>
-				</div>
-				<div className="flex flex-col gap-1">
-					{totalSkills === 0 ? (
-						<p className="text-sm text-vscode-descriptionForeground">No skills configured.</p>
-					) : (
-						<>
-							{(globalSkills || []).length > 0 && (
-								<p className="text-xs text-vscode-descriptionForeground mt-1">
-									Global: {globalSkills.length}
-								</p>
-							)}
-							{(localSkills || []).length > 0 && (
-								<p className="text-xs text-vscode-descriptionForeground">
-									Workspace: {localSkills.length}
-								</p>
-							)}
-						</>
-					)}
-				</div>
-				<p className="text-xs text-vscode-descriptionForeground mt-2">
-					Directory: <code>.cellockai/skills/</code>
 				</p>
 			</div>
 
