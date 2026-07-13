@@ -59,6 +59,7 @@ export class McpHub {
 	private mcpOAuthManager: McpOAuthManager
 
 	private settingsWatcher?: FSWatcher
+	private watchedSettingsPath?: string
 	private fileWatchers: Map<string, FSWatcher> = new Map()
 	connections: McpConnection[] = []
 	isConnecting = false
@@ -315,6 +316,7 @@ export class McpHub {
 
 	private async watchMcpSettingsFile(): Promise<void> {
 		const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
+		this.watchedSettingsPath = settingsPath
 
 		this.settingsWatcher = chokidar.watch(settingsPath, {
 			persistent: true, // Keep the process running as long as files are being watched
