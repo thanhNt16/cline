@@ -61,6 +61,7 @@ export class McpHub {
 	private settingsWatcher?: FSWatcher
 	private watchedSettingsPath?: string
 	private fileWatchers: Map<string, FSWatcher> = new Map()
+	private projectSettingsWatchers: FSWatcher[] = []
 	connections: McpConnection[] = []
 	isConnecting = false
 	/**
@@ -394,6 +395,10 @@ export class McpHub {
 		this.settingsWatcher.on("error", (error) => {
 			Logger.error("Error watching MCP settings file:", error)
 		})
+
+		// Watch project-level MCP merge files (.cellockai/mcp.json from each
+		// workspace root). Changes to these files must also trigger a reload.
+		await this.watchProjectMcpSettingsFiles()
 	}
 
 	/**
@@ -414,8 +419,54 @@ export class McpHub {
 		}
 		// Start a new watcher on the correct path
 		await this.watchMcpSettingsFile()
+		await this.watchProjectMcpSettingsFiles()
 		// Re-initialize servers from the new settings file
 		await this.initializeMcpServers()
+	}
+
+	/**
+	 * Watch .cellockai/mcp.json files from each workspace root for changes.
+	 * A change in any project merge file triggers the same reload as a change
+	 * to the primary settings file.
+	 */
+	private async watchProjectMcpSettingsFiles(): Promise<void> {
+		// Close existing project watchers
+		for (const watcher of this.projectSettingsWatchers) {
+			await watcher.close()
+		}
+		this.projectSettingsWatchers = []
+
+		const projectFilePaths = await getProjectMcpSettingsFilePaths()
+		for (const projectFilePath of projectFilePaths) {
+			const watcher = chokidar.watch(projectFilePath, {
+				persistent: true,
+				ignoreInitial: true,
+				awaitWriteFinish: {
+					stabilityThreshold: 100,
+					pollInterval: 100,
+				},
+				atomic: true,
+			})
+			watcher.on("change", async () => {
+				const settings = await this.readAndValidateMcpSettingsFile()
+				if (settings) {
+					const fingerprint = this.computeConnectionFingerprint(
+						settings.mcpServers as Record<string, McpServerConfig>,
+					)
+					if (fingerprint === this.lastConnectionFingerprint) return
+					this.lastConnectionFingerprint = fingerprint
+					try {
+						await this.updateServerConnections(settings.mcpServers)
+					} catch (error) {
+						Logger.error("Failed to process project MCP settings change:", error)
+					}
+				}
+			})
+			watcher.on("error", (error) => {
+				Logger.error("Error watching project MCP settings file:", error)
+			})
+			this.projectSettingsWatchers.push(watcher)
+		}
 	}
 
 	private async initializeMcpServers(): Promise<void> {
@@ -1957,6 +2008,10 @@ export class McpHub {
 
 	async dispose(): Promise<void> {
 		this.removeAllFileWatchers()
+		for (const watcher of this.projectSettingsWatchers) {
+			await watcher.close()
+		}
+		this.projectSettingsWatchers = []
 		for (const connection of this.connections) {
 			try {
 				await this.deleteConnection(connection.server.name)
