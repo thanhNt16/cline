@@ -268,6 +268,7 @@ export class Controller {
 					vscode.workspace.onDidChangeWorkspaceFolders(async () => {
 						await this.mcpHub?.rewatchMcpSettingsFile()
 						this.workspaceHistoryIndex?.invalidateCache()
+						await this.postStateToWebview()
 					}),
 				)
 			})
