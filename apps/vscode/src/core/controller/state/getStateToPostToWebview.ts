@@ -9,12 +9,31 @@ import { getHooksEnabledSafe } from "@core/hooks/hooks-utils"
 import type { ExtensionState, Platform } from "@shared/ExtensionMessage"
 import { ClineEnv } from "@/config"
 import { overlayActiveProfile } from "@/core/controller/state/active-profile-overlay"
+import { HostProvider } from "@/hosts/host-provider"
 import { ExtensionRegistryInfo } from "@/registry"
 import { BannerService } from "@/services/banner/BannerService"
 import { featureFlagsService } from "@/services/feature-flags"
 import { getDistinctId } from "@/services/logging/distinctId"
 import { getLatestAnnouncementId } from "@/utils/announcements"
 import { getClineOnboardingModels } from "../models/getClineOnboardingModels"
+import { VcsType, type WorkspaceRoot } from "@shared/multi-root/types"
+
+async function resolveWorkspaceRoots(
+	workspaceManager: { getRoots?: () => WorkspaceRoot[] } | undefined,
+): Promise<WorkspaceRoot[] | undefined> {
+	if (workspaceManager?.getRoots) {
+		return workspaceManager.getRoots()
+	}
+	if (!HostProvider.isInitialized()) {
+		return undefined
+	}
+	try {
+		const { paths } = await HostProvider.workspace.getWorkspacePaths({})
+		return paths.map((p) => ({ path: p, name: p.split("/").pop() || p, vcs: VcsType.None }))
+	} catch {
+		return undefined
+	}
+}
 
 /**
  * Builds the ExtensionState object to push to the webview.
@@ -27,6 +46,7 @@ export async function getStateToPostToWebview(controller: {
 	backgroundCommandRunning?: boolean
 	backgroundCommandTaskId?: string
 	workspaceManager?: any
+	workspaceHistoryIndex?: { getTaskIds: () => Promise<Set<string>> }
 	checkpointRestoreInput?: ExtensionState["checkpointRestoreInput"]
 }): Promise<ExtensionState> {
 	const stateManager = controller.stateManager
@@ -38,7 +58,8 @@ export async function getStateToPostToWebview(controller: {
 	// chat bar displays the model a task will actually use (the active profile
 	// overrides the saved config at task time). Sync read of
 	// <cwd>/.cellockai/profiles.json; undefined when no profile / no workspace.
-	const activeProfileModelId = overlayActiveProfile({}, controller.workspaceManager?.getPrimaryRoot?.()?.path).actModeOpenAiModelId
+	const primaryRootPath = controller.workspaceManager?.getPrimaryRoot?.()?.path
+	const activeProfileModelId = overlayActiveProfile({}, primaryRootPath).actModeOpenAiModelId
 	const lastShownAnnouncementId = stateManager.getGlobalStateKey("lastShownAnnouncementId")
 	const taskHistory = stateManager.getGlobalStateKey("taskHistory")
 	const autoApprovalSettings = stateManager.getGlobalSettingsKey("autoApprovalSettings")
@@ -93,8 +114,16 @@ export async function getStateToPostToWebview(controller: {
 	const clineMessages = [...(controller.task?.messageStateHandler?.getClineMessages?.() || [])]
 	const checkpointRestoreInput = controller.checkpointRestoreInput
 
+	const workspaceTaskIds = controller.workspaceHistoryIndex
+		? await controller.workspaceHistoryIndex.getTaskIds()
+		: null
+
 	const processedTaskHistory = (taskHistory || [])
 		.filter((item: any) => item.ts && item.task)
+		.filter((item: any) => {
+			if (!workspaceTaskIds || workspaceTaskIds.size === 0) return true
+			return workspaceTaskIds.has(item.id)
+		})
 		.sort((a: any, b: any) => b.ts - a.ts)
 		.slice(0, 100)
 
@@ -116,6 +145,8 @@ export async function getStateToPostToWebview(controller: {
 	} catch {
 		// Codex OAuth not available
 	}
+
+	const resolvedWorkspaceRoots = (await resolveWorkspaceRoots(controller.workspaceManager)) ?? []
 
 	return {
 		version,
@@ -167,9 +198,9 @@ export async function getStateToPostToWebview(controller: {
 		favoritedModelIds,
 		backgroundCommandRunning: controller.backgroundCommandRunning ?? false,
 		backgroundCommandTaskId: controller.backgroundCommandTaskId,
-		workspaceRoots: controller.workspaceManager?.getRoots?.() ?? [],
+		workspaceRoots: resolvedWorkspaceRoots,
 		primaryRootIndex: controller.workspaceManager?.getPrimaryIndex?.() ?? 0,
-		isMultiRootWorkspace: (controller.workspaceManager?.getRoots?.()?.length ?? 0) > 1,
+		isMultiRootWorkspace: resolvedWorkspaceRoots.length > 1,
 		multiRootSetting: {
 			user: stateManager.getGlobalStateKey("multiRootEnabled"),
 			featureFlag: true,

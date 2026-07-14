@@ -55,6 +55,7 @@ export interface SdkTaskStartCoordinatorOptions {
 	emitClineAuthError: (task?: string) => void
 	captureProviderApiError?: (event: ProviderFailureTelemetry) => void
 	postStateToWebview: () => Promise<void>
+	workspaceHistoryIndex: { addTaskId: (taskId: string) => Promise<void> }
 }
 
 export class SdkTaskStartCoordinator {
@@ -138,6 +139,7 @@ export class SdkTaskStartCoordinator {
 				cwd,
 			)
 			await this.options.taskHistory.updateTaskHistoryItem(newHistoryItem)
+			await this.options.workspaceHistoryIndex.addTaskId(taskSessionId)
 			await this.options.postStateToWebview()
 
 			if (prompt?.trim() || images?.length || files?.length) {

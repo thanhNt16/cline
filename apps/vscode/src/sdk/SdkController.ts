@@ -42,6 +42,7 @@ import { McpHub } from "@/services/mcp/McpHub"
 import { telemetryService } from "@/services/telemetry"
 import { CodebaseMemoryFacade } from "@/services/codebase-memory/CodebaseMemoryFacade"
 import { DocsIndexFacade } from "@/services/docs-index/DocsIndexFacade"
+import { WorkspaceHistoryIndex } from "@/services/workspace-history/WorkspaceHistoryIndex"
 import type { ClineExtensionContext } from "@/shared/cline"
 import { ShowMessageRequest, ShowMessageType } from "@/shared/proto/host/window"
 import { Logger } from "@/shared/services/Logger"
@@ -191,6 +192,7 @@ export class Controller {
 	ocaAuthService: OcaAuthService
 	codebaseMemory: CodebaseMemoryFacade
 	docsIndex: DocsIndexFacade
+	workspaceHistoryIndex: WorkspaceHistoryIndex
 	readonly stateManager: StateManager
 
 	// Lazy terminal manager for foreground terminal execution.
@@ -265,6 +267,7 @@ export class Controller {
 				this.context.subscriptions.push(
 					vscode.workspace.onDidChangeWorkspaceFolders(async () => {
 						await this.mcpHub?.rewatchMcpSettingsFile()
+						this.workspaceHistoryIndex?.invalidateCache()
 					}),
 				)
 			})
@@ -278,6 +281,7 @@ export class Controller {
 		this.accountService = ClineAccountService.getInstance()
 		this.codebaseMemory = new CodebaseMemoryFacade(this.context, this.mcpHub)
 		this.docsIndex = new DocsIndexFacade(this.mcpHub)
+		this.workspaceHistoryIndex = new WorkspaceHistoryIndex()
 
 		// Initialize message translator state
 		this.messageTranslatorState = new MessageTranslatorState(undefined, () => this.getActiveProviderId())
@@ -522,6 +526,7 @@ export class Controller {
 			emitClineAuthError: (task) => this.emitClineAuthErrorWithTelemetry(task),
 			captureProviderApiError: (event) => this.captureProviderFailure(event),
 			postStateToWebview: () => this.postStateToWebview(),
+			workspaceHistoryIndex: this.workspaceHistoryIndex,
 		})
 		this.compaction = new SdkCompactionCoordinator({
 			stateManager: this.stateManager,
@@ -1556,29 +1561,35 @@ export class Controller {
 			offset,
 		})
 
-		let filteredTasks = sessionHistory.filter((item) => {
+		const workspaceTaskIds = currentWorkspaceOnly && workspacePath ? await this.workspaceHistoryIndex.getTaskIds() : null
+
+		let filteredTasks: typeof sessionHistory = []
+		for (const item of sessionHistory) {
 			const ts = dateStringToTimestamp(item.updatedAt ?? item.endedAt ?? item.startedAt)
 			const task = metadataString(item.metadata, "title") ?? item.prompt ?? ""
 
 			if (!ts || !task) {
-				return false
+				continue
 			}
 
 			const isFavorited =
 				metadataBoolean(item.metadata, "isFavorited") ?? metadataBoolean(item.metadata, "is_favorited") ?? false
 			if (favoritesOnly && !isFavorited) {
-				return false
+				continue
 			}
 
 			if (currentWorkspaceOnly && workspacePath) {
-				const sessionWorkspacePath = item.cwd ?? item.workspaceRoot
-				if (!sessionWorkspacePath || !arePathsEqual(sessionWorkspacePath, workspacePath)) {
-					return false
+				const inIndex = workspaceTaskIds?.has(item.sessionId) ?? false
+				if (!inIndex) {
+					const sessionWorkspacePath = item.cwd ?? item.workspaceRoot
+					if (!sessionWorkspacePath || !arePathsEqual(sessionWorkspacePath, workspacePath)) {
+						continue
+					}
 				}
 			}
 
-			return true
-		})
+			filteredTasks.push(item)
+		}
 
 		if (searchQuery) {
 			const query = searchQuery.toLowerCase()
@@ -1680,6 +1691,7 @@ export class Controller {
 	}
 
 	async deleteTaskFromState(id: string): Promise<HistoryItem[]> {
+		await this.workspaceHistoryIndex.removeTaskId(id)
 		return this.taskHistory.deleteTaskFromState(id)
 	}
 
@@ -1737,6 +1749,7 @@ export class Controller {
 		}
 
 		const tasksDeleted = await this.taskHistory.deleteAllTaskHistory()
+		this.workspaceHistoryIndex.invalidateCache()
 		await this.postStateToWebview()
 		return DeleteAllTaskHistoryCount.create({
 			tasksDeleted: tasksDeleted || totalTasks,
