@@ -1,12 +1,5 @@
 import { describe, expect, mock, test } from "bun:test"
 
-mock.module("vscode", () => ({
-	window: {
-		showOpenDialog: mock(async () => [{ fsPath: "/mock/test.pdf" }]),
-	},
-	Uri: { parse: (s: string) => ({ fsPath: s }) },
-}))
-
 mock.module("@/shared/services/Logger", () => ({
 	Logger: { log: mock(() => {}), error: mock(() => {}) },
 }))
