@@ -13,7 +13,7 @@ import {
 	UploadFileResponse,
 } from "@shared/proto/cline/docs_index"
 import * as vscode from "vscode"
-import { toProtoTools, DOCS_INDEX_TOOLS } from "./constants"
+import { toProtoTools } from "./constants"
 import { McpRegistrationService } from "./McpRegistrationService"
 import { VesselIndexerClient } from "./VesselIndexerClient"
 
