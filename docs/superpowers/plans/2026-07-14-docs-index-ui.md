@@ -391,13 +391,14 @@ Create `apps/vscode/src/services/docs-index/__tests__/VesselIndexerClient.test.t
 ```typescript
 import { describe, expect, mock, test } from "bun:test"
 
-// Mock the MCP SDK modules before importing the class
+let mockRequestResult: any = {
+	content: [{ type: "text", text: "" }],
+}
+
 mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
 	Client: class MockClient {
 		connect = mock(async () => {})
-		request = mock(async (req: any) => ({
-			content: [{ type: "text", text: JSON.stringify({ projects: [{ name: "test", mount_path: "/data", total_chunks: 5, status: "indexed" }] }) }],
-		}))
+		request = mock(async (_req: any) => mockRequestResult)
 		close = mock(async () => {})
 	},
 }))
@@ -414,6 +415,9 @@ const { VesselIndexerClient } = await import("../VesselIndexerClient")
 
 describe("VesselIndexerClient", () => {
 	test("callTool parses JSON text content from MCP response", async () => {
+		mockRequestResult = {
+			content: [{ type: "text", text: JSON.stringify({ projects: [{ name: "test", mount_path: "/data", total_chunks: 5, status: "indexed" }] }) }],
+		}
 		const client = new VesselIndexerClient("http://localhost:20130")
 		await client.connect()
 		const result = await client.callTool("list_projects", {})
@@ -423,18 +427,10 @@ describe("VesselIndexerClient", () => {
 	})
 
 	test("callTool returns raw text if not JSON", async () => {
-		// Re-mock with non-JSON response
-		mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
-			Client: class MockClient2 {
-				connect = mock(async () => {})
-				request = mock(async () => ({
-					content: [{ type: "text", text: "plain text response" }],
-				}))
-				close = mock(async () => {})
-			},
-		}))
-		const { VesselIndexerClient: Client2 } = await import("../VesselIndexerClient")
-		const client = new Client2("http://localhost:20130")
+		mockRequestResult = {
+			content: [{ type: "text", text: "plain text response" }],
+		}
+		const client = new VesselIndexerClient("http://localhost:20130")
 		await client.connect()
 		const result = await client.callTool("some_tool", {})
 		expect(result).toBe("plain text response")
