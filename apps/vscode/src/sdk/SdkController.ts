@@ -41,6 +41,7 @@ import { ClineError } from "@/services/error/ClineError"
 import { McpHub } from "@/services/mcp/McpHub"
 import { telemetryService } from "@/services/telemetry"
 import { CodebaseMemoryFacade } from "@/services/codebase-memory/CodebaseMemoryFacade"
+import { DocsIndexFacade } from "@/services/docs-index/DocsIndexFacade"
 import type { ClineExtensionContext } from "@/shared/cline"
 import { ShowMessageRequest, ShowMessageType } from "@/shared/proto/host/window"
 import { Logger } from "@/shared/services/Logger"
@@ -189,6 +190,7 @@ export class Controller {
 	authService: AuthService
 	ocaAuthService: OcaAuthService
 	codebaseMemory: CodebaseMemoryFacade
+	docsIndex: DocsIndexFacade
 	readonly stateManager: StateManager
 
 	// Lazy terminal manager for foreground terminal execution.
@@ -275,6 +277,7 @@ export class Controller {
 		this.ocaAuthService = OcaAuthService.initialize(this)
 		this.accountService = ClineAccountService.getInstance()
 		this.codebaseMemory = new CodebaseMemoryFacade(this.context, this.mcpHub)
+		this.docsIndex = new DocsIndexFacade(this.mcpHub)
 
 		// Initialize message translator state
 		this.messageTranslatorState = new MessageTranslatorState(undefined, () => this.getActiveProviderId())
@@ -696,6 +699,7 @@ export class Controller {
 		await this.taskHistory.dispose()
 		this.mcpHub?.dispose?.()
 		this.codebaseMemory?.dispose()
+		this.docsIndex?.dispose()
 		this.messages.dispose()
 		await this.sdkTelemetry.dispose()
 		Logger.log("[SdkController] Disposed")

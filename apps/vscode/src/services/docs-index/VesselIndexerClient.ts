@@ -37,7 +37,7 @@ export class VesselIndexerClient {
 			},
 			CallToolResultSchema,
 		)
-		const textContent = result.content?.find((c: any) => c.type === "text")
+		const textContent = result.content?.find((c: any) => c.type === "text") as { text: string } | undefined
 		if (!textContent?.text) {
 			throw new Error(`Tool ${toolName} returned no text content`)
 		}
