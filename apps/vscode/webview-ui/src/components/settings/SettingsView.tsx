@@ -5,6 +5,7 @@ import type { UserOrganization } from "@shared/proto/index.cline"
 import {
 	CheckCheck,
 	Database,
+	FileText,
 	FlaskConical,
 	Folder,
 	HardDriveDownload,
@@ -31,12 +32,13 @@ import GeneralSettingsSection from "./sections/GeneralSettingsSection"
 import { RemoteConfigSection } from "./sections/RemoteConfigSection"
 import TerminalSettingsSection from "./sections/TerminalSettingsSection"
 import CodebaseMemorySection from "./sections/CodebaseMemorySection"
+import DocsIndexSection from "./sections/DocsIndexSection"
 import { ProjectConfigSection } from "./sections/ProjectConfigSection"
 
 const IS_DEV = process.env.IS_DEV
 
 // Tab definitions
-type SettingsTabID = "api-config" | "features" | "terminal" | "general" | "project" | "debug" | "remote-config" | "codebase-memory"
+type SettingsTabID = "api-config" | "features" | "terminal" | "general" | "project" | "debug" | "remote-config" | "codebase-memory" | "docs-index"
 interface SettingsTab {
 	id: SettingsTabID
 	name: string
@@ -98,6 +100,13 @@ const SETTINGS_TABS: SettingsTab[] = [
 		headerText: "Codebase Memory",
 		icon: Database,
 	},
+	{
+		id: "docs-index",
+		name: "Document Index",
+		tooltipText: "Document Indexing & Search",
+		headerText: "Document Index",
+		icon: FileText,
+	},
 	// Only show in dev mode
 	{
 		id: "debug",
@@ -142,6 +151,7 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 			project: ProjectConfigSection,
 			"remote-config": RemoteConfigSection,
 			"codebase-memory": CodebaseMemorySection,
+			"docs-index": DocsIndexSection,
 			debug: DebugSection,
 		}),
 		[],
