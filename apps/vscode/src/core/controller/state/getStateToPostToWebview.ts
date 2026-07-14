@@ -9,31 +9,12 @@ import { getHooksEnabledSafe } from "@core/hooks/hooks-utils"
 import type { ExtensionState, Platform } from "@shared/ExtensionMessage"
 import { ClineEnv } from "@/config"
 import { overlayActiveProfile } from "@/core/controller/state/active-profile-overlay"
-import { HostProvider } from "@/hosts/host-provider"
 import { ExtensionRegistryInfo } from "@/registry"
 import { BannerService } from "@/services/banner/BannerService"
 import { featureFlagsService } from "@/services/feature-flags"
 import { getDistinctId } from "@/services/logging/distinctId"
 import { getLatestAnnouncementId } from "@/utils/announcements"
 import { getClineOnboardingModels } from "../models/getClineOnboardingModels"
-import { VcsType, type WorkspaceRoot } from "@shared/multi-root/types"
-
-async function resolveWorkspaceRoots(
-	workspaceManager: { getRoots?: () => WorkspaceRoot[] } | undefined,
-): Promise<WorkspaceRoot[] | undefined> {
-	if (workspaceManager?.getRoots) {
-		return workspaceManager.getRoots()
-	}
-	if (!HostProvider.isInitialized()) {
-		return undefined
-	}
-	try {
-		const { paths } = await HostProvider.workspace.getWorkspacePaths({})
-		return paths.map((p) => ({ path: p, name: p.split("/").pop() || p, vcs: VcsType.None }))
-	} catch {
-		return undefined
-	}
-}
 
 /**
  * Builds the ExtensionState object to push to the webview.
@@ -146,7 +127,7 @@ export async function getStateToPostToWebview(controller: {
 		// Codex OAuth not available
 	}
 
-	const resolvedWorkspaceRoots = (await resolveWorkspaceRoots(controller.workspaceManager)) ?? []
+	const resolvedWorkspaceRoots = controller.workspaceManager?.getRoots?.() ?? []
 
 	return {
 		version,
