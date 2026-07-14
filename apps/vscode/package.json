@@ -341,7 +341,7 @@
 		}
 	},
 	"scripts": {
-		"vscode:prepublish": "bun run package",
+		"vscode:prepublish": "npx bun run package",
 		"compile": "bun run check-types && bun run lint && bun esbuild.mjs",
 		"compile-standalone": "bun run check-types && bun run lint && bun esbuild.mjs --standalone",
 		"postcompile-standalone": "node scripts/package-standalone.mjs",
@@ -350,6 +350,7 @@
 		"watch:esbuild": "bun esbuild.mjs --watch",
 		"watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
 		"package": "bun run check-types && bun run build:webview && bun run lint && bun esbuild.mjs --production",
+		"package-vsix": "vsce package --no-dependencies",
 		"protos": "node scripts/build-proto.mjs",
 		"protos-python": "node scripts/build-python-proto.mjs",
 		"download-ripgrep": "node scripts/download-ripgrep.mjs",
