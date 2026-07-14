@@ -50,11 +50,11 @@
 - Create: `apps/vscode/src/core/controller/docsIndex/ping.ts`
 - Create: `apps/vscode/src/core/controller/docsIndex/listProjects.ts`
 - Create: `apps/vscode/src/core/controller/docsIndex/projectStats.ts`
-- Create: `apps/vscode/src/core/controller/docsIndex/indexProject.ts`
+- Create: `apps/vscode/src/core/controller/docsIndex/indexDocsProject.ts`
 - Create: `apps/vscode/src/core/controller/docsIndex/indexUrl.ts`
 - Create: `apps/vscode/src/core/controller/docsIndex/uploadFile.ts`
 - Create: `apps/vscode/src/core/controller/docsIndex/searchDocuments.ts`
-- Create: `apps/vscode/src/core/controller/docsIndex/listTools.ts`
+- Create: `apps/vscode/src/core/controller/docsIndex/listDocsIndexTools.ts`
 - Create: `apps/vscode/src/core/controller/docsIndex/registerMcpServer.ts`
 - Create: `apps/vscode/src/core/controller/docsIndex/unregisterMcpServer.ts`
 
@@ -89,8 +89,8 @@
 
 **Interfaces:**
 - Produces: `DocsIndexServiceClient` class in grpc-client.ts with 10 static methods (all unary):
-  `ping`, `listProjects`, `projectStats`, `indexProject`, `indexUrl`, `uploadFile`, `searchDocuments`, `listTools`, `registerMcpServer`, `unregisterMcpServer`
-- Produces: Proto types in `@shared/proto/cline/docs_index`: `PingRequest`, `PingResponse`, `ListProjectsRequest`, `ProjectInfo`, `ListProjectsResponse`, `ProjectStatsRequest`, `ProjectStatsResponse`, `IndexProjectRequest`, `IndexProjectResponse`, `IndexUrlRequest`, `IndexUrlResponse`, `UploadFileRequest`, `UploadFileResponse`, `SearchDocumentsRequest`, `SearchResult`, `SearchDocumentsResponse`, `DocsIndexTool`, `DocsIndexTools`, `RegisterMcpRequest`, `UnregisterMcpRequest`
+  `ping`, `listProjects`, `projectStats`, `indexDocsProject`, `indexUrl`, `uploadFile`, `searchDocuments`, `listDocsIndexTools`, `registerMcpServer`, `unregisterMcpServer`
+- Produces: Proto types in `@shared/proto/cline/docs_index`: `PingRequest`, `PingResponse`, `ListProjectsRequest`, `ProjectInfo`, `ListProjectsResponse`, `ProjectStatsRequest`, `ProjectStatsResponse`, `DocsIndexProjectRequest`, `DocsIndexProjectResponse`, `IndexUrlRequest`, `IndexUrlResponse`, `UploadFileRequest`, `UploadFileResponse`, `SearchDocumentsRequest`, `SearchResult`, `SearchDocumentsResponse`, `DocsIndexTool`, `DocsIndexTools`, `RegisterMcpRequest`, `UnregisterMcpRequest`
 - Produces: Handler registration in `protobus-services.ts` for `"cline.DocsIndexService"`
 
 - [ ] **Step 1: Create the proto file**
@@ -112,11 +112,11 @@ service DocsIndexService {
   rpc ping(PingRequest) returns (PingResponse);
   rpc listProjects(ListProjectsRequest) returns (ListProjectsResponse);
   rpc projectStats(ProjectStatsRequest) returns (ProjectStatsResponse);
-  rpc indexProject(IndexProjectRequest) returns (IndexProjectResponse);
+  rpc indexDocsProject(DocsIndexProjectRequest) returns (DocsIndexProjectResponse);
   rpc indexUrl(IndexUrlRequest) returns (IndexUrlResponse);
   rpc uploadFile(UploadFileRequest) returns (UploadFileResponse);
   rpc searchDocuments(SearchDocumentsRequest) returns (SearchDocumentsResponse);
-  rpc listTools(EmptyRequest) returns (DocsIndexTools);
+  rpc listDocsIndexTools(EmptyRequest) returns (DocsIndexTools);
   rpc registerMcpServer(RegisterMcpRequest) returns (Empty);
   rpc unregisterMcpServer(UnregisterMcpRequest) returns (Empty);
 }
@@ -157,12 +157,12 @@ message ProjectStatsResponse {
   map<string, int32> by_format = 4;
 }
 
-message IndexProjectRequest {
+message DocsIndexProjectRequest {
   string server_url = 1;
   string project = 2;
 }
 
-message IndexProjectResponse {
+message DocsIndexProjectResponse {
   int32 files_scanned = 1;
   int32 files_indexed = 2;
   int32 files_failed = 3;
@@ -469,7 +469,7 @@ git commit -m "feat: add VesselIndexerClient and constants for docs-index servic
 - Consumes: `McpHub` from `@services/mcp/McpHub` (for `getMcpSettingsFilePath()`), `updateMcpSettingsFile` from `@services/mcp/settingsLock`, `VesselIndexerClient` from Task 2, `toProtoTools` from Task 2
 - Consumes: Proto types from `@shared/proto/cline/docs_index`
 - Produces: `McpRegistrationService` class with `register(serverUrl)`, `unregister()`, `isRegistered(serverUrl)` methods
-- Produces: `DocsIndexFacade` class with `ping`, `listProjects`, `projectStats`, `indexProject`, `indexUrl`, `uploadFile`, `searchDocuments`, `listTools`, `registerMcpServer`, `unregisterMcpServer`, `dispose` methods
+- Produces: `DocsIndexFacade` class with `ping`, `listProjects`, `projectStats`, `indexDocsProject`, `indexUrl`, `uploadFile`, `searchDocuments`, `listDocsIndexTools`, `registerMcpServer`, `unregisterMcpServer`, `dispose` methods
 
 - [ ] **Step 1: Create McpRegistrationService.ts**
 
@@ -540,7 +540,7 @@ import type { McpHub } from "@services/mcp/McpHub"
 import { Logger } from "@/shared/services/Logger"
 import {
 	DocsIndexTools,
-	IndexProjectResponse,
+	DocsIndexProjectResponse,
 	IndexUrlResponse,
 	ListProjectsResponse,
 	PingResponse,
@@ -630,10 +630,10 @@ export class DocsIndexFacade {
 		})
 	}
 
-	async indexProject(serverUrl: string, project: string): Promise<IndexProjectResponse> {
+	async indexDocsProject(serverUrl: string, project: string): Promise<DocsIndexProjectResponse> {
 		const client = await this.getClient(serverUrl)
 		const result = await client.callTool("index_project", { project })
-		return IndexProjectResponse.create({
+		return DocsIndexProjectResponse.create({
 			filesScanned: result.files_scanned || 0,
 			filesIndexed: result.files_indexed || 0,
 			filesFailed: result.files_failed || 0,
@@ -715,7 +715,7 @@ export class DocsIndexFacade {
 		})
 	}
 
-	listTools(): DocsIndexTools {
+	listDocsIndexTools(): DocsIndexTools {
 		return DocsIndexTools.create({ tools: toProtoTools() })
 	}
 
@@ -813,9 +813,9 @@ describe("DocsIndexFacade", () => {
 		expect(result.byFormat["pdf"]).toBe(278)
 	})
 
-	test("indexProject maps response fields", async () => {
+	test("indexDocsProject maps response fields", async () => {
 		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
-		const result = await facade.indexProject("http://localhost:20130", "greenenergy")
+		const result = await facade.indexDocsProject("http://localhost:20130", "greenenergy")
 		expect(result.filesScanned).toBe(3)
 		expect(result.filesIndexed).toBe(1)
 		expect(result.chunksAdded).toBe(278)
@@ -830,9 +830,9 @@ describe("DocsIndexFacade", () => {
 		expect(result.results[0].metadata).toContain("page")
 	})
 
-	test("listTools returns 6 tools", async () => {
+	test("listDocsIndexTools returns 6 tools", async () => {
 		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
-		const result = facade.listTools()
+		const result = facade.listDocsIndexTools()
 		expect(result.tools.length).toBe(6)
 		expect(result.tools[0].name).toBe("search_documents")
 	})
@@ -905,11 +905,11 @@ git commit -m "feat: add DocsIndexFacade and McpRegistrationService"
 - Create: `apps/vscode/src/core/controller/docsIndex/ping.ts`
 - Create: `apps/vscode/src/core/controller/docsIndex/listProjects.ts`
 - Create: `apps/vscode/src/core/controller/docsIndex/projectStats.ts`
-- Create: `apps/vscode/src/core/controller/docsIndex/indexProject.ts`
+- Create: `apps/vscode/src/core/controller/docsIndex/indexDocsProject.ts`
 - Create: `apps/vscode/src/core/controller/docsIndex/indexUrl.ts`
 - Create: `apps/vscode/src/core/controller/docsIndex/uploadFile.ts`
 - Create: `apps/vscode/src/core/controller/docsIndex/searchDocuments.ts`
-- Create: `apps/vscode/src/core/controller/docsIndex/listTools.ts`
+- Create: `apps/vscode/src/core/controller/docsIndex/listDocsIndexTools.ts`
 - Create: `apps/vscode/src/core/controller/docsIndex/registerMcpServer.ts`
 - Create: `apps/vscode/src/core/controller/docsIndex/unregisterMcpServer.ts`
 - Modify: `apps/vscode/src/sdk/SdkController.ts:43,191,277,698`
@@ -961,14 +961,14 @@ export async function projectStats(controller: Controller, request: ProjectStats
 }
 ```
 
-Create `apps/vscode/src/core/controller/docsIndex/indexProject.ts`:
+Create `apps/vscode/src/core/controller/docsIndex/indexDocsProject.ts`:
 
 ```typescript
-import { IndexProjectRequest, IndexProjectResponse } from "@shared/proto/cline/docs_index"
+import { DocsIndexProjectRequest, DocsIndexProjectResponse } from "@shared/proto/cline/docs_index"
 import type { Controller } from "../index"
 
-export async function indexProject(controller: Controller, request: IndexProjectRequest): Promise<IndexProjectResponse> {
-	return await controller.docsIndex.indexProject(request.serverUrl, request.project)
+export async function indexDocsProject(controller: Controller, request: DocsIndexProjectRequest): Promise<DocsIndexProjectResponse> {
+	return await controller.docsIndex.indexDocsProject(request.serverUrl, request.project)
 }
 ```
 
@@ -1008,15 +1008,15 @@ export async function searchDocuments(
 }
 ```
 
-Create `apps/vscode/src/core/controller/docsIndex/listTools.ts`:
+Create `apps/vscode/src/core/controller/docsIndex/listDocsIndexTools.ts`:
 
 ```typescript
 import { EmptyRequest } from "@shared/proto/cline/common"
 import { DocsIndexTools } from "@shared/proto/cline/docs_index"
 import type { Controller } from "../index"
 
-export async function listTools(controller: Controller, _request: EmptyRequest): Promise<DocsIndexTools> {
-	return controller.docsIndex.listTools()
+export async function listDocsIndexTools(controller: Controller, _request: EmptyRequest): Promise<DocsIndexTools> {
+	return controller.docsIndex.listDocsIndexTools()
 }
 ```
 
@@ -1268,7 +1268,7 @@ export default function ToolsCard() {
 	const [tools, setTools] = useState<DocsIndexTool[]>([])
 
 	useEffect(() => {
-		DocsIndexServiceClient.listTools(EmptyRequest.create({}))
+		DocsIndexServiceClient.listDocsIndexTools(EmptyRequest.create({}))
 			.then((response) => setTools(response.tools ?? []))
 			.catch((e) => console.error("Failed to list docs-index tools:", e))
 	}, [])
@@ -1561,9 +1561,9 @@ Create `apps/vscode/webview-ui/src/components/settings/sections/docs-index/Index
 ```tsx
 import { useState } from "react"
 import {
-	IndexProjectRequest,
+	DocsIndexProjectRequest,
 	IndexUrlRequest,
-	type IndexProjectResponse,
+	type DocsIndexProjectResponse,
 	type IndexUrlResponse,
 } from "@shared/proto/cline/docs_index"
 import { DocsIndexServiceClient } from "@/services/grpc-client"
@@ -1576,7 +1576,7 @@ interface IndexCardProps {
 
 export default function IndexCard({ serverUrl, connected, selectedProject }: IndexCardProps) {
 	const [indexing, setIndexing] = useState(false)
-	const [indexResult, setIndexResult] = useState<IndexProjectResponse | undefined>()
+	const [indexResult, setIndexResult] = useState<DocsIndexProjectResponse | undefined>()
 	const [urlInput, setUrlInput] = useState("")
 	const [depth, setDepth] = useState(3)
 	const [maxPages, setMaxPages] = useState(50)
@@ -1591,8 +1591,8 @@ export default function IndexCard({ serverUrl, connected, selectedProject }: Ind
 		setError(null)
 		setIndexResult(undefined)
 		try {
-			const response = await DocsIndexServiceClient.indexProject(
-				IndexProjectRequest.create({ serverUrl, project: selectedProject }),
+			const response = await DocsIndexServiceClient.indexDocsProject(
+				DocsIndexProjectRequest.create({ serverUrl, project: selectedProject }),
 			)
 			setIndexResult(response)
 		} catch (err) {

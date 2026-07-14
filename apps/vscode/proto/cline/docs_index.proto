@@ -12,11 +12,11 @@ service DocsIndexService {
   rpc ping(PingRequest) returns (PingResponse);
   rpc listProjects(ListProjectsRequest) returns (ListProjectsResponse);
   rpc projectStats(ProjectStatsRequest) returns (ProjectStatsResponse);
-  rpc indexProject(DocsIndexProjectRequest) returns (DocsIndexProjectResponse);
+  rpc indexDocsProject(DocsIndexProjectRequest) returns (DocsIndexProjectResponse);
   rpc indexUrl(IndexUrlRequest) returns (IndexUrlResponse);
   rpc uploadFile(UploadFileRequest) returns (UploadFileResponse);
   rpc searchDocuments(SearchDocumentsRequest) returns (SearchDocumentsResponse);
-  rpc listTools(EmptyRequest) returns (DocsIndexTools);
+  rpc listDocsIndexTools(EmptyRequest) returns (DocsIndexTools);
   rpc registerMcpServer(RegisterMcpRequest) returns (Empty);
   rpc unregisterMcpServer(UnregisterMcpRequest) returns (Empty);
 }

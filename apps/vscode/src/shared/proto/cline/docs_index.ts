@@ -2095,8 +2095,8 @@ export const DocsIndexServiceDefinition = {
       responseStream: false,
       options: {},
     },
-    indexProject: {
-      name: "indexProject",
+    indexDocsProject: {
+      name: "indexDocsProject",
       requestType: DocsIndexProjectRequest as typeof DocsIndexProjectRequest,
       requestStream: false,
       responseType: DocsIndexProjectResponse as typeof DocsIndexProjectResponse,
@@ -2127,8 +2127,8 @@ export const DocsIndexServiceDefinition = {
       responseStream: false,
       options: {},
     },
-    listTools: {
-      name: "listTools",
+    listDocsIndexTools: {
+      name: "listDocsIndexTools",
       requestType: EmptyRequest as typeof EmptyRequest,
       requestStream: false,
       responseType: DocsIndexTools as typeof DocsIndexTools,

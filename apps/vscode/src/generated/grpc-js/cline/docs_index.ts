@@ -2107,8 +2107,8 @@ export const DocsIndexServiceDefinition = {
       responseStream: false,
       options: {},
     },
-    indexProject: {
-      name: "indexProject",
+    indexDocsProject: {
+      name: "indexDocsProject",
       requestType: DocsIndexProjectRequest as typeof DocsIndexProjectRequest,
       requestStream: false,
       responseType: DocsIndexProjectResponse as typeof DocsIndexProjectResponse,
@@ -2139,8 +2139,8 @@ export const DocsIndexServiceDefinition = {
       responseStream: false,
       options: {},
     },
-    listTools: {
-      name: "listTools",
+    listDocsIndexTools: {
+      name: "listDocsIndexTools",
       requestType: EmptyRequest as typeof EmptyRequest,
       requestStream: false,
       responseType: DocsIndexTools as typeof DocsIndexTools,
@@ -2197,8 +2197,8 @@ export const DocsIndexServiceService = {
       Buffer.from(ProjectStatsResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): ProjectStatsResponse => ProjectStatsResponse.decode(value),
   },
-  indexProject: {
-    path: "/cline.DocsIndexService/indexProject" as const,
+  indexDocsProject: {
+    path: "/cline.DocsIndexService/indexDocsProject" as const,
     requestStream: false as const,
     responseStream: false as const,
     requestSerialize: (value: DocsIndexProjectRequest): Buffer =>
@@ -2237,8 +2237,8 @@ export const DocsIndexServiceService = {
       Buffer.from(SearchDocumentsResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): SearchDocumentsResponse => SearchDocumentsResponse.decode(value),
   },
-  listTools: {
-    path: "/cline.DocsIndexService/listTools" as const,
+  listDocsIndexTools: {
+    path: "/cline.DocsIndexService/listDocsIndexTools" as const,
     requestStream: false as const,
     responseStream: false as const,
     requestSerialize: (value: EmptyRequest): Buffer => Buffer.from(EmptyRequest.encode(value).finish()),
@@ -2270,11 +2270,11 @@ export interface DocsIndexServiceServer extends UntypedServiceImplementation {
   ping: handleUnaryCall<PingRequest, PingResponse>;
   listProjects: handleUnaryCall<ListProjectsRequest, ListProjectsResponse>;
   projectStats: handleUnaryCall<ProjectStatsRequest, ProjectStatsResponse>;
-  indexProject: handleUnaryCall<DocsIndexProjectRequest, DocsIndexProjectResponse>;
+  indexDocsProject: handleUnaryCall<DocsIndexProjectRequest, DocsIndexProjectResponse>;
   indexUrl: handleUnaryCall<IndexUrlRequest, IndexUrlResponse>;
   uploadFile: handleUnaryCall<UploadFileRequest, UploadFileResponse>;
   searchDocuments: handleUnaryCall<SearchDocumentsRequest, SearchDocumentsResponse>;
-  listTools: handleUnaryCall<EmptyRequest, DocsIndexTools>;
+  listDocsIndexTools: handleUnaryCall<EmptyRequest, DocsIndexTools>;
   registerMcpServer: handleUnaryCall<RegisterMcpRequest, Empty>;
   unregisterMcpServer: handleUnaryCall<UnregisterMcpRequest, Empty>;
 }
@@ -2322,16 +2322,16 @@ export interface DocsIndexServiceClient extends Client {
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: ProjectStatsResponse) => void,
   ): ClientUnaryCall;
-  indexProject(
+  indexDocsProject(
     request: DocsIndexProjectRequest,
     callback: (error: ServiceError | null, response: DocsIndexProjectResponse) => void,
   ): ClientUnaryCall;
-  indexProject(
+  indexDocsProject(
     request: DocsIndexProjectRequest,
     metadata: Metadata,
     callback: (error: ServiceError | null, response: DocsIndexProjectResponse) => void,
   ): ClientUnaryCall;
-  indexProject(
+  indexDocsProject(
     request: DocsIndexProjectRequest,
     metadata: Metadata,
     options: Partial<CallOptions>,
@@ -2382,16 +2382,16 @@ export interface DocsIndexServiceClient extends Client {
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: SearchDocumentsResponse) => void,
   ): ClientUnaryCall;
-  listTools(
+  listDocsIndexTools(
     request: EmptyRequest,
     callback: (error: ServiceError | null, response: DocsIndexTools) => void,
   ): ClientUnaryCall;
-  listTools(
+  listDocsIndexTools(
     request: EmptyRequest,
     metadata: Metadata,
     callback: (error: ServiceError | null, response: DocsIndexTools) => void,
   ): ClientUnaryCall;
-  listTools(
+  listDocsIndexTools(
     request: EmptyRequest,
     metadata: Metadata,
     options: Partial<CallOptions>,

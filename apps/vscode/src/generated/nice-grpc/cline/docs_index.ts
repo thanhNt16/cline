@@ -2092,8 +2092,8 @@ export const DocsIndexServiceDefinition = {
       responseStream: false,
       options: {},
     },
-    indexProject: {
-      name: "indexProject",
+    indexDocsProject: {
+      name: "indexDocsProject",
       requestType: DocsIndexProjectRequest as typeof DocsIndexProjectRequest,
       requestStream: false,
       responseType: DocsIndexProjectResponse as typeof DocsIndexProjectResponse,
@@ -2124,8 +2124,8 @@ export const DocsIndexServiceDefinition = {
       responseStream: false,
       options: {},
     },
-    listTools: {
-      name: "listTools",
+    listDocsIndexTools: {
+      name: "listDocsIndexTools",
       requestType: EmptyRequest as typeof EmptyRequest,
       requestStream: false,
       responseType: DocsIndexTools as typeof DocsIndexTools,
@@ -2161,7 +2161,7 @@ export interface DocsIndexServiceImplementation<CallContextExt = {}> {
     request: ProjectStatsRequest,
     context: CallContext & CallContextExt,
   ): Promise<DeepPartial<ProjectStatsResponse>>;
-  indexProject(
+  indexDocsProject(
     request: DocsIndexProjectRequest,
     context: CallContext & CallContextExt,
   ): Promise<DeepPartial<DocsIndexProjectResponse>>;
@@ -2174,7 +2174,10 @@ export interface DocsIndexServiceImplementation<CallContextExt = {}> {
     request: SearchDocumentsRequest,
     context: CallContext & CallContextExt,
   ): Promise<DeepPartial<SearchDocumentsResponse>>;
-  listTools(request: EmptyRequest, context: CallContext & CallContextExt): Promise<DeepPartial<DocsIndexTools>>;
+  listDocsIndexTools(
+    request: EmptyRequest,
+    context: CallContext & CallContextExt,
+  ): Promise<DeepPartial<DocsIndexTools>>;
   registerMcpServer(request: RegisterMcpRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Empty>>;
   unregisterMcpServer(
     request: UnregisterMcpRequest,
@@ -2192,7 +2195,7 @@ export interface DocsIndexServiceClient<CallOptionsExt = {}> {
     request: DeepPartial<ProjectStatsRequest>,
     options?: CallOptions & CallOptionsExt,
   ): Promise<ProjectStatsResponse>;
-  indexProject(
+  indexDocsProject(
     request: DeepPartial<DocsIndexProjectRequest>,
     options?: CallOptions & CallOptionsExt,
   ): Promise<DocsIndexProjectResponse>;
@@ -2205,7 +2208,10 @@ export interface DocsIndexServiceClient<CallOptionsExt = {}> {
     request: DeepPartial<SearchDocumentsRequest>,
     options?: CallOptions & CallOptionsExt,
   ): Promise<SearchDocumentsResponse>;
-  listTools(request: DeepPartial<EmptyRequest>, options?: CallOptions & CallOptionsExt): Promise<DocsIndexTools>;
+  listDocsIndexTools(
+    request: DeepPartial<EmptyRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<DocsIndexTools>;
   registerMcpServer(request: DeepPartial<RegisterMcpRequest>, options?: CallOptions & CallOptionsExt): Promise<Empty>;
   unregisterMcpServer(
     request: DeepPartial<UnregisterMcpRequest>,

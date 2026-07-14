@@ -51,11 +51,11 @@ import { improveWithCline } from "@core/controller/commands/improveWithCline"
 import { ping } from "@core/controller/docsIndex/ping"
 import { listProjects } from "@core/controller/docsIndex/listProjects"
 import { projectStats } from "@core/controller/docsIndex/projectStats"
-import { indexProject } from "@core/controller/docsIndex/indexProject"
+import { indexDocsProject } from "@core/controller/docsIndex/indexDocsProject"
 import { indexUrl } from "@core/controller/docsIndex/indexUrl"
 import { uploadFile } from "@core/controller/docsIndex/uploadFile"
 import { searchDocuments } from "@core/controller/docsIndex/searchDocuments"
-import { listTools } from "@core/controller/docsIndex/listTools"
+import { listDocsIndexTools } from "@core/controller/docsIndex/listDocsIndexTools"
 import { registerMcpServer } from "@core/controller/docsIndex/registerMcpServer"
 import { unregisterMcpServer } from "@core/controller/docsIndex/unregisterMcpServer"
 
@@ -307,11 +307,11 @@ export function addProtobusServices(
          ping: wrapper<cline.PingRequest,cline.PingResponse>(ping, controller),
          listProjects: wrapper<cline.ListProjectsRequest,cline.ListProjectsResponse>(listProjects, controller),
          projectStats: wrapper<cline.ProjectStatsRequest,cline.ProjectStatsResponse>(projectStats, controller),
-         indexProject: wrapper<cline.DocsIndexProjectRequest,cline.DocsIndexProjectResponse>(indexProject, controller),
+         indexDocsProject: wrapper<cline.DocsIndexProjectRequest,cline.DocsIndexProjectResponse>(indexDocsProject, controller),
          indexUrl: wrapper<cline.IndexUrlRequest,cline.IndexUrlResponse>(indexUrl, controller),
          uploadFile: wrapper<cline.UploadFileRequest,cline.UploadFileResponse>(uploadFile, controller),
          searchDocuments: wrapper<cline.SearchDocumentsRequest,cline.SearchDocumentsResponse>(searchDocuments, controller),
-         listTools: wrapper<cline.EmptyRequest,cline.DocsIndexTools>(listTools, controller),
+         listDocsIndexTools: wrapper<cline.EmptyRequest,cline.DocsIndexTools>(listDocsIndexTools, controller),
          registerMcpServer: wrapper<cline.RegisterMcpRequest,cline.Empty>(registerMcpServer, controller),
          unregisterMcpServer: wrapper<cline.UnregisterMcpRequest,cline.Empty>(unregisterMcpServer, controller),
     });

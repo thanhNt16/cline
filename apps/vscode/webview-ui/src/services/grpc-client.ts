@@ -247,9 +247,9 @@ export class DocsIndexServiceClient extends ProtoBusClient {
 			proto.cline.ProjectStatsResponse.fromJSON,
 		)
 	}
-	static async indexProject(request: proto.cline.DocsIndexProjectRequest): Promise<proto.cline.DocsIndexProjectResponse> {
+	static async indexDocsProject(request: proto.cline.DocsIndexProjectRequest): Promise<proto.cline.DocsIndexProjectResponse> {
 		return this.makeUnaryRequest(
-			"indexProject",
+			"indexDocsProject",
 			request,
 			proto.cline.DocsIndexProjectRequest.toJSON,
 			proto.cline.DocsIndexProjectResponse.fromJSON,
@@ -279,8 +279,13 @@ export class DocsIndexServiceClient extends ProtoBusClient {
 			proto.cline.SearchDocumentsResponse.fromJSON,
 		)
 	}
-	static async listTools(request: proto.cline.EmptyRequest): Promise<proto.cline.DocsIndexTools> {
-		return this.makeUnaryRequest("listTools", request, proto.cline.EmptyRequest.toJSON, proto.cline.DocsIndexTools.fromJSON)
+	static async listDocsIndexTools(request: proto.cline.EmptyRequest): Promise<proto.cline.DocsIndexTools> {
+		return this.makeUnaryRequest(
+			"listDocsIndexTools",
+			request,
+			proto.cline.EmptyRequest.toJSON,
+			proto.cline.DocsIndexTools.fromJSON,
+		)
 	}
 	static async registerMcpServer(request: proto.cline.RegisterMcpRequest): Promise<proto.cline.Empty> {
 		return this.makeUnaryRequest(

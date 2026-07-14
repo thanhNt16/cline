@@ -48,11 +48,11 @@ import { improveWithCline } from "@core/controller/commands/improveWithCline"
 import { ping } from "@core/controller/docsIndex/ping"
 import { listProjects } from "@core/controller/docsIndex/listProjects"
 import { projectStats } from "@core/controller/docsIndex/projectStats"
-import { indexProject } from "@core/controller/docsIndex/indexProject"
+import { indexDocsProject } from "@core/controller/docsIndex/indexDocsProject"
 import { indexUrl } from "@core/controller/docsIndex/indexUrl"
 import { uploadFile } from "@core/controller/docsIndex/uploadFile"
 import { searchDocuments } from "@core/controller/docsIndex/searchDocuments"
-import { listTools } from "@core/controller/docsIndex/listTools"
+import { listDocsIndexTools } from "@core/controller/docsIndex/listDocsIndexTools"
 import { registerMcpServer } from "@core/controller/docsIndex/registerMcpServer"
 import { unregisterMcpServer } from "@core/controller/docsIndex/unregisterMcpServer"
 
@@ -292,11 +292,11 @@ const DocsIndexServiceHandlers: serviceTypes.DocsIndexServiceHandlers = {
     ping: ping,
     listProjects: listProjects,
     projectStats: projectStats,
-    indexProject: indexProject,
+    indexDocsProject: indexDocsProject,
     indexUrl: indexUrl,
     uploadFile: uploadFile,
     searchDocuments: searchDocuments,
-    listTools: listTools,
+    listDocsIndexTools: listDocsIndexTools,
     registerMcpServer: registerMcpServer,
     unregisterMcpServer: unregisterMcpServer,
 } 
