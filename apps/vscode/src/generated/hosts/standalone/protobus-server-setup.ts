@@ -47,6 +47,18 @@ import { fixWithCline } from "@core/controller/commands/fixWithCline"
 import { explainWithCline } from "@core/controller/commands/explainWithCline"
 import { improveWithCline } from "@core/controller/commands/improveWithCline"
 
+// DocsIndex Service
+import { ping } from "@core/controller/docsIndex/ping"
+import { listProjects } from "@core/controller/docsIndex/listProjects"
+import { projectStats } from "@core/controller/docsIndex/projectStats"
+import { indexProject } from "@core/controller/docsIndex/indexProject"
+import { indexUrl } from "@core/controller/docsIndex/indexUrl"
+import { uploadFile } from "@core/controller/docsIndex/uploadFile"
+import { searchDocuments } from "@core/controller/docsIndex/searchDocuments"
+import { listTools } from "@core/controller/docsIndex/listTools"
+import { registerMcpServer } from "@core/controller/docsIndex/registerMcpServer"
+import { unregisterMcpServer } from "@core/controller/docsIndex/unregisterMcpServer"
+
 // File Service
 import { copyToClipboard } from "@core/controller/file/copyToClipboard"
 import { openFile } from "@core/controller/file/openFile"
@@ -288,6 +300,20 @@ export function addProtobusServices(
          fixWithCline: wrapper<cline.CommandContext,cline.Empty>(fixWithCline, controller),
          explainWithCline: wrapper<cline.CommandContext,cline.Empty>(explainWithCline, controller),
          improveWithCline: wrapper<cline.CommandContext,cline.Empty>(improveWithCline, controller),
+    });
+
+    // DocsIndex Service
+    server.addService(cline.DocsIndexServiceService, {
+         ping: wrapper<cline.PingRequest,cline.PingResponse>(ping, controller),
+         listProjects: wrapper<cline.ListProjectsRequest,cline.ListProjectsResponse>(listProjects, controller),
+         projectStats: wrapper<cline.ProjectStatsRequest,cline.ProjectStatsResponse>(projectStats, controller),
+         indexProject: wrapper<cline.DocsIndexProjectRequest,cline.DocsIndexProjectResponse>(indexProject, controller),
+         indexUrl: wrapper<cline.IndexUrlRequest,cline.IndexUrlResponse>(indexUrl, controller),
+         uploadFile: wrapper<cline.UploadFileRequest,cline.UploadFileResponse>(uploadFile, controller),
+         searchDocuments: wrapper<cline.SearchDocumentsRequest,cline.SearchDocumentsResponse>(searchDocuments, controller),
+         listTools: wrapper<cline.EmptyRequest,cline.DocsIndexTools>(listTools, controller),
+         registerMcpServer: wrapper<cline.RegisterMcpRequest,cline.Empty>(registerMcpServer, controller),
+         unregisterMcpServer: wrapper<cline.UnregisterMcpRequest,cline.Empty>(unregisterMcpServer, controller),
     });
 
     // File Service

@@ -226,6 +226,79 @@ export class CommandsServiceClient extends ProtoBusClient {
 		return this.makeUnaryRequest("improveWithCline", request, proto.cline.CommandContext.toJSON, proto.cline.Empty.fromJSON)
 	}
 }
+export class DocsIndexServiceClient extends ProtoBusClient {
+	static override serviceName: string = "cline.DocsIndexService"
+	static async ping(request: proto.cline.PingRequest): Promise<proto.cline.PingResponse> {
+		return this.makeUnaryRequest("ping", request, proto.cline.PingRequest.toJSON, proto.cline.PingResponse.fromJSON)
+	}
+	static async listProjects(request: proto.cline.ListProjectsRequest): Promise<proto.cline.ListProjectsResponse> {
+		return this.makeUnaryRequest(
+			"listProjects",
+			request,
+			proto.cline.ListProjectsRequest.toJSON,
+			proto.cline.ListProjectsResponse.fromJSON,
+		)
+	}
+	static async projectStats(request: proto.cline.ProjectStatsRequest): Promise<proto.cline.ProjectStatsResponse> {
+		return this.makeUnaryRequest(
+			"projectStats",
+			request,
+			proto.cline.ProjectStatsRequest.toJSON,
+			proto.cline.ProjectStatsResponse.fromJSON,
+		)
+	}
+	static async indexProject(request: proto.cline.DocsIndexProjectRequest): Promise<proto.cline.DocsIndexProjectResponse> {
+		return this.makeUnaryRequest(
+			"indexProject",
+			request,
+			proto.cline.DocsIndexProjectRequest.toJSON,
+			proto.cline.DocsIndexProjectResponse.fromJSON,
+		)
+	}
+	static async indexUrl(request: proto.cline.IndexUrlRequest): Promise<proto.cline.IndexUrlResponse> {
+		return this.makeUnaryRequest(
+			"indexUrl",
+			request,
+			proto.cline.IndexUrlRequest.toJSON,
+			proto.cline.IndexUrlResponse.fromJSON,
+		)
+	}
+	static async uploadFile(request: proto.cline.UploadFileRequest): Promise<proto.cline.UploadFileResponse> {
+		return this.makeUnaryRequest(
+			"uploadFile",
+			request,
+			proto.cline.UploadFileRequest.toJSON,
+			proto.cline.UploadFileResponse.fromJSON,
+		)
+	}
+	static async searchDocuments(request: proto.cline.SearchDocumentsRequest): Promise<proto.cline.SearchDocumentsResponse> {
+		return this.makeUnaryRequest(
+			"searchDocuments",
+			request,
+			proto.cline.SearchDocumentsRequest.toJSON,
+			proto.cline.SearchDocumentsResponse.fromJSON,
+		)
+	}
+	static async listTools(request: proto.cline.EmptyRequest): Promise<proto.cline.DocsIndexTools> {
+		return this.makeUnaryRequest("listTools", request, proto.cline.EmptyRequest.toJSON, proto.cline.DocsIndexTools.fromJSON)
+	}
+	static async registerMcpServer(request: proto.cline.RegisterMcpRequest): Promise<proto.cline.Empty> {
+		return this.makeUnaryRequest(
+			"registerMcpServer",
+			request,
+			proto.cline.RegisterMcpRequest.toJSON,
+			proto.cline.Empty.fromJSON,
+		)
+	}
+	static async unregisterMcpServer(request: proto.cline.UnregisterMcpRequest): Promise<proto.cline.Empty> {
+		return this.makeUnaryRequest(
+			"unregisterMcpServer",
+			request,
+			proto.cline.UnregisterMcpRequest.toJSON,
+			proto.cline.Empty.fromJSON,
+		)
+	}
+}
 export class FileServiceClient extends ProtoBusClient {
 	static override serviceName: string = "cline.FileService"
 	static async copyToClipboard(request: proto.cline.StringRequest): Promise<proto.cline.Empty> {

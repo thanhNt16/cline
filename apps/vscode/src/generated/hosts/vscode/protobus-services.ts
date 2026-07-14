@@ -44,6 +44,18 @@ import { fixWithCline } from "@core/controller/commands/fixWithCline"
 import { explainWithCline } from "@core/controller/commands/explainWithCline"
 import { improveWithCline } from "@core/controller/commands/improveWithCline"
 
+// DocsIndex Service
+import { ping } from "@core/controller/docsIndex/ping"
+import { listProjects } from "@core/controller/docsIndex/listProjects"
+import { projectStats } from "@core/controller/docsIndex/projectStats"
+import { indexProject } from "@core/controller/docsIndex/indexProject"
+import { indexUrl } from "@core/controller/docsIndex/indexUrl"
+import { uploadFile } from "@core/controller/docsIndex/uploadFile"
+import { searchDocuments } from "@core/controller/docsIndex/searchDocuments"
+import { listTools } from "@core/controller/docsIndex/listTools"
+import { registerMcpServer } from "@core/controller/docsIndex/registerMcpServer"
+import { unregisterMcpServer } from "@core/controller/docsIndex/unregisterMcpServer"
+
 // File Service
 import { copyToClipboard } from "@core/controller/file/copyToClipboard"
 import { openFile } from "@core/controller/file/openFile"
@@ -276,6 +288,19 @@ const CommandsServiceHandlers: serviceTypes.CommandsServiceHandlers = {
     improveWithCline: improveWithCline,
 } 
 
+const DocsIndexServiceHandlers: serviceTypes.DocsIndexServiceHandlers = {
+    ping: ping,
+    listProjects: listProjects,
+    projectStats: projectStats,
+    indexProject: indexProject,
+    indexUrl: indexUrl,
+    uploadFile: uploadFile,
+    searchDocuments: searchDocuments,
+    listTools: listTools,
+    registerMcpServer: registerMcpServer,
+    unregisterMcpServer: unregisterMcpServer,
+} 
+
 const FileServiceHandlers: serviceTypes.FileServiceHandlers = {
     copyToClipboard: copyToClipboard,
     openFile: openFile,
@@ -479,6 +504,7 @@ export const serviceHandlers: Record<string, any> = {
     "cline.CheckpointsService": CheckpointsServiceHandlers,
     "cline.CodebaseMemoryService": CodebaseMemoryServiceHandlers,
     "cline.CommandsService": CommandsServiceHandlers,
+    "cline.DocsIndexService": DocsIndexServiceHandlers,
     "cline.FileService": FileServiceHandlers,
     "cline.MarketplaceService": MarketplaceServiceHandlers,
     "cline.McpService": McpServiceHandlers,

@@ -1,0 +1,134 @@
+syntax = "proto3";
+
+package cline;
+
+import "cline/common.proto";
+
+option go_package = "github.com/cline/grpc-go/cline";
+option java_multiple_files = true;
+option java_package = "bot.cline.proto";
+
+service DocsIndexService {
+  rpc ping(PingRequest) returns (PingResponse);
+  rpc listProjects(ListProjectsRequest) returns (ListProjectsResponse);
+  rpc projectStats(ProjectStatsRequest) returns (ProjectStatsResponse);
+  rpc indexProject(DocsIndexProjectRequest) returns (DocsIndexProjectResponse);
+  rpc indexUrl(IndexUrlRequest) returns (IndexUrlResponse);
+  rpc uploadFile(UploadFileRequest) returns (UploadFileResponse);
+  rpc searchDocuments(SearchDocumentsRequest) returns (SearchDocumentsResponse);
+  rpc listTools(EmptyRequest) returns (DocsIndexTools);
+  rpc registerMcpServer(RegisterMcpRequest) returns (Empty);
+  rpc unregisterMcpServer(UnregisterMcpRequest) returns (Empty);
+}
+
+message PingRequest {
+  string server_url = 1;
+}
+
+message PingResponse {
+  bool connected = 1;
+  string server_version = 2;
+}
+
+message ListProjectsRequest {
+  string server_url = 1;
+}
+
+message ProjectInfo {
+  string name = 1;
+  string mount_path = 2;
+  int32 total_chunks = 3;
+  string status = 4;
+}
+
+message ListProjectsResponse {
+  repeated ProjectInfo projects = 1;
+}
+
+message ProjectStatsRequest {
+  string server_url = 1;
+  string project = 2;
+}
+
+message ProjectStatsResponse {
+  string project = 1;
+  int32 total_chunks = 2;
+  int32 files_indexed = 3;
+  map<string, int32> by_format = 4;
+}
+
+message DocsIndexProjectRequest {
+  string server_url = 1;
+  string project = 2;
+}
+
+message DocsIndexProjectResponse {
+  int32 files_scanned = 1;
+  int32 files_indexed = 2;
+  int32 files_failed = 3;
+  int32 chunks_added = 4;
+  int32 elapsed_ms = 5;
+}
+
+message IndexUrlRequest {
+  string server_url = 1;
+  string project = 2;
+  string url = 3;
+  int32 depth = 4;
+  int32 max_pages = 5;
+}
+
+message IndexUrlResponse {
+  string project = 1;
+  string seed_url = 2;
+  int32 pages_crawled = 3;
+  int32 chunks_added = 4;
+}
+
+message UploadFileRequest {
+  string server_url = 1;
+  string project = 2;
+}
+
+message UploadFileResponse {
+  string project = 1;
+  string filename = 2;
+  string path = 3;
+  int64 size = 4;
+  string status = 5;
+}
+
+message SearchDocumentsRequest {
+  string server_url = 1;
+  string project = 2;
+  string query = 3;
+  int32 top_k = 4;
+}
+
+message SearchResult {
+  string text = 1;
+  double score = 2;
+  double hybrid_score = 3;
+  string metadata = 4;
+}
+
+message SearchDocumentsResponse {
+  string project = 1;
+  string query = 2;
+  repeated SearchResult results = 3;
+}
+
+message DocsIndexTool {
+  string name = 1;
+  string description = 2;
+}
+
+message DocsIndexTools {
+  repeated DocsIndexTool tools = 1;
+}
+
+message RegisterMcpRequest {
+  string server_url = 1;
+}
+
+message UnregisterMcpRequest {}

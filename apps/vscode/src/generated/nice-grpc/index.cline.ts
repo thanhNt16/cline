@@ -11,6 +11,7 @@ export * from "./cline/browser";
 export * from "./cline/checkpoints";
 export * from "./cline/codebase_memory";
 export * from "./cline/commands";
+export * from "./cline/docs_index";
 export * from "./cline/file";
 export * from "./cline/hooks";
 export * from "./cline/marketplace";

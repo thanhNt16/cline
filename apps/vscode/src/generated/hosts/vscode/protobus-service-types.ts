@@ -56,6 +56,20 @@ export type CommandsServiceHandlers = {
      improveWithCline:(controller: Controller, request: proto.cline.CommandContext) => Promise<proto.cline.Empty>
 }
 
+// DocsIndex Service Handler Types
+export type DocsIndexServiceHandlers = {
+     ping:(controller: Controller, request: proto.cline.PingRequest) => Promise<proto.cline.PingResponse>
+     listProjects:(controller: Controller, request: proto.cline.ListProjectsRequest) => Promise<proto.cline.ListProjectsResponse>
+     projectStats:(controller: Controller, request: proto.cline.ProjectStatsRequest) => Promise<proto.cline.ProjectStatsResponse>
+     indexProject:(controller: Controller, request: proto.cline.DocsIndexProjectRequest) => Promise<proto.cline.DocsIndexProjectResponse>
+     indexUrl:(controller: Controller, request: proto.cline.IndexUrlRequest) => Promise<proto.cline.IndexUrlResponse>
+     uploadFile:(controller: Controller, request: proto.cline.UploadFileRequest) => Promise<proto.cline.UploadFileResponse>
+     searchDocuments:(controller: Controller, request: proto.cline.SearchDocumentsRequest) => Promise<proto.cline.SearchDocumentsResponse>
+     listTools:(controller: Controller, request: proto.cline.EmptyRequest) => Promise<proto.cline.DocsIndexTools>
+     registerMcpServer:(controller: Controller, request: proto.cline.RegisterMcpRequest) => Promise<proto.cline.Empty>
+     unregisterMcpServer:(controller: Controller, request: proto.cline.UnregisterMcpRequest) => Promise<proto.cline.Empty>
+}
+
 // File Service Handler Types
 export type FileServiceHandlers = {
      copyToClipboard:(controller: Controller, request: proto.cline.StringRequest) => Promise<proto.cline.Empty>
