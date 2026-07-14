@@ -422,7 +422,7 @@ function isPathWithin(parentPath: string, childPath: string): boolean {
 
 function isGlobalClinePath(filePath: string | undefined): boolean {
 	if (!filePath || filePath.startsWith("remote:")) return false
-	return [resolveClineHome(), join(homedir(), ".agents", "skills")].some((root) => isPathWithin(root, filePath))
+	return [resolveClineHome(), join(homedir(), ".cellockai", "skills")].some((root) => isPathWithin(root, filePath))
 }
 
 function getPluginDisplayName(filePath: string, searchRoot: string): string {

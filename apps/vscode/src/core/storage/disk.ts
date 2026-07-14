@@ -35,7 +35,6 @@ export const GlobalFileNames = {
 	clineSkillsDir: ".cellockai/skills",
 	projectMcpSettings: ".cellockai/mcp.json",
 	claudeSkillsDir: ".claude/skills",
-	agentsSkillsDir: ".agents/skills",
 	cursorRulesDir: ".cursor/rules",
 	cursorRulesFile: ".cursorrules",
 	windsurfRules: ".windsurfrules",
@@ -101,19 +100,15 @@ function getClineSkillsDirectoryPath(): string {
 	return path.join(os.homedir(), ".cellockai", "skills")
 }
 
-function getAgentSkillsDirectoryPath(): string {
-	return path.join(os.homedir(), ".agents", "skills")
-}
-
 /**
- * Returns the global agent skills directory path (~/.agents/skills).
+ * Returns the global agent skills directory path (~/.cellockai/skills).
  * Creates the directory if it doesn't exist.
  * This is the opinionated location for new global skills.
  */
 export async function ensureAgentSkillsDirectoryExists(options: { isGlobal: boolean; workspacePath?: string }): Promise<string> {
 	const agentSkillsDir = options.isGlobal
-		? getAgentSkillsDirectoryPath()
-		: path.join(options.workspacePath ?? "", GlobalFileNames.agentsSkillsDir)
+		? getClineSkillsDirectoryPath()
+		: path.join(options.workspacePath ?? "", ".cellockai", "skills")
 	try {
 		await fs.mkdir(agentSkillsDir, { recursive: true })
 	} catch (_error) {

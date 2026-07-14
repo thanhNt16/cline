@@ -1,7 +1,6 @@
 import { useState } from "react"
 import {
 	SearchDocumentsRequest,
-	type SearchDocumentsResponse,
 	type SearchResult,
 } from "@shared/proto/cline/docs_index"
 import { DocsIndexServiceClient } from "@/services/grpc-client"

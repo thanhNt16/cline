@@ -95,9 +95,7 @@ export async function getStateToPostToWebview(controller: {
 	const clineMessages = [...(controller.task?.messageStateHandler?.getClineMessages?.() || [])]
 	const checkpointRestoreInput = controller.checkpointRestoreInput
 
-	const workspaceTaskIds = controller.workspaceHistoryIndex
-		? await controller.workspaceHistoryIndex.getTaskIds()
-		: null
+	const workspaceTaskIds = controller.workspaceHistoryIndex ? await controller.workspaceHistoryIndex.getTaskIds() : null
 
 	const processedTaskHistory = (taskHistory || [])
 		.filter((item: any) => item.ts && item.task)

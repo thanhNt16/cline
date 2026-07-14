@@ -1,6 +1,6 @@
-import * as fsSync from "node:fs";
-import * as path from "node:path";
-import type { ApiConfiguration } from "@shared/api";
+import * as fsSync from "node:fs"
+import * as path from "node:path"
+import type { ApiConfiguration } from "@shared/api"
 
 /**
  * Synchronously overlays the active workspace model profile onto an API
@@ -10,43 +10,37 @@ import type { ApiConfiguration } from "@shared/api";
  * Non-fatal: if the workspace cwd is empty or the profiles file is missing or
  * unreadable, the original configuration is returned unchanged.
  */
-export function overlayActiveProfile(
-	apiConfiguration: ApiConfiguration,
-	cwd: string | undefined,
-): ApiConfiguration {
+export function overlayActiveProfile(apiConfiguration: ApiConfiguration, cwd: string | undefined): ApiConfiguration {
 	if (!cwd) {
-		return apiConfiguration;
+		return apiConfiguration
 	}
-	const file = path.join(cwd, ".cellockai", "profiles.json");
+	const file = path.join(cwd, ".cellockai", "profiles.json")
 	let parsed: {
-		activeProfileId?: string;
+		activeProfileId?: string
 		profiles?: Array<{
-			id?: string;
-			baseUrl?: string;
-			modelId?: string;
-			apiKey?: string;
-		}>;
-	};
+			id?: string
+			baseUrl?: string
+			modelId?: string
+			apiKey?: string
+		}>
+	}
 	try {
-		parsed = JSON.parse(fsSync.readFileSync(file, "utf8"));
+		parsed = JSON.parse(fsSync.readFileSync(file, "utf8"))
 	} catch {
-		return apiConfiguration;
+		return apiConfiguration
 	}
-	const profiles = parsed.profiles;
+	const profiles = parsed.profiles
 	if (!profiles || profiles.length === 0) {
-		return apiConfiguration;
+		return apiConfiguration
 	}
-	const active =
-		profiles.find((p) => p.id === parsed.activeProfileId) ?? profiles[0];
+	const active = profiles.find((p) => p.id === parsed.activeProfileId) ?? profiles[0]
 	return {
 		...apiConfiguration,
 		openAiBaseUrl: active.baseUrl ?? apiConfiguration.openAiBaseUrl,
 		openAiApiKey: active.apiKey ?? apiConfiguration.openAiApiKey,
 		planModeApiProvider: "openai",
 		actModeApiProvider: "openai",
-		planModeOpenAiModelId:
-			active.modelId ?? apiConfiguration.planModeOpenAiModelId,
-		actModeOpenAiModelId:
-			active.modelId ?? apiConfiguration.actModeOpenAiModelId,
-	};
+		planModeOpenAiModelId: active.modelId ?? apiConfiguration.planModeOpenAiModelId,
+		actModeOpenAiModelId: active.modelId ?? apiConfiguration.actModeOpenAiModelId,
+	}
 }

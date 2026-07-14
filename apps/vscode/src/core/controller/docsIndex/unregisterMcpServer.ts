@@ -1,4 +1,4 @@
-import { Empty, EmptyRequest } from "@shared/proto/cline/common"
+import { Empty } from "@shared/proto/cline/common"
 import { UnregisterMcpRequest } from "@shared/proto/cline/docs_index"
 import type { Controller } from "../index"
 

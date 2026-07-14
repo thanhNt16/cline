@@ -101,9 +101,7 @@ describe("Skills Utility Functions", () => {
 			{ path: path.join(TEST_CWD, ".cellockai", "skills"), source: "project" },
 			{ path: path.join(TEST_CWD, ".cellockai", "skills"), source: "project" },
 			{ path: path.join(TEST_CWD, ".claude", "skills"), source: "project" },
-			{ path: path.join(TEST_CWD, ".agents", "skills"), source: "project" },
 			{ path: GLOBAL_SKILLS_DIR, source: "global" },
-			{ path: path.join("/home", "user", ".agents", "skills"), source: "global" },
 		])
 
 		// Default: no directories exist
@@ -208,8 +206,8 @@ Follow best practices.`)
 			expect(skills[0].source).to.equal("project")
 		})
 
-		it("should discover skills from project .agents/skills directory", async () => {
-			const agentsSkillsDir = path.join(TEST_CWD, ".agents", "skills")
+		it("should discover skills from project .cellockai/skills directory", async () => {
+			const agentsSkillsDir = path.join(TEST_CWD, ".cellockai", "skills")
 			const skillDir = path.join(agentsSkillsDir, "testing")
 			const skillMdPath = path.join(skillDir, "SKILL.md")
 

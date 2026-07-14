@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package cline;
+
+import "cline/common.proto";
+
+option go_package = "github.com/cline/grpc-go/cline";
+option java_multiple_files = true;
+option java_package = "bot.cline.proto";
+
+service CodebaseMemoryService {
+  rpc getStatus(EmptyRequest) returns (CodebaseMemoryStatus);
+  rpc indexProject(IndexProjectRequest) returns (stream IndexProgressEvent);
+  rpc reindexProject(EmptyRequest) returns (stream IndexProgressEvent);
+  rpc downloadBinary(EmptyRequest) returns (stream IndexProgressEvent);
+  rpc viewGraph(EmptyRequest) returns (ViewGraphResponse);
+  rpc stopGraphServer(EmptyRequest) returns (Empty);
+  rpc listTools(EmptyRequest) returns (CodebaseMemoryTools);
+}
+
+message IndexProjectRequest {
+  Metadata metadata = 1;
+  string repo_path = 2;
+}
+
+message CodebaseMemoryStatus {
+  bool binary_installed = 1;
+  optional string binary_version = 2;
+  optional string binary_path = 3;
+  bool is_indexed = 4;
+  optional string indexed_project_name = 5;
+  optional int64 indexed_node_count = 6;
+  optional int64 indexed_edge_count = 7;
+  optional int64 indexed_at = 8;
+  bool graph_server_running = 9;
+  bool mcp_server_registered = 10;
+}
+
+message IndexProgressEvent {
+  enum Level {
+    INFO = 0;
+    WARN = 1;
+    ERROR = 2;
+    DONE = 3;
+  }
+  Level level = 1;
+  string message = 2;
+  optional int64 node_count = 3;
+  optional int64 edge_count = 4;
+}
+
+message ViewGraphResponse {
+  string url = 1;
+}
+
+message CodebaseMemoryTool {
+  string name = 1;
+  string description = 2;
+}
+
+message CodebaseMemoryTools {
+  repeated CodebaseMemoryTool tools = 1;
+}

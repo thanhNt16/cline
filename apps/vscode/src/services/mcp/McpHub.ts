@@ -1622,9 +1622,12 @@ export class McpHub {
 	async toggleToolAutoApproveRPC(serverName: string, toolNames: string[], shouldAllow: boolean): Promise<McpServer[]> {
 		try {
 			const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
-			const { config, autoApprove } = await updateMcpSettingsFile(settingsPath, (parsed) => {
-				// Initialize autoApprove if it doesn't exist
+			const { autoApprove } = await updateMcpSettingsFile(settingsPath, (parsed) => {
 				const servers = parsed.mcpServers as Record<string, any>
+				if (!servers[serverName]) {
+					throw new Error(`Server "${serverName}" not found in settings`)
+				}
+				// Initialize autoApprove if it doesn't exist
 				if (!servers[serverName].autoApprove) {
 					servers[serverName].autoApprove = []
 				}
@@ -1641,9 +1644,15 @@ export class McpHub {
 						approve.splice(toolIndex, 1)
 					}
 				}
-				return { config: parsed, autoApprove: approve }
+				return { autoApprove: approve as string[] }
 			})
-			this.recordSettingsFingerprint(config.mcpServers as Record<string, McpServerConfig>)
+			// Re-read the merged (global + project) settings before recording the
+			// fingerprint, like every other mutator (readPostWriteMcpSettings). Using
+			// the raw global-only write result here would omit project-level
+			// (.cellockai/mcp.json) servers, so the next settings-file "change" event
+			// for this very write would see a mismatched fingerprint, be mistaken for
+			// an external edit, and force a full server reconnect/reload.
+			const config = await this.readPostWriteMcpSettings()
 
 			// Update the tools list to reflect the change
 			const connection = this.connections.find((conn) => conn.server.name === serverName)
@@ -1667,9 +1676,12 @@ export class McpHub {
 	async toggleToolAutoApprove(serverName: string, toolNames: string[], shouldAllow: boolean): Promise<void> {
 		try {
 			const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
-			const { autoApprove, mcpServers } = await updateMcpSettingsFile(settingsPath, (config) => {
-				// Initialize autoApprove if it doesn't exist
+			const { autoApprove } = await updateMcpSettingsFile(settingsPath, (config) => {
 				const servers = config.mcpServers as Record<string, any>
+				if (!servers[serverName]) {
+					throw new Error(`Server "${serverName}" not found in settings`)
+				}
+				// Initialize autoApprove if it doesn't exist
 				if (!servers[serverName].autoApprove) {
 					servers[serverName].autoApprove = []
 				}
@@ -1686,9 +1698,13 @@ export class McpHub {
 						approve.splice(toolIndex, 1)
 					}
 				}
-				return { autoApprove: approve as string[], mcpServers: servers as Record<string, McpServerConfig> }
+				return { autoApprove: approve as string[] }
 			})
-			this.recordSettingsFingerprint(mcpServers)
+			// See the comment in toggleToolAutoApproveRPC: record the fingerprint from
+			// the re-read merged (global + project) settings, not the raw write
+			// result, so this write's own "change" event doesn't get mistaken for an
+			// external edit.
+			await this.readPostWriteMcpSettings()
 
 			// Update the tools list to reflect the change
 			const connection = this.connections.find((conn) => conn.server.name === serverName)
