@@ -1,6 +1,7 @@
 import type { McpHub } from "@services/mcp/McpHub"
 import { Logger } from "@/shared/services/Logger"
 import {
+	CreateProjectResponse,
 	DocsIndexTools,
 	DocsIndexProjectResponse,
 	IndexUrlResponse,
@@ -101,6 +102,26 @@ export class DocsIndexFacade {
 			chunksAdded: result.chunks_added || 0,
 			elapsedMs: result.elapsed_ms || 0,
 		})
+	}
+
+	async createProject(serverUrl: string, project: string): Promise<CreateProjectResponse> {
+		try {
+			const client = await this.getClient(serverUrl)
+			const result = await client.createProject(project)
+			return CreateProjectResponse.create({
+				project: result.project || project,
+				status: result.status || "created",
+				message: result.message || "",
+			})
+		} catch (err) {
+			Logger.error("[DocsIndex] createProject failed:", err)
+			await this.invalidateClient(serverUrl)
+			return CreateProjectResponse.create({
+				project,
+				status: "error",
+				message: err instanceof Error ? err.message : String(err),
+			})
+		}
 	}
 
 	async indexUrl(

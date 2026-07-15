@@ -49,7 +49,7 @@ export class VesselIndexerClient {
 	}
 
 	async uploadFile(project: string, filePath: string): Promise<UploadResult> {
-		const fileBuffer = await fs.readFile(filePath)
+		const fileBuffer = 		await fs.readFile(filePath)
 		const filename = path.basename(filePath)
 		const formData = new FormData()
 		formData.append("project", project)
@@ -65,6 +65,20 @@ export class VesselIndexerClient {
 		}
 
 		return (await response.json()) as UploadResult
+	}
+
+	async createProject(project: string): Promise<{ project: string; status: string; message: string }> {
+		const response = await fetch(`${this.serverUrl}/create-project`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ project }),
+		})
+
+		if (!response.ok) {
+			throw new Error(`Create project failed: ${response.status} ${response.statusText}`)
+		}
+
+		return await response.json()
 	}
 
 	async close(): Promise<void> {
