@@ -29,8 +29,9 @@ import { parseMentions } from "@/core/mentions"
 import { ensureMcpServersDirectoryExists, getProjectSettingsDirectoryPath } from "@/core/storage/disk"
 import { refreshSdkRemoteConfig } from "@/core/storage/remote-config/sdk-refresh"
 import { clearRemoteConfig } from "@/core/storage/remote-config/utils"
+import { VcsType, type WorkspaceRoot } from "@shared/multi-root/types"
 import { StateManager } from "@/core/storage/StateManager"
-import type { WorkspaceRootManager } from "@/core/workspace/WorkspaceRootManager"
+import { WorkspaceRootManager } from "@/core/workspace/WorkspaceRootManager"
 import { HostProvider } from "@/hosts/host-provider"
 import type { ITerminalManager } from "@/integrations/terminal/types"
 import { ExtensionRegistryInfo } from "@/registry"
@@ -1735,6 +1736,7 @@ export class Controller {
 		// task history on top.
 		try {
 			syncTelemetrySettingFromSharedGlobalSettings(this.stateManager)
+			const workspaceManager = await this.ensureWorkspaceManager()
 			const { getStateToPostToWebview: buildBaseState } = await import("@core/controller/state/getStateToPostToWebview")
 			const state = await buildBaseState({
 				task: this.task,
@@ -1742,6 +1744,7 @@ export class Controller {
 				mcpHub: this.mcpHub,
 				backgroundCommandRunning: this.backgroundCommandRunning,
 				backgroundCommandTaskId: this.backgroundCommandTaskId,
+				workspaceManager,
 			})
 			const sdkTaskHistory = (await this.taskHistory.listHistory({ limit: 100, hydrate: false }))
 				.map(sessionHistoryRecordToHistoryItem)
@@ -1859,8 +1862,35 @@ export class Controller {
 
 	// ---- Workspace (kept from classic) ----
 
+	private workspaceManager: WorkspaceRootManager | undefined
+
 	async ensureWorkspaceManager(): Promise<WorkspaceRootManager | undefined> {
-		stubWarn("ensureWorkspaceManager")
-		return undefined
+		if (this.workspaceManager) {
+			return this.workspaceManager
+		}
+		const roots = await this.getWorkspaceRoots()
+		if (roots.length === 0) {
+			return undefined
+		}
+		this.workspaceManager = new WorkspaceRootManager(roots, 0)
+		return this.workspaceManager
+	}
+
+	private async getWorkspaceRoots(): Promise<WorkspaceRoot[]> {
+		try {
+			const { paths } = await HostProvider.workspace.getWorkspacePaths({})
+			if (!paths || paths.length === 0) {
+				return []
+			}
+			const pathModule = await import("node:path")
+			return paths.map((p) => ({
+				path: p,
+				name: pathModule.basename(p),
+				vcs: VcsType.None,
+			}))
+		} catch (error) {
+			Logger.warn("[SdkController] Failed to get workspace paths:", error)
+			return []
+		}
 	}
 }
