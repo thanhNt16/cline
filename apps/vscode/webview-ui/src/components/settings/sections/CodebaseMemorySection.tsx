@@ -39,6 +39,7 @@ export const CodebaseMemorySection = () => {
 			onError: (err: Error) => {
 				console.error("Download error:", err)
 				setIsDownloading(false)
+				refreshStatus()
 			},
 		})
 	}, [refreshStatus])
@@ -59,6 +60,7 @@ export const CodebaseMemorySection = () => {
 			onError: (err: Error) => {
 				console.error("Indexing error:", err)
 				setIsIndexing(false)
+				refreshStatus()
 			},
 		})
 	}, [workspaceRoots, refreshStatus])
@@ -77,6 +79,7 @@ export const CodebaseMemorySection = () => {
 			onError: (err: Error) => {
 				console.error("Reindex error:", err)
 				setIsIndexing(false)
+				refreshStatus()
 			},
 		})
 	}, [refreshStatus])
