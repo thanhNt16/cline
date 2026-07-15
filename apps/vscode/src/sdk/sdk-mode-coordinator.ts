@@ -1,4 +1,3 @@
-import { getProviderAuthStorageId } from "@cline/core"
 import type { ChatContent } from "@shared/ChatContent"
 import type { ClineMessage, TurnPhase } from "@shared/ExtensionMessage"
 import type { Mode } from "@shared/storage/types"
@@ -16,8 +15,8 @@ type StartInput = Parameters<VscodeSessionHost["start"]>[0]
 type InitialMessages = StartInput["initialMessages"]
 type SessionConfig = Awaited<ReturnType<SdkSessionConfigBuilder["build"]>>
 
-function usesClineAccountAuth(providerId: string): boolean {
-	return getProviderAuthStorageId(providerId) === "cline"
+function usesClineAccountAuth(_providerId: string): boolean {
+	return false
 }
 
 export const ACT_MODE_CONTINUATION_PROMPT = "The user approved switching to act mode. Continue with the approved plan now."

@@ -1,4 +1,3 @@
-import { getProviderAuthStorageId } from "@cline/core"
 import { createSessionId } from "@cline/shared"
 import { CLINE_ACCOUNT_AUTH_ERROR_MESSAGE } from "@shared/ClineAccount"
 import type { ClineMessage } from "@shared/ExtensionMessage"
@@ -20,8 +19,8 @@ type StartInput = Parameters<VscodeSessionHost["start"]>[0]
 type InitialMessages = StartInput["initialMessages"]
 type SessionConfig = Awaited<ReturnType<SdkSessionConfigBuilder["build"]>>
 
-function usesClineAccountAuth(providerId: string): boolean {
-	return getProviderAuthStorageId(providerId) === "cline"
+function usesClineAccountAuth(_providerId: string): boolean {
+	return false
 }
 
 export interface SdkTaskStartCoordinatorOptions {

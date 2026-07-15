@@ -8,7 +8,6 @@ import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import {
 	createUserInstructionConfigService,
-	getProviderAuthStorageId,
 	type PreparedRemoteConfigCoreIntegration,
 	type SessionHistoryRecord,
 	setTelemetryOptOutGlobally,
@@ -51,7 +50,7 @@ import { arePathsEqual, getDesktopDir } from "@/utils/path"
 import { ClineAccountService } from "./account-service"
 import { AuthService, LogoutReason } from "./auth-service"
 import { buildStartSessionInput, createHistoryItemFromSession } from "./cline-session-factory"
-import { MessageTranslatorState, reshapeErrorForWebview } from "./message-translator"
+import { MessageTranslatorState } from "./message-translator"
 import { createProviderCatalog } from "./model-catalog/catalog"
 import type { Disposable, ProviderCatalog, ProviderConfigChange, ProviderConfigStore } from "./model-catalog/contracts"
 import { parseProviderId } from "./model-catalog/provider-id"
@@ -109,8 +108,8 @@ function metadataNumber(metadata: SessionHistoryRecord["metadata"] | undefined, 
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
-function usesClineAccountAuth(providerId: string): boolean {
-	return getProviderAuthStorageId(providerId) === "cline"
+function usesClineAccountAuth(_providerId: string): boolean {
+	return false
 }
 
 function metadataBoolean(metadata: SessionHistoryRecord["metadata"] | undefined, key: string): boolean | undefined {
@@ -352,55 +351,30 @@ export class Controller {
 				})
 			},
 			onSendError: async (error, sessionId) => {
-				// A turn failed — the UI shows error recovery (Retry / Sign In / Add Credits).
+				// A turn failed — the UI shows error recovery.
 				this.turnStateTracker.set("error")
 				const errorMessage = error instanceof Error ? error.message : String(error)
 				const providerId = this.getSessionProviderId(sessionId) ?? this.getActiveProviderId()
-				const isClineAuthError =
-					isClineManagedProvider(providerId) &&
-					(errorMessage.includes(CLINE_ACCOUNT_AUTH_ERROR_MESSAGE) ||
-						errorMessage.toLowerCase().includes("missing api key") ||
-						errorMessage.toLowerCase().includes("unauthorized"))
 
-				if (isClineAuthError) {
-					this.captureProviderFailure({
-						sessionId,
-						error,
-						providerId,
-						errorType: PROVIDER_FAILURE_ERROR_TYPE.AUTH,
-						failurePhase: PROVIDER_FAILURE_PHASE.PREFLIGHT,
-					})
-					this.emitClineAuthError()
-				} else if (isClineManagedProvider(providerId) && this.isClineBalanceError(errorMessage)) {
-					this.captureProviderFailure({
-						sessionId,
-						error,
-						providerId,
-						errorType: PROVIDER_FAILURE_ERROR_TYPE.BALANCE,
-						failurePhase: PROVIDER_FAILURE_PHASE.PREFLIGHT,
-					})
-					this.emitClineBalanceError(errorMessage)
-				} else {
-					this.captureProviderFailure({
-						sessionId,
-						error,
-						providerId,
-						errorType: PROVIDER_FAILURE_ERROR_TYPE.SEND_ERROR,
-						failurePhase: PROVIDER_FAILURE_PHASE.STREAMING,
-					})
-					this.messages.emitSessionEvents(
-						[
-							{
-								ts: Date.now(),
-								type: "say",
-								say: "error",
-								text: `Agent error: ${errorMessage}`,
-								partial: false,
-							},
-						],
-						{ type: "status", payload: { sessionId, status: "error" } },
-					)
-				}
+				this.captureProviderFailure({
+					sessionId,
+					error,
+					providerId,
+					errorType: PROVIDER_FAILURE_ERROR_TYPE.SEND_ERROR,
+					failurePhase: PROVIDER_FAILURE_PHASE.STREAMING,
+				})
+				this.messages.emitSessionEvents(
+					[
+						{
+							ts: Date.now(),
+							type: "say",
+							say: "error",
+							text: `Agent error: ${errorMessage}`,
+							partial: false,
+						},
+					],
+					{ type: "status", payload: { sessionId, status: "error" } },
+				)
 				this.postStateToWebview().catch(() => {})
 			},
 		})
@@ -1002,71 +976,6 @@ export class Controller {
 			},
 			{
 				ts: ts + 1,
-				type: "say",
-				say: "api_req_started",
-				text: JSON.stringify({
-					streamingFailedMessage: serializedError,
-				} satisfies ClineApiReqInfo),
-				partial: false,
-			},
-			{
-				ts: failedAskTs,
-				type: "ask",
-				ask: "api_req_failed",
-				text: serializedError,
-				partial: false,
-			},
-		]
-
-		this.turnStateTracker.set("error", failedAskTs)
-
-		this.messages.appendAndEmit(messages, {
-			type: "status",
-			payload: {
-				sessionId: this.sessions.getActiveSession()?.sessionId ?? "",
-				status: "error",
-			},
-		})
-
-		this.postStateToWebview().catch(() => {})
-	}
-
-	/**
-	 * Check if an error message indicates an insufficient credits / balance error
-	 * by reshaping it into ClineError format and inspecting the result.
-	 */
-	private isClineBalanceError(errorMessage: string): boolean {
-		try {
-			const shaped = JSON.parse(reshapeErrorForWebview({ message: errorMessage }))
-			return shaped.code === "insufficient_credits"
-		} catch {
-			return false
-		}
-	}
-
-	/**
-	 * Emit a balance error for the 'cline' provider when the user has insufficient
-	 * credits. Produces the same message sequence as emitClineAuthError so the
-	 * webview renders the "Buy Credits" button via CreditLimitError.
-	 *
-	 * Message sequence:
-	 *   1. say:'api_req_started' – streamingFailedMessage holds the ClineError JSON
-	 *   2. ask:'api_req_failed'  – ClineError JSON → ErrorRow renders balance UI
-	 */
-	private emitClineBalanceError(rawErrorMessage: string): void {
-		const ts = Date.now()
-
-		// reshapeErrorForWebview extracts structured fields from the SDK error
-		// message (which may be plain text or embedded JSON) and produces the
-		// ClineError-serialized JSON that the webview's ErrorRow expects.
-		const serializedError = reshapeErrorForWebview({
-			message: rawErrorMessage,
-		})
-
-		const failedAskTs = ts + 1
-		const messages: ClineMessage[] = [
-			{
-				ts,
 				type: "say",
 				say: "api_req_started",
 				text: JSON.stringify({
