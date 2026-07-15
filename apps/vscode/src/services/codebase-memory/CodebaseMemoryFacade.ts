@@ -54,8 +54,24 @@ export class CodebaseMemoryFacade {
 		const binaryVersion = binaryInstalled ? await this.binaryManager.getInstalledVersion() : undefined
 		const binaryPath = this.binaryManager.getBinaryPath()
 		const graphServerRunning = this.graphServer.isRunning()
-		const mcpServerRegistered = binaryInstalled ? await this.mcpRegistration.isRegistered() : false
-		const indexInfo = this.cachedIndexInfo ?? (binaryInstalled ? await this.getStatusIndexInfo() : null)
+
+		let mcpServerRegistered = false
+		if (binaryInstalled) {
+			try {
+				mcpServerRegistered = await this.mcpRegistration.isRegistered()
+			} catch (e) {
+				Logger.log(`[CBM-DIAG] getStatus: isRegistered failed: ${(e as Error).message}`)
+			}
+		}
+
+		let indexInfo: IndexInfo | null = this.cachedIndexInfo
+		if (!indexInfo && binaryInstalled) {
+			try {
+				indexInfo = await this.getStatusIndexInfo()
+			} catch (e) {
+				Logger.log(`[CBM-DIAG] getStatus: getStatusIndexInfo failed: ${(e as Error).message}`)
+			}
+		}
 
 		return CodebaseMemoryStatus.create({
 			binaryInstalled,
