@@ -49,7 +49,7 @@ export class VesselIndexerClient {
 	}
 
 	async uploadFile(project: string, filePath: string): Promise<UploadResult> {
-		const fileBuffer = 		await fs.readFile(filePath)
+		const fileBuffer = await fs.readFile(filePath)
 		const filename = path.basename(filePath)
 		const formData = new FormData()
 		formData.append("project", project)
@@ -67,15 +67,116 @@ export class VesselIndexerClient {
 		return (await response.json()) as UploadResult
 	}
 
-	async createProject(project: string): Promise<{ project: string; status: string; message: string }> {
-		const response = await fetch(`${this.serverUrl}/create-project`, {
+	async createProject(name: string, mountPath: string): Promise<{ name: string; mount_path: string; status: string; message: string }> {
+		const response = await fetch(`${this.serverUrl}/projects`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ project }),
+			body: JSON.stringify({ name, mount_path: mountPath }),
 		})
 
 		if (!response.ok) {
 			throw new Error(`Create project failed: ${response.status} ${response.statusText}`)
+		}
+
+		return await response.json()
+	}
+
+	async listDocuments(
+		project: string,
+		page = 1,
+		pageSize = 20,
+	): Promise<{
+		project: string
+		page: number
+		page_size: number
+		total: number
+		total_pages: number
+		documents: Array<{ path: string; file_type: string; chunks: number; size: number; mod_time: string }>
+	}> {
+		const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
+		const response = await fetch(`${this.serverUrl}/projects/${encodeURIComponent(project)}/documents?${params}`)
+
+		if (!response.ok) {
+			throw new Error(`List documents failed: ${response.status} ${response.statusText}`)
+		}
+
+		return await response.json()
+	}
+
+	async deleteDocument(
+		project: string,
+		path: string,
+	): Promise<{ project: string; path: string; chunks_removed: number; file_deleted: boolean; status: string }> {
+		const params = new URLSearchParams({ path })
+		const response = await fetch(`${this.serverUrl}/projects/${encodeURIComponent(project)}/documents?${params}`, {
+			method: "DELETE",
+		})
+
+		if (!response.ok) {
+			throw new Error(`Delete document failed: ${response.status} ${response.statusText}`)
+		}
+
+		return await response.json()
+	}
+
+	async startIndexProject(project: string): Promise<{ job_id: string; project: string; status: string; started_at: string }> {
+		const response = await fetch(`${this.serverUrl}/projects/${encodeURIComponent(project)}/index`, {
+			method: "POST",
+		})
+
+		if (!response.ok) {
+			throw new Error(`Start index failed: ${response.status} ${response.statusText}`)
+		}
+
+		return await response.json()
+	}
+
+	async startIndexUrl(
+		project: string,
+		url: string,
+		depth?: number,
+		maxPages?: number,
+	): Promise<{ job_id: string; project: string; status: string; started_at: string }> {
+		const body: Record<string, unknown> = { url }
+		if (depth !== undefined) body.depth = depth
+		if (maxPages !== undefined) body.max_pages = maxPages
+
+		const response = await fetch(`${this.serverUrl}/projects/${encodeURIComponent(project)}/index-url`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		})
+
+		if (!response.ok) {
+			throw new Error(`Start URL index failed: ${response.status} ${response.statusText}`)
+		}
+
+		return await response.json()
+	}
+
+	async pollIndexJob(
+		project: string,
+		jobId: string,
+	): Promise<{
+		id: string
+		job_id: string
+		project: string
+		type: string
+		status: string
+		started_at: string
+		finished_at: string
+		files_scanned: number
+		files_indexed: number
+		files_failed: number
+		chunks_added: number
+		error: string
+	}> {
+		const response = await fetch(
+			`${this.serverUrl}/projects/${encodeURIComponent(project)}/jobs/${encodeURIComponent(jobId)}`,
+		)
+
+		if (!response.ok) {
+			throw new Error(`Poll job failed: ${response.status} ${response.statusText}`)
 		}
 
 		return await response.json()
