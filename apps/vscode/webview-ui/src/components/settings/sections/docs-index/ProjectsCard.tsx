@@ -31,6 +31,7 @@ export default function ProjectsCard({
 
 	const { workspaceRoots } = useExtensionState()
 	const [newProjectName, setNewProjectName] = useState("")
+	const [newMountPath, setNewMountPath] = useState("")
 	const [creating, setCreating] = useState(false)
 
 	const workspaceName = workspaceRoots?.[0]?.name ?? ""
@@ -57,12 +58,19 @@ export default function ProjectsCard({
 
 	const handleCreateProject = useCallback(async () => {
 		if (!connected || !newProjectName.trim()) return
+		// Default mountPath: workspace folder + project name (or just project name)
+		const defaultMountPath = newMountPath.trim() || `${workspaceName ? `/${workspaceName}/${newProjectName.trim()}` : `/${newProjectName.trim()}`}`
 		setCreating(true)
 		try {
 			await DocsIndexServiceClient.createProject(
-				CreateProjectRequest.create({ serverUrl, project: newProjectName.trim() }),
+				CreateProjectRequest.create({
+					serverUrl,
+					name: newProjectName.trim(),
+					mountPath: defaultMountPath,
+				}),
 			)
 			setNewProjectName("")
+			setNewMountPath("")
 			await refreshProjects()
 			setSelectedProject(newProjectName.trim())
 		} catch (err) {
@@ -70,7 +78,7 @@ export default function ProjectsCard({
 		} finally {
 			setCreating(false)
 		}
-	}, [connected, newProjectName, serverUrl, refreshProjects, setSelectedProject])
+	}, [connected, newProjectName, newMountPath, serverUrl, workspaceName, refreshProjects, setSelectedProject])
 
 	useEffect(() => {
 		if (connected) {
@@ -146,6 +154,22 @@ export default function ProjectsCard({
 							handleCreateProject()
 						}
 					}}
+					style={{
+						flex: 1,
+						padding: "4px 8px",
+						fontSize: "12px",
+						background: "var(--vscode-input-background)",
+						color: "var(--vscode-input-foreground)",
+						border: "1px solid var(--vscode-input-border)",
+						borderRadius: "3px",
+					}}
+				/>
+				<input
+					type="text"
+					value={newMountPath}
+					onChange={(e) => setNewMountPath(e.target.value)}
+					placeholder="Mount path (optional, e.g. /data/projects/myproject)"
+					disabled={!connected || creating}
 					style={{
 						flex: 1,
 						padding: "4px 8px",
