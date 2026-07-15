@@ -32,6 +32,8 @@ export class CodebaseMemoryFacade {
 	private indexingService: IndexingService | undefined
 	private lastIndexedRepo: string | undefined
 	private cachedIndexInfo: IndexInfo | null = null
+	private cachedBinaryVersion: string | undefined
+	private versionFetchPromise: Promise<void> | null = null
 	private readonly storageDir: string
 	private readonly indexInfoPath: string
 
@@ -51,9 +53,16 @@ export class CodebaseMemoryFacade {
 
 	async getStatus(): Promise<CodebaseMemoryStatus> {
 		const binaryInstalled = await this.binaryManager.isBinaryPresent()
-		const binaryVersion = binaryInstalled ? await this.binaryManager.getInstalledVersion() : undefined
 		const binaryPath = this.binaryManager.getBinaryPath()
 		const graphServerRunning = this.graphServer.isRunning()
+
+		// Fetch version lazily (non-blocking) — populate cache for subsequent calls
+		if (binaryInstalled && this.cachedBinaryVersion === undefined && !this.versionFetchPromise) {
+			this.versionFetchPromise = this.binaryManager.getInstalledVersion().then((v) => {
+				this.cachedBinaryVersion = v
+				this.versionFetchPromise = null
+			})
+		}
 
 		let mcpServerRegistered = false
 		if (binaryInstalled) {
@@ -64,24 +73,15 @@ export class CodebaseMemoryFacade {
 			}
 		}
 
-		let indexInfo: IndexInfo | null = this.cachedIndexInfo
-		if (!indexInfo && binaryInstalled) {
-			try {
-				indexInfo = await this.getStatusIndexInfo()
-			} catch (e) {
-				Logger.log(`[CBM-DIAG] getStatus: getStatusIndexInfo failed: ${(e as Error).message}`)
-			}
-		}
-
 		return CodebaseMemoryStatus.create({
 			binaryInstalled,
-			binaryVersion,
+			binaryVersion: this.cachedBinaryVersion,
 			binaryPath,
-			isIndexed: indexInfo?.isIndexed ?? false,
-			indexedProjectName: indexInfo?.projectName,
-			indexedNodeCount: indexInfo?.nodeCount,
-			indexedEdgeCount: indexInfo?.edgeCount,
-			indexedAt: indexInfo?.indexedAt,
+			isIndexed: this.cachedIndexInfo?.isIndexed ?? false,
+			indexedProjectName: this.cachedIndexInfo?.projectName,
+			indexedNodeCount: this.cachedIndexInfo?.nodeCount,
+			indexedEdgeCount: this.cachedIndexInfo?.edgeCount,
+			indexedAt: this.cachedIndexInfo?.indexedAt,
 			graphServerRunning,
 			mcpServerRegistered,
 		})
