@@ -13,6 +13,43 @@ interface IndexCardProps {
 	selectedProject: string
 }
 
+function formatDuration(ms: number): string {
+	if (ms < 1000) return "0s"
+	const seconds = Math.floor(ms / 1000)
+	if (seconds < 60) return `${seconds}s`
+	const minutes = Math.floor(seconds / 60)
+	const remainingSeconds = seconds % 60
+	if (minutes < 60) return `${minutes}m ${remainingSeconds}s`
+	const hours = Math.floor(minutes / 60)
+	const remainingMinutes = minutes % 60
+	return `${hours}h ${remainingMinutes}m`
+}
+
+function computeProgress(job: PollIndexJobResponse): {
+	percent: number
+	elapsedMs: number
+	etaMs: number | null
+	ratePerSec: number | null
+	processed: number
+	total: number
+} {
+	const processed = job.filesIndexed + job.filesFailed
+	const total = job.filesScanned || 0
+	const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0
+
+	const startedAt = job.startedAt ? new Date(job.startedAt).getTime() : 0
+	const finishedAt = job.finishedAt ? new Date(job.finishedAt).getTime() : Date.now()
+	const elapsedMs = startedAt > 0 ? Math.max(0, finishedAt - startedAt) : 0
+
+	const elapsedSec = elapsedMs / 1000
+	const ratePerSec = elapsedSec > 0 && processed > 0 ? processed / elapsedSec : null
+
+	const remaining = total - processed
+	const etaMs = ratePerSec !== null && ratePerSec > 0 && remaining > 0 ? (remaining / ratePerSec) * 1000 : null
+
+	return { percent, elapsedMs, etaMs, ratePerSec, processed, total }
+}
+
 export default function IndexCard({ serverUrl, connected, selectedProject }: IndexCardProps) {
 	const [urlInput, setUrlInput] = useState("")
 	const [depth, setDepth] = useState(3)
@@ -22,6 +59,7 @@ export default function IndexCard({ serverUrl, connected, selectedProject }: Ind
 	const [activeJobId, setActiveJobId] = useState<string | null>(null)
 	const [activeJobType, setActiveJobType] = useState<"project" | "url" | null>(null)
 	const [jobProgress, setJobProgress] = useState<PollIndexJobResponse | null>(null)
+	const [, setTick] = useState(0)
 
 	const isJobActive = activeJobId !== null
 	const disabled = !connected || !selectedProject || isJobActive
@@ -58,6 +96,14 @@ export default function IndexCard({ serverUrl, connected, selectedProject }: Ind
 
 		poll()
 		pollIntervalRef.current = setInterval(poll, 2000)
+
+		// Live timer — update every second for elapsed time display
+		const timerInterval = setInterval(() => {
+			setTick((t) => t + 1)
+			if (pollIntervalRef.current === null) {
+				clearInterval(timerInterval)
+			}
+		}, 1000)
 	}
 
 	const handleIndexProject = async () => {
@@ -96,6 +142,98 @@ export default function IndexCard({ serverUrl, connected, selectedProject }: Ind
 		}
 	}
 
+	const renderProgressBar = (job: PollIndexJobResponse) => {
+		const { percent, total } = computeProgress(job)
+		if (total === 0) return null
+
+		return (
+			<div
+				style={{
+					marginTop: "6px",
+					height: "6px",
+					background: "var(--vscode-panel-border)",
+					borderRadius: "3px",
+					overflow: "hidden",
+				}}>
+				<div
+					style={{
+						width: `${percent}%`,
+						height: "100%",
+						background:
+							job.status === "completed"
+								? "var(--vscode-testing-iconPassed)"
+								: job.status === "failed"
+									? "var(--vscode-errorForeground)"
+									: "var(--vscode-button-background)",
+						transition: "width 0.5s ease",
+						borderRadius: "3px",
+					}}
+				/>
+			</div>
+		)
+	}
+
+	const renderProgressInfo = (job: PollIndexJobResponse, isUrl: boolean) => {
+		const { percent, elapsedMs, etaMs, ratePerSec, processed, total } = computeProgress(job)
+		const label = isUrl ? "pages" : "files"
+
+		if (job.status === "completed") {
+			const totalMs = job.finishedAt
+				? new Date(job.finishedAt).getTime() - new Date(job.startedAt).getTime()
+				: elapsedMs
+			return (
+				<div style={{ marginTop: "6px", fontSize: "12px", color: "var(--vscode-testing-iconPassed)" }}>
+					Completed: {job.filesIndexed} {label} indexed ({job.chunksAdded} chunks
+					{job.filesFailed > 0 ? `, ${job.filesFailed} failed` : ""}) in {formatDuration(totalMs)}
+				</div>
+			)
+		}
+
+		if (job.status === "failed") {
+			return (
+				<div style={{ marginTop: "6px", fontSize: "12px", color: "var(--vscode-errorForeground)" }}>
+					Failed: {job.error || "unknown error"}
+					{processed > 0 && ` (${processed} ${label} processed before failure)`}
+				</div>
+			)
+		}
+
+		// Running / queued
+		const parts: string[] = []
+
+		if (job.status === "queued") {
+			parts.push("Queued...")
+		} else {
+			if (total > 0) {
+				parts.push(`${processed}/${total} ${label} (${percent}%)`)
+			} else {
+				parts.push(`${processed} ${label} processed`)
+			}
+			parts.push(`${job.chunksAdded} chunks`)
+			if (job.filesFailed > 0) {
+				parts.push(`${job.filesFailed} failed`)
+			}
+		}
+
+		if (elapsedMs > 0) {
+			parts.push(`${formatDuration(elapsedMs)} elapsed`)
+		}
+
+		if (etaMs !== null && etaMs > 0) {
+			parts.push(`~${formatDuration(etaMs)} remaining`)
+		}
+
+		if (ratePerSec !== null && ratePerSec > 0) {
+			parts.push(`${ratePerSec.toFixed(1)} ${label}/s`)
+		}
+
+		return (
+			<div style={{ marginTop: "6px", fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}>
+				{parts.join(" · ")}
+			</div>
+		)
+	}
+
 	return (
 		<div
 			style={{
@@ -124,23 +262,10 @@ export default function IndexCard({ serverUrl, connected, selectedProject }: Ind
 					{activeJobType === "project" ? "Indexing..." : "Index Project"}
 				</button>
 				{jobProgress && activeJobType === "project" && (
-					<div
-						style={{
-							marginTop: "8px",
-							fontSize: "12px",
-							color:
-								jobProgress.status === "failed"
-									? "var(--vscode-errorForeground)"
-									: jobProgress.status === "completed"
-										? "var(--vscode-testing-iconPassed)"
-										: "var(--vscode-descriptionForeground)",
-						}}>
-						{jobProgress.status === "completed"
-							? `Indexed ${jobProgress.filesIndexed} files (${jobProgress.chunksAdded} chunks, ${jobProgress.filesFailed} failed)`
-							: jobProgress.status === "failed"
-								? `Indexing failed: ${jobProgress.error || "unknown error"}`
-								: `Status: ${jobProgress.status} — ${jobProgress.filesIndexed} files indexed, ${jobProgress.chunksAdded} chunks added...`}
-					</div>
+					<>
+						{renderProgressBar(jobProgress)}
+						{renderProgressInfo(jobProgress, false)}
+					</>
 				)}
 			</div>
 
@@ -203,26 +328,13 @@ export default function IndexCard({ serverUrl, connected, selectedProject }: Ind
 							opacity: disabled || !urlInput ? 0.7 : 1,
 							alignSelf: "flex-start",
 						}}>
-					{activeJobType === "url" ? "Crawling..." : "Index URL"}
-				</button>
+						{activeJobType === "url" ? "Crawling..." : "Index URL"}
+					</button>
 					{jobProgress && activeJobType === "url" && (
-						<div
-							style={{
-								marginTop: "8px",
-								fontSize: "12px",
-								color:
-									jobProgress.status === "failed"
-										? "var(--vscode-errorForeground)"
-										: jobProgress.status === "completed"
-											? "var(--vscode-testing-iconPassed)"
-											: "var(--vscode-descriptionForeground)",
-							}}>
-							{jobProgress.status === "completed"
-								? `Crawled ${jobProgress.filesIndexed} pages (${jobProgress.chunksAdded} chunks added)`
-								: jobProgress.status === "failed"
-									? `URL indexing failed: ${jobProgress.error || "unknown error"}`
-									: `Status: ${jobProgress.status} — ${jobProgress.filesIndexed} pages crawled...`}
-						</div>
+						<>
+							{renderProgressBar(jobProgress)}
+							{renderProgressInfo(jobProgress, true)}
+						</>
 					)}
 				</div>
 			</div>
