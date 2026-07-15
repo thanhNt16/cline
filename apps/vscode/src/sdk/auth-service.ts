@@ -333,11 +333,10 @@ export class AuthService {
 			}
 		}
 
-		// Verify the token is still valid (not past expiry)
-		if (expiresAt && Date.now() / 1000 >= expiresAt) {
-			return null
-		}
-
+		// After a successful refresh, this._clineAuthInfo.idToken is the new token.
+		// No post-refresh expiry check needed — refreshAccessToken() returning true
+		// guarantees a valid token. The previous check used a stale local expiresAt
+		// variable captured before the refresh, causing a false null return.
 		return `${WORKOS_TOKEN_PREFIX}${this._clineAuthInfo.idToken}`
 	}
 

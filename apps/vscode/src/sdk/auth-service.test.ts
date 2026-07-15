@@ -340,6 +340,25 @@ describe("AuthService", () => {
 			const token = await authService.getAuthToken()
 			expect(token).toBeNull()
 		})
+
+		it("returns refreshed token when token is expired and refresh succeeds", async () => {
+			const authInfo = createTestAuthInfo({
+				expiresAt: Math.floor(Date.now() / 1000) - 100, // expired 100 seconds ago
+			})
+			testAccess(authService)._clineAuthInfo = authInfo
+			testAccess(authService)._authenticated = true
+
+			vi.mocked(getValidClineCredentials).mockResolvedValue({
+				access: "new-access-token",
+				refresh: "test-refresh-token",
+				expires: Date.now() + 3600 * 1000, // 1 hour from now (ms)
+				accountId: "user-123",
+				email: "test@example.com",
+			})
+
+			const token = await authService.getAuthToken()
+			expect(token).toBe("workos:new-access-token")
+		})
 	})
 
 	describe("createAuthRequest()", () => {
