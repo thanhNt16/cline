@@ -3,8 +3,6 @@ import {
 	DocsIndexProjectRequest,
 	IndexUrlRequest,
 	PollIndexJobRequest,
-	type DocsIndexProjectResponse,
-	type IndexUrlResponse,
 	type PollIndexJobResponse,
 } from "@shared/proto/cline/docs_index"
 import { DocsIndexServiceClient } from "@/services/grpc-client"
@@ -16,11 +14,9 @@ interface IndexCardProps {
 }
 
 export default function IndexCard({ serverUrl, connected, selectedProject }: IndexCardProps) {
-	const [indexResult, setIndexResult] = useState<DocsIndexProjectResponse | undefined>()
 	const [urlInput, setUrlInput] = useState("")
 	const [depth, setDepth] = useState(3)
 	const [maxPages, setMaxPages] = useState(50)
-	const [urlResult, setUrlResult] = useState<IndexUrlResponse | undefined>()
 	const [error, setError] = useState<string | null>(null)
 	const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 	const [activeJobId, setActiveJobId] = useState<string | null>(null)
@@ -66,13 +62,11 @@ export default function IndexCard({ serverUrl, connected, selectedProject }: Ind
 
 	const handleIndexProject = async () => {
 		setError(null)
-		setIndexResult(undefined)
 		setJobProgress(null)
 		try {
 			const response = await DocsIndexServiceClient.indexDocsProject(
 				DocsIndexProjectRequest.create({ serverUrl, project: selectedProject }),
 			)
-			setIndexResult(response)
 			if (response.jobId) {
 				startPolling(response.jobId, "project")
 			}
@@ -83,7 +77,6 @@ export default function IndexCard({ serverUrl, connected, selectedProject }: Ind
 
 	const handleIndexUrl = async () => {
 		setError(null)
-		setUrlResult(undefined)
 		setJobProgress(null)
 		try {
 			const response = await DocsIndexServiceClient.indexUrl(
@@ -95,7 +88,6 @@ export default function IndexCard({ serverUrl, connected, selectedProject }: Ind
 					maxPages,
 				}),
 			)
-			setUrlResult(response)
 			if (response.jobId) {
 				startPolling(response.jobId, "url")
 			}
@@ -131,17 +123,6 @@ export default function IndexCard({ serverUrl, connected, selectedProject }: Ind
 					}}>
 					{activeJobType === "project" ? "Indexing..." : "Index Project"}
 				</button>
-				{indexResult && (
-					<div
-						style={{
-							marginTop: "6px",
-							fontSize: "12px",
-							color: "var(--vscode-descriptionForeground)",
-						}}>
-						Scanned {indexResult.filesScanned}, indexed {indexResult.filesIndexed} new,{" "}
-						{indexResult.chunksAdded} chunks added ({(indexResult.elapsedMs / 1000).toFixed(1)}s)
-					</div>
-				)}
 				{jobProgress && activeJobType === "project" && (
 					<div
 						style={{
@@ -222,17 +203,8 @@ export default function IndexCard({ serverUrl, connected, selectedProject }: Ind
 							opacity: disabled || !urlInput ? 0.7 : 1,
 							alignSelf: "flex-start",
 						}}>
-						{activeJobType === "url" ? "Crawling..." : "Index URL"}
-					</button>
-					{urlResult && (
-						<div
-							style={{
-								fontSize: "12px",
-								color: "var(--vscode-descriptionForeground)",
-							}}>
-							Crawled {urlResult.pagesCrawled} pages, {urlResult.chunksAdded} chunks added
-						</div>
-					)}
+					{activeJobType === "url" ? "Crawling..." : "Index URL"}
+				</button>
 					{jobProgress && activeJobType === "url" && (
 						<div
 							style={{
