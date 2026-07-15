@@ -2,11 +2,15 @@ import type { McpHub } from "@services/mcp/McpHub"
 import { Logger } from "@/shared/services/Logger"
 import {
 	CreateProjectResponse,
-	DocsIndexTools,
+	DeleteDocumentResponse,
+	DocumentInfo,
 	DocsIndexProjectResponse,
+	DocsIndexTools,
 	IndexUrlResponse,
+	ListDocumentsResponse,
 	ListProjectsResponse,
 	PingResponse,
+	PollIndexJobResponse,
 	ProjectInfo,
 	ProjectStatsResponse,
 	SearchDocumentsResponse,
@@ -75,6 +79,95 @@ export class DocsIndexFacade {
 		}
 	}
 
+	async listDocuments(serverUrl: string, project: string, page: number, pageSize: number): Promise<ListDocumentsResponse> {
+		try {
+			const client = await this.getClient(serverUrl)
+			const result = await client.listDocuments(project, page, pageSize)
+			const documents = (result.documents || []).map((d) =>
+				DocumentInfo.create({
+					path: d.path || "",
+					fileType: d.file_type || "",
+					chunks: d.chunks || 0,
+					size: d.size || 0,
+					modTime: d.mod_time || "",
+				}),
+			)
+			return ListDocumentsResponse.create({
+				project: result.project || project,
+				page: result.page || page,
+				pageSize: result.page_size || pageSize,
+				total: result.total || 0,
+				totalPages: result.total_pages || 0,
+				documents,
+			})
+		} catch (err) {
+			Logger.error("[DocsIndex] listDocuments failed:", err)
+			await this.invalidateClient(serverUrl)
+			return ListDocumentsResponse.create({ project, page, pageSize, total: 0, totalPages: 0, documents: [] })
+		}
+	}
+
+	async deleteDocument(serverUrl: string, project: string, path: string): Promise<DeleteDocumentResponse> {
+		try {
+			const client = await this.getClient(serverUrl)
+			const result = await client.deleteDocument(project, path)
+			return DeleteDocumentResponse.create({
+				project: result.project || project,
+				path: result.path || path,
+				chunksRemoved: result.chunks_removed || 0,
+				fileDeleted: result.file_deleted || false,
+				status: result.status || "deleted",
+			})
+		} catch (err) {
+			Logger.error("[DocsIndex] deleteDocument failed:", err)
+			await this.invalidateClient(serverUrl)
+			return DeleteDocumentResponse.create({
+				project,
+				path,
+				chunksRemoved: 0,
+				fileDeleted: false,
+				status: "error",
+			})
+		}
+	}
+
+	async pollIndexJob(serverUrl: string, project: string, jobId: string): Promise<PollIndexJobResponse> {
+		try {
+			const client = await this.getClient(serverUrl)
+			const result = await client.pollIndexJob(project, jobId)
+			// Response uses both "id" (raw Job struct) and "job_id" — prefer "id" if present
+			const resolvedJobId = result.id || result.job_id || jobId
+			return PollIndexJobResponse.create({
+				jobId: resolvedJobId,
+				project: result.project || project,
+				type: result.type || "",
+				status: result.status || "unknown",
+				startedAt: result.started_at || "",
+				finishedAt: result.finished_at || "",
+				filesScanned: result.files_scanned || 0,
+				filesIndexed: result.files_indexed || 0,
+				filesFailed: result.files_failed || 0,
+				chunksAdded: result.chunks_added || 0,
+				error: result.error || "",
+			})
+		} catch (err) {
+			Logger.error("[DocsIndex] pollIndexJob failed:", err)
+			return PollIndexJobResponse.create({
+				jobId,
+				project,
+				type: "",
+				status: "error",
+				startedAt: "",
+				finishedAt: "",
+				filesScanned: 0,
+				filesIndexed: 0,
+				filesFailed: 0,
+				chunksAdded: 0,
+				error: err instanceof Error ? err.message : String(err),
+			})
+		}
+	}
+
 	async projectStats(serverUrl: string, project: string): Promise<ProjectStatsResponse> {
 		const client = await this.getClient(serverUrl)
 		const result = await client.callTool("project_stats", { project })
@@ -93,23 +186,34 @@ export class DocsIndexFacade {
 	}
 
 	async indexDocsProject(serverUrl: string, project: string): Promise<DocsIndexProjectResponse> {
-		const client = await this.getClient(serverUrl)
-		const result = await client.callTool("index_project", { project })
-		return DocsIndexProjectResponse.create({
-			filesScanned: result.files_scanned || 0,
-			filesIndexed: result.files_indexed || 0,
-			filesFailed: result.files_failed || 0,
-			chunksAdded: result.chunks_added || 0,
-			elapsedMs: result.elapsed_ms || 0,
-		})
-	}
-
-	async createProject(serverUrl: string, project: string): Promise<CreateProjectResponse> {
 		try {
 			const client = await this.getClient(serverUrl)
-			const result = await client.createProject(project)
-			return CreateProjectResponse.create({
+			const result = await client.startIndexProject(project)
+			return DocsIndexProjectResponse.create({
+				jobId: result.job_id || "",
 				project: result.project || project,
+				status: result.status || "queued",
+				startedAt: result.started_at || "",
+			})
+		} catch (err) {
+			Logger.error("[DocsIndex] indexDocsProject failed:", err)
+			await this.invalidateClient(serverUrl)
+			return DocsIndexProjectResponse.create({
+				jobId: "",
+				project,
+				status: "error",
+				startedAt: "",
+			})
+		}
+	}
+
+	async createProject(serverUrl: string, name: string, mountPath: string): Promise<CreateProjectResponse> {
+		try {
+			const client = await this.getClient(serverUrl)
+			const result = await client.createProject(name, mountPath)
+			return CreateProjectResponse.create({
+				name: result.name || name,
+				mountPath: result.mount_path || mountPath,
 				status: result.status || "created",
 				message: result.message || "",
 			})
@@ -117,7 +221,8 @@ export class DocsIndexFacade {
 			Logger.error("[DocsIndex] createProject failed:", err)
 			await this.invalidateClient(serverUrl)
 			return CreateProjectResponse.create({
-				project,
+				name,
+				mountPath,
 				status: "error",
 				message: err instanceof Error ? err.message : String(err),
 			})
@@ -131,19 +236,25 @@ export class DocsIndexFacade {
 		depth: number,
 		maxPages: number,
 	): Promise<IndexUrlResponse> {
-		const client = await this.getClient(serverUrl)
-		const result = await client.callTool("index_url", {
-			project,
-			url,
-			depth,
-			max_pages: maxPages,
-		})
-		return IndexUrlResponse.create({
-			project: result.project || project,
-			seedUrl: result.seed_url || url,
-			pagesCrawled: result.pages_crawled || 0,
-			chunksAdded: result.chunks_added || 0,
-		})
+		try {
+			const client = await this.getClient(serverUrl)
+			const result = await client.startIndexUrl(project, url, depth, maxPages)
+			return IndexUrlResponse.create({
+				jobId: result.job_id || "",
+				project: result.project || project,
+				status: result.status || "queued",
+				startedAt: result.started_at || "",
+			})
+		} catch (err) {
+			Logger.error("[DocsIndex] indexUrl failed:", err)
+			await this.invalidateClient(serverUrl)
+			return IndexUrlResponse.create({
+				jobId: "",
+				project,
+				status: "error",
+				startedAt: "",
+			})
+		}
 	}
 
 	async uploadFile(serverUrl: string, project: string, filePath: string): Promise<UploadFileResponse> {

@@ -16,9 +16,6 @@ const mockCallTool = mock(async (toolName: string, args: Record<string, unknown>
 	if (toolName === "project_stats") {
 		return { project: "greenenergy", total_chunks: 279, files_indexed: 2, by_format: { pdf: 278, txt: 1 } }
 	}
-	if (toolName === "index_project") {
-		return { files_scanned: 3, files_indexed: 1, files_failed: 0, chunks_added: 278, elapsed_ms: 6271 }
-	}
 	if (toolName === "search_documents") {
 		return {
 			project: "greenenergy",
@@ -39,6 +36,53 @@ mock.module("../VesselIndexerClient", () => ({
 			path: "/data/projects/greenenergy/doc.pdf",
 			size: 1048576,
 			status: "indexed",
+		}))
+		createProject = mock(async (name: string, mountPath: string) => ({
+			name,
+			mount_path: mountPath,
+			status: "created",
+			message: "",
+		}))
+		startIndexProject = mock(async (project: string) => ({
+			job_id: "job-123",
+			project,
+			status: "queued",
+			started_at: "2026-07-15T10:00:00Z",
+		}))
+		startIndexUrl = mock(async (project: string) => ({
+			job_id: "job-456",
+			project,
+			status: "queued",
+			started_at: "2026-07-15T10:00:00Z",
+		}))
+		listDocuments = mock(async (project: string) => ({
+			project,
+			page: 1,
+			page_size: 20,
+			total: 0,
+			total_pages: 0,
+			documents: [],
+		}))
+		deleteDocument = mock(async (project: string, path: string) => ({
+			project,
+			path,
+			chunks_removed: 0,
+			file_deleted: false,
+			status: "deleted",
+		}))
+		pollIndexJob = mock(async (project: string, jobId: string) => ({
+			id: jobId,
+			job_id: jobId,
+			project,
+			type: "project",
+			status: "completed",
+			started_at: "2026-07-15T10:00:00Z",
+			finished_at: "2026-07-15T10:00:30Z",
+			files_scanned: 3,
+			files_indexed: 1,
+			files_failed: 0,
+			chunks_added: 278,
+			error: "",
 		}))
 		close = mock(async () => {})
 	},
@@ -74,13 +118,12 @@ describe("DocsIndexFacade", () => {
 		expect(result.byFormat["pdf"]).toBe(278)
 	})
 
-	test("indexDocsProject maps response fields", async () => {
+	test("indexDocsProject returns async job_id", async () => {
 		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
 		const result = await facade.indexDocsProject("http://localhost:20130", "greenenergy")
-		expect(result.filesScanned).toBe(3)
-		expect(result.filesIndexed).toBe(1)
-		expect(result.chunksAdded).toBe(278)
-		expect(result.elapsedMs).toBe(6271)
+		expect(result.jobId).toBe("job-123")
+		expect(result.project).toBe("greenenergy")
+		expect(result.status).toBe("queued")
 	})
 
 	test("searchDocuments maps results with metadata as JSON string", async () => {
