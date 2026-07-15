@@ -146,6 +146,7 @@ export class CodebaseMemoryFacade {
 					message: `Failed: ${err instanceof Error ? err.message : String(err)}`,
 				}),
 			)
+			throw err
 		}
 	}
 
@@ -197,6 +198,7 @@ export class CodebaseMemoryFacade {
 					message: `Failed to download binary: ${err instanceof Error ? err.message : String(err)}`,
 				}),
 			)
+			throw err
 		}
 	}
 
