@@ -59,6 +59,9 @@ import { listDocsIndexTools } from "@core/controller/docsIndex/listDocsIndexTool
 import { registerMcpServer } from "@core/controller/docsIndex/registerMcpServer"
 import { unregisterMcpServer } from "@core/controller/docsIndex/unregisterMcpServer"
 import { createProject } from "@core/controller/docsIndex/createProject"
+import { listDocuments } from "@core/controller/docsIndex/listDocuments"
+import { deleteDocument } from "@core/controller/docsIndex/deleteDocument"
+import { pollIndexJob } from "@core/controller/docsIndex/pollIndexJob"
 
 // File Service
 import { copyToClipboard } from "@core/controller/file/copyToClipboard"
@@ -316,6 +319,9 @@ export function addProtobusServices(
          registerMcpServer: wrapper<cline.RegisterMcpRequest,cline.Empty>(registerMcpServer, controller),
          unregisterMcpServer: wrapper<cline.UnregisterMcpRequest,cline.Empty>(unregisterMcpServer, controller),
          createProject: wrapper<cline.CreateProjectRequest,cline.CreateProjectResponse>(createProject, controller),
+         listDocuments: wrapper<cline.ListDocumentsRequest,cline.ListDocumentsResponse>(listDocuments, controller),
+         deleteDocument: wrapper<cline.DeleteDocumentRequest,cline.DeleteDocumentResponse>(deleteDocument, controller),
+         pollIndexJob: wrapper<cline.PollIndexJobRequest,cline.PollIndexJobResponse>(pollIndexJob, controller),
     });
 
     // File Service

@@ -20,6 +20,9 @@ service DocsIndexService {
   rpc registerMcpServer(RegisterMcpRequest) returns (Empty);
   rpc unregisterMcpServer(UnregisterMcpRequest) returns (Empty);
   rpc createProject(CreateProjectRequest) returns (CreateProjectResponse);
+  rpc listDocuments(ListDocumentsRequest) returns (ListDocumentsResponse);
+  rpc deleteDocument(DeleteDocumentRequest) returns (DeleteDocumentResponse);
+  rpc pollIndexJob(PollIndexJobRequest) returns (PollIndexJobResponse);
 }
 
 message PingRequest {
@@ -64,11 +67,10 @@ message DocsIndexProjectRequest {
 }
 
 message DocsIndexProjectResponse {
-  int32 files_scanned = 1;
-  int32 files_indexed = 2;
-  int32 files_failed = 3;
-  int32 chunks_added = 4;
-  int32 elapsed_ms = 5;
+  string job_id = 1;
+  string project = 2;
+  string status = 3;
+  string started_at = 4;
 }
 
 message IndexUrlRequest {
@@ -80,10 +82,10 @@ message IndexUrlRequest {
 }
 
 message IndexUrlResponse {
-  string project = 1;
-  string seed_url = 2;
-  int32 pages_crawled = 3;
-  int32 chunks_added = 4;
+  string job_id = 1;
+  string project = 2;
+  string status = 3;
+  string started_at = 4;
 }
 
 message UploadFileRequest {
@@ -136,11 +138,71 @@ message UnregisterMcpRequest {}
 
 message CreateProjectRequest {
   string server_url = 1;
-  string project = 2;
+  string name = 2;
+  string mount_path = 3;
 }
 
 message CreateProjectResponse {
+  string name = 1;
+  string mount_path = 2;
+  string status = 3;
+  string message = 4;
+}
+
+message DocumentInfo {
+  string path = 1;
+  string file_type = 2;
+  int32 chunks = 3;
+  int64 size = 4;
+  string mod_time = 5;
+}
+
+message ListDocumentsRequest {
+  string server_url = 1;
+  string project = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message ListDocumentsResponse {
   string project = 1;
-  string status = 2;
-  string message = 3;
+  int32 page = 2;
+  int32 page_size = 3;
+  int32 total = 4;
+  int32 total_pages = 5;
+  repeated DocumentInfo documents = 6;
+}
+
+message DeleteDocumentRequest {
+  string server_url = 1;
+  string project = 2;
+  string path = 3;
+}
+
+message DeleteDocumentResponse {
+  string project = 1;
+  string path = 2;
+  int32 chunks_removed = 3;
+  bool file_deleted = 4;
+  string status = 5;
+}
+
+message PollIndexJobRequest {
+  string server_url = 1;
+  string project = 2;
+  string job_id = 3;
+}
+
+message PollIndexJobResponse {
+  string job_id = 1;
+  string project = 2;
+  string type = 3;
+  string status = 4;
+  string started_at = 5;
+  string finished_at = 6;
+  int32 files_scanned = 7;
+  int32 files_indexed = 8;
+  int32 files_failed = 9;
+  int32 chunks_added = 10;
+  string error = 11;
 }

@@ -56,6 +56,9 @@ import { listDocsIndexTools } from "@core/controller/docsIndex/listDocsIndexTool
 import { registerMcpServer } from "@core/controller/docsIndex/registerMcpServer"
 import { unregisterMcpServer } from "@core/controller/docsIndex/unregisterMcpServer"
 import { createProject } from "@core/controller/docsIndex/createProject"
+import { listDocuments } from "@core/controller/docsIndex/listDocuments"
+import { deleteDocument } from "@core/controller/docsIndex/deleteDocument"
+import { pollIndexJob } from "@core/controller/docsIndex/pollIndexJob"
 
 // File Service
 import { copyToClipboard } from "@core/controller/file/copyToClipboard"
@@ -301,6 +304,9 @@ const DocsIndexServiceHandlers: serviceTypes.DocsIndexServiceHandlers = {
     registerMcpServer: registerMcpServer,
     unregisterMcpServer: unregisterMcpServer,
     createProject: createProject,
+    listDocuments: listDocuments,
+    deleteDocument: deleteDocument,
+    pollIndexJob: pollIndexJob,
 } 
 
 const FileServiceHandlers: serviceTypes.FileServiceHandlers = {

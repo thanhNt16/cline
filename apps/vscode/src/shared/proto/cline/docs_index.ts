@@ -55,11 +55,10 @@ export interface DocsIndexProjectRequest {
 }
 
 export interface DocsIndexProjectResponse {
-  filesScanned: number;
-  filesIndexed: number;
-  filesFailed: number;
-  chunksAdded: number;
-  elapsedMs: number;
+  jobId: string;
+  project: string;
+  status: string;
+  startedAt: string;
 }
 
 export interface IndexUrlRequest {
@@ -71,10 +70,10 @@ export interface IndexUrlRequest {
 }
 
 export interface IndexUrlResponse {
+  jobId: string;
   project: string;
-  seedUrl: string;
-  pagesCrawled: number;
-  chunksAdded: number;
+  status: string;
+  startedAt: string;
 }
 
 export interface UploadFileRequest {
@@ -128,13 +127,73 @@ export interface UnregisterMcpRequest {
 
 export interface CreateProjectRequest {
   serverUrl: string;
-  project: string;
+  name: string;
+  mountPath: string;
 }
 
 export interface CreateProjectResponse {
-  project: string;
+  name: string;
+  mountPath: string;
   status: string;
   message: string;
+}
+
+export interface DocumentInfo {
+  path: string;
+  fileType: string;
+  chunks: number;
+  size: number;
+  modTime: string;
+}
+
+export interface ListDocumentsRequest {
+  serverUrl: string;
+  project: string;
+  page: number;
+  pageSize: number;
+}
+
+export interface ListDocumentsResponse {
+  project: string;
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  documents: DocumentInfo[];
+}
+
+export interface DeleteDocumentRequest {
+  serverUrl: string;
+  project: string;
+  path: string;
+}
+
+export interface DeleteDocumentResponse {
+  project: string;
+  path: string;
+  chunksRemoved: number;
+  fileDeleted: boolean;
+  status: string;
+}
+
+export interface PollIndexJobRequest {
+  serverUrl: string;
+  project: string;
+  jobId: string;
+}
+
+export interface PollIndexJobResponse {
+  jobId: string;
+  project: string;
+  type: string;
+  status: string;
+  startedAt: string;
+  finishedAt: string;
+  filesScanned: number;
+  filesIndexed: number;
+  filesFailed: number;
+  chunksAdded: number;
+  error: string;
 }
 
 function createBasePingRequest(): PingRequest {
@@ -913,25 +972,22 @@ export const DocsIndexProjectRequest: MessageFns<DocsIndexProjectRequest> = {
 };
 
 function createBaseDocsIndexProjectResponse(): DocsIndexProjectResponse {
-  return { filesScanned: 0, filesIndexed: 0, filesFailed: 0, chunksAdded: 0, elapsedMs: 0 };
+  return { jobId: "", project: "", status: "", startedAt: "" };
 }
 
 export const DocsIndexProjectResponse: MessageFns<DocsIndexProjectResponse> = {
   encode(message: DocsIndexProjectResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.filesScanned !== 0) {
-      writer.uint32(8).int32(message.filesScanned);
+    if (message.jobId !== "") {
+      writer.uint32(10).string(message.jobId);
     }
-    if (message.filesIndexed !== 0) {
-      writer.uint32(16).int32(message.filesIndexed);
+    if (message.project !== "") {
+      writer.uint32(18).string(message.project);
     }
-    if (message.filesFailed !== 0) {
-      writer.uint32(24).int32(message.filesFailed);
+    if (message.status !== "") {
+      writer.uint32(26).string(message.status);
     }
-    if (message.chunksAdded !== 0) {
-      writer.uint32(32).int32(message.chunksAdded);
-    }
-    if (message.elapsedMs !== 0) {
-      writer.uint32(40).int32(message.elapsedMs);
+    if (message.startedAt !== "") {
+      writer.uint32(34).string(message.startedAt);
     }
     return writer;
   },
@@ -944,43 +1000,35 @@ export const DocsIndexProjectResponse: MessageFns<DocsIndexProjectResponse> = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1: {
-          if (tag !== 8) {
+          if (tag !== 10) {
             break;
           }
 
-          message.filesScanned = reader.int32();
+          message.jobId = reader.string();
           continue;
         }
         case 2: {
-          if (tag !== 16) {
+          if (tag !== 18) {
             break;
           }
 
-          message.filesIndexed = reader.int32();
+          message.project = reader.string();
           continue;
         }
         case 3: {
-          if (tag !== 24) {
+          if (tag !== 26) {
             break;
           }
 
-          message.filesFailed = reader.int32();
+          message.status = reader.string();
           continue;
         }
         case 4: {
-          if (tag !== 32) {
+          if (tag !== 34) {
             break;
           }
 
-          message.chunksAdded = reader.int32();
-          continue;
-        }
-        case 5: {
-          if (tag !== 40) {
-            break;
-          }
-
-          message.elapsedMs = reader.int32();
+          message.startedAt = reader.string();
           continue;
         }
       }
@@ -994,50 +1042,34 @@ export const DocsIndexProjectResponse: MessageFns<DocsIndexProjectResponse> = {
 
   fromJSON(object: any): DocsIndexProjectResponse {
     return {
-      filesScanned: isSet(object.filesScanned)
-        ? globalThis.Number(object.filesScanned)
-        : isSet(object.files_scanned)
-        ? globalThis.Number(object.files_scanned)
-        : 0,
-      filesIndexed: isSet(object.filesIndexed)
-        ? globalThis.Number(object.filesIndexed)
-        : isSet(object.files_indexed)
-        ? globalThis.Number(object.files_indexed)
-        : 0,
-      filesFailed: isSet(object.filesFailed)
-        ? globalThis.Number(object.filesFailed)
-        : isSet(object.files_failed)
-        ? globalThis.Number(object.files_failed)
-        : 0,
-      chunksAdded: isSet(object.chunksAdded)
-        ? globalThis.Number(object.chunksAdded)
-        : isSet(object.chunks_added)
-        ? globalThis.Number(object.chunks_added)
-        : 0,
-      elapsedMs: isSet(object.elapsedMs)
-        ? globalThis.Number(object.elapsedMs)
-        : isSet(object.elapsed_ms)
-        ? globalThis.Number(object.elapsed_ms)
-        : 0,
+      jobId: isSet(object.jobId)
+        ? globalThis.String(object.jobId)
+        : isSet(object.job_id)
+        ? globalThis.String(object.job_id)
+        : "",
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
+      status: isSet(object.status) ? globalThis.String(object.status) : "",
+      startedAt: isSet(object.startedAt)
+        ? globalThis.String(object.startedAt)
+        : isSet(object.started_at)
+        ? globalThis.String(object.started_at)
+        : "",
     };
   },
 
   toJSON(message: DocsIndexProjectResponse): unknown {
     const obj: any = {};
-    if (message.filesScanned !== 0) {
-      obj.filesScanned = Math.round(message.filesScanned);
+    if (message.jobId !== "") {
+      obj.jobId = message.jobId;
     }
-    if (message.filesIndexed !== 0) {
-      obj.filesIndexed = Math.round(message.filesIndexed);
+    if (message.project !== "") {
+      obj.project = message.project;
     }
-    if (message.filesFailed !== 0) {
-      obj.filesFailed = Math.round(message.filesFailed);
+    if (message.status !== "") {
+      obj.status = message.status;
     }
-    if (message.chunksAdded !== 0) {
-      obj.chunksAdded = Math.round(message.chunksAdded);
-    }
-    if (message.elapsedMs !== 0) {
-      obj.elapsedMs = Math.round(message.elapsedMs);
+    if (message.startedAt !== "") {
+      obj.startedAt = message.startedAt;
     }
     return obj;
   },
@@ -1047,11 +1079,10 @@ export const DocsIndexProjectResponse: MessageFns<DocsIndexProjectResponse> = {
   },
   fromPartial<I extends Exact<DeepPartial<DocsIndexProjectResponse>, I>>(object: I): DocsIndexProjectResponse {
     const message = createBaseDocsIndexProjectResponse();
-    message.filesScanned = object.filesScanned ?? 0;
-    message.filesIndexed = object.filesIndexed ?? 0;
-    message.filesFailed = object.filesFailed ?? 0;
-    message.chunksAdded = object.chunksAdded ?? 0;
-    message.elapsedMs = object.elapsedMs ?? 0;
+    message.jobId = object.jobId ?? "";
+    message.project = object.project ?? "";
+    message.status = object.status ?? "";
+    message.startedAt = object.startedAt ?? "";
     return message;
   },
 };
@@ -1189,22 +1220,22 @@ export const IndexUrlRequest: MessageFns<IndexUrlRequest> = {
 };
 
 function createBaseIndexUrlResponse(): IndexUrlResponse {
-  return { project: "", seedUrl: "", pagesCrawled: 0, chunksAdded: 0 };
+  return { jobId: "", project: "", status: "", startedAt: "" };
 }
 
 export const IndexUrlResponse: MessageFns<IndexUrlResponse> = {
   encode(message: IndexUrlResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.jobId !== "") {
+      writer.uint32(10).string(message.jobId);
+    }
     if (message.project !== "") {
-      writer.uint32(10).string(message.project);
+      writer.uint32(18).string(message.project);
     }
-    if (message.seedUrl !== "") {
-      writer.uint32(18).string(message.seedUrl);
+    if (message.status !== "") {
+      writer.uint32(26).string(message.status);
     }
-    if (message.pagesCrawled !== 0) {
-      writer.uint32(24).int32(message.pagesCrawled);
-    }
-    if (message.chunksAdded !== 0) {
-      writer.uint32(32).int32(message.chunksAdded);
+    if (message.startedAt !== "") {
+      writer.uint32(34).string(message.startedAt);
     }
     return writer;
   },
@@ -1221,7 +1252,7 @@ export const IndexUrlResponse: MessageFns<IndexUrlResponse> = {
             break;
           }
 
-          message.project = reader.string();
+          message.jobId = reader.string();
           continue;
         }
         case 2: {
@@ -1229,23 +1260,23 @@ export const IndexUrlResponse: MessageFns<IndexUrlResponse> = {
             break;
           }
 
-          message.seedUrl = reader.string();
+          message.project = reader.string();
           continue;
         }
         case 3: {
-          if (tag !== 24) {
+          if (tag !== 26) {
             break;
           }
 
-          message.pagesCrawled = reader.int32();
+          message.status = reader.string();
           continue;
         }
         case 4: {
-          if (tag !== 32) {
+          if (tag !== 34) {
             break;
           }
 
-          message.chunksAdded = reader.int32();
+          message.startedAt = reader.string();
           continue;
         }
       }
@@ -1259,38 +1290,34 @@ export const IndexUrlResponse: MessageFns<IndexUrlResponse> = {
 
   fromJSON(object: any): IndexUrlResponse {
     return {
-      project: isSet(object.project) ? globalThis.String(object.project) : "",
-      seedUrl: isSet(object.seedUrl)
-        ? globalThis.String(object.seedUrl)
-        : isSet(object.seed_url)
-        ? globalThis.String(object.seed_url)
+      jobId: isSet(object.jobId)
+        ? globalThis.String(object.jobId)
+        : isSet(object.job_id)
+        ? globalThis.String(object.job_id)
         : "",
-      pagesCrawled: isSet(object.pagesCrawled)
-        ? globalThis.Number(object.pagesCrawled)
-        : isSet(object.pages_crawled)
-        ? globalThis.Number(object.pages_crawled)
-        : 0,
-      chunksAdded: isSet(object.chunksAdded)
-        ? globalThis.Number(object.chunksAdded)
-        : isSet(object.chunks_added)
-        ? globalThis.Number(object.chunks_added)
-        : 0,
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
+      status: isSet(object.status) ? globalThis.String(object.status) : "",
+      startedAt: isSet(object.startedAt)
+        ? globalThis.String(object.startedAt)
+        : isSet(object.started_at)
+        ? globalThis.String(object.started_at)
+        : "",
     };
   },
 
   toJSON(message: IndexUrlResponse): unknown {
     const obj: any = {};
+    if (message.jobId !== "") {
+      obj.jobId = message.jobId;
+    }
     if (message.project !== "") {
       obj.project = message.project;
     }
-    if (message.seedUrl !== "") {
-      obj.seedUrl = message.seedUrl;
+    if (message.status !== "") {
+      obj.status = message.status;
     }
-    if (message.pagesCrawled !== 0) {
-      obj.pagesCrawled = Math.round(message.pagesCrawled);
-    }
-    if (message.chunksAdded !== 0) {
-      obj.chunksAdded = Math.round(message.chunksAdded);
+    if (message.startedAt !== "") {
+      obj.startedAt = message.startedAt;
     }
     return obj;
   },
@@ -1300,10 +1327,10 @@ export const IndexUrlResponse: MessageFns<IndexUrlResponse> = {
   },
   fromPartial<I extends Exact<DeepPartial<IndexUrlResponse>, I>>(object: I): IndexUrlResponse {
     const message = createBaseIndexUrlResponse();
+    message.jobId = object.jobId ?? "";
     message.project = object.project ?? "";
-    message.seedUrl = object.seedUrl ?? "";
-    message.pagesCrawled = object.pagesCrawled ?? 0;
-    message.chunksAdded = object.chunksAdded ?? 0;
+    message.status = object.status ?? "";
+    message.startedAt = object.startedAt ?? "";
     return message;
   },
 };
@@ -2078,7 +2105,7 @@ export const UnregisterMcpRequest: MessageFns<UnregisterMcpRequest> = {
 };
 
 function createBaseCreateProjectRequest(): CreateProjectRequest {
-  return { serverUrl: "", project: "" };
+  return { serverUrl: "", name: "", mountPath: "" };
 }
 
 export const CreateProjectRequest: MessageFns<CreateProjectRequest> = {
@@ -2086,8 +2113,11 @@ export const CreateProjectRequest: MessageFns<CreateProjectRequest> = {
     if (message.serverUrl !== "") {
       writer.uint32(10).string(message.serverUrl);
     }
-    if (message.project !== "") {
-      writer.uint32(18).string(message.project);
+    if (message.name !== "") {
+      writer.uint32(18).string(message.name);
+    }
+    if (message.mountPath !== "") {
+      writer.uint32(26).string(message.mountPath);
     }
     return writer;
   },
@@ -2112,7 +2142,15 @@ export const CreateProjectRequest: MessageFns<CreateProjectRequest> = {
             break;
           }
 
-          message.project = reader.string();
+          message.name = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.mountPath = reader.string();
           continue;
         }
       }
@@ -2131,7 +2169,12 @@ export const CreateProjectRequest: MessageFns<CreateProjectRequest> = {
         : isSet(object.server_url)
         ? globalThis.String(object.server_url)
         : "",
-      project: isSet(object.project) ? globalThis.String(object.project) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      mountPath: isSet(object.mountPath)
+        ? globalThis.String(object.mountPath)
+        : isSet(object.mount_path)
+        ? globalThis.String(object.mount_path)
+        : "",
     };
   },
 
@@ -2140,8 +2183,11 @@ export const CreateProjectRequest: MessageFns<CreateProjectRequest> = {
     if (message.serverUrl !== "") {
       obj.serverUrl = message.serverUrl;
     }
-    if (message.project !== "") {
-      obj.project = message.project;
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.mountPath !== "") {
+      obj.mountPath = message.mountPath;
     }
     return obj;
   },
@@ -2152,25 +2198,29 @@ export const CreateProjectRequest: MessageFns<CreateProjectRequest> = {
   fromPartial<I extends Exact<DeepPartial<CreateProjectRequest>, I>>(object: I): CreateProjectRequest {
     const message = createBaseCreateProjectRequest();
     message.serverUrl = object.serverUrl ?? "";
-    message.project = object.project ?? "";
+    message.name = object.name ?? "";
+    message.mountPath = object.mountPath ?? "";
     return message;
   },
 };
 
 function createBaseCreateProjectResponse(): CreateProjectResponse {
-  return { project: "", status: "", message: "" };
+  return { name: "", mountPath: "", status: "", message: "" };
 }
 
 export const CreateProjectResponse: MessageFns<CreateProjectResponse> = {
   encode(message: CreateProjectResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.project !== "") {
-      writer.uint32(10).string(message.project);
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.mountPath !== "") {
+      writer.uint32(18).string(message.mountPath);
     }
     if (message.status !== "") {
-      writer.uint32(18).string(message.status);
+      writer.uint32(26).string(message.status);
     }
     if (message.message !== "") {
-      writer.uint32(26).string(message.message);
+      writer.uint32(34).string(message.message);
     }
     return writer;
   },
@@ -2187,7 +2237,7 @@ export const CreateProjectResponse: MessageFns<CreateProjectResponse> = {
             break;
           }
 
-          message.project = reader.string();
+          message.name = reader.string();
           continue;
         }
         case 2: {
@@ -2195,11 +2245,19 @@ export const CreateProjectResponse: MessageFns<CreateProjectResponse> = {
             break;
           }
 
-          message.status = reader.string();
+          message.mountPath = reader.string();
           continue;
         }
         case 3: {
           if (tag !== 26) {
+            break;
+          }
+
+          message.status = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
             break;
           }
 
@@ -2217,7 +2275,12 @@ export const CreateProjectResponse: MessageFns<CreateProjectResponse> = {
 
   fromJSON(object: any): CreateProjectResponse {
     return {
-      project: isSet(object.project) ? globalThis.String(object.project) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      mountPath: isSet(object.mountPath)
+        ? globalThis.String(object.mountPath)
+        : isSet(object.mount_path)
+        ? globalThis.String(object.mount_path)
+        : "",
       status: isSet(object.status) ? globalThis.String(object.status) : "",
       message: isSet(object.message) ? globalThis.String(object.message) : "",
     };
@@ -2225,8 +2288,11 @@ export const CreateProjectResponse: MessageFns<CreateProjectResponse> = {
 
   toJSON(message: CreateProjectResponse): unknown {
     const obj: any = {};
-    if (message.project !== "") {
-      obj.project = message.project;
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.mountPath !== "") {
+      obj.mountPath = message.mountPath;
     }
     if (message.status !== "") {
       obj.status = message.status;
@@ -2242,9 +2308,996 @@ export const CreateProjectResponse: MessageFns<CreateProjectResponse> = {
   },
   fromPartial<I extends Exact<DeepPartial<CreateProjectResponse>, I>>(object: I): CreateProjectResponse {
     const message = createBaseCreateProjectResponse();
-    message.project = object.project ?? "";
+    message.name = object.name ?? "";
+    message.mountPath = object.mountPath ?? "";
     message.status = object.status ?? "";
     message.message = object.message ?? "";
+    return message;
+  },
+};
+
+function createBaseDocumentInfo(): DocumentInfo {
+  return { path: "", fileType: "", chunks: 0, size: 0, modTime: "" };
+}
+
+export const DocumentInfo: MessageFns<DocumentInfo> = {
+  encode(message: DocumentInfo, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.path !== "") {
+      writer.uint32(10).string(message.path);
+    }
+    if (message.fileType !== "") {
+      writer.uint32(18).string(message.fileType);
+    }
+    if (message.chunks !== 0) {
+      writer.uint32(24).int32(message.chunks);
+    }
+    if (message.size !== 0) {
+      writer.uint32(32).int64(message.size);
+    }
+    if (message.modTime !== "") {
+      writer.uint32(42).string(message.modTime);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): DocumentInfo {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDocumentInfo();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.fileType = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.chunks = reader.int32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.size = longToNumber(reader.int64());
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.modTime = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DocumentInfo {
+    return {
+      path: isSet(object.path) ? globalThis.String(object.path) : "",
+      fileType: isSet(object.fileType)
+        ? globalThis.String(object.fileType)
+        : isSet(object.file_type)
+        ? globalThis.String(object.file_type)
+        : "",
+      chunks: isSet(object.chunks) ? globalThis.Number(object.chunks) : 0,
+      size: isSet(object.size) ? globalThis.Number(object.size) : 0,
+      modTime: isSet(object.modTime)
+        ? globalThis.String(object.modTime)
+        : isSet(object.mod_time)
+        ? globalThis.String(object.mod_time)
+        : "",
+    };
+  },
+
+  toJSON(message: DocumentInfo): unknown {
+    const obj: any = {};
+    if (message.path !== "") {
+      obj.path = message.path;
+    }
+    if (message.fileType !== "") {
+      obj.fileType = message.fileType;
+    }
+    if (message.chunks !== 0) {
+      obj.chunks = Math.round(message.chunks);
+    }
+    if (message.size !== 0) {
+      obj.size = Math.round(message.size);
+    }
+    if (message.modTime !== "") {
+      obj.modTime = message.modTime;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<DocumentInfo>, I>>(base?: I): DocumentInfo {
+    return DocumentInfo.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<DocumentInfo>, I>>(object: I): DocumentInfo {
+    const message = createBaseDocumentInfo();
+    message.path = object.path ?? "";
+    message.fileType = object.fileType ?? "";
+    message.chunks = object.chunks ?? 0;
+    message.size = object.size ?? 0;
+    message.modTime = object.modTime ?? "";
+    return message;
+  },
+};
+
+function createBaseListDocumentsRequest(): ListDocumentsRequest {
+  return { serverUrl: "", project: "", page: 0, pageSize: 0 };
+}
+
+export const ListDocumentsRequest: MessageFns<ListDocumentsRequest> = {
+  encode(message: ListDocumentsRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.serverUrl !== "") {
+      writer.uint32(10).string(message.serverUrl);
+    }
+    if (message.project !== "") {
+      writer.uint32(18).string(message.project);
+    }
+    if (message.page !== 0) {
+      writer.uint32(24).int32(message.page);
+    }
+    if (message.pageSize !== 0) {
+      writer.uint32(32).int32(message.pageSize);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListDocumentsRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListDocumentsRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.serverUrl = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.project = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.page = reader.int32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.pageSize = reader.int32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListDocumentsRequest {
+    return {
+      serverUrl: isSet(object.serverUrl)
+        ? globalThis.String(object.serverUrl)
+        : isSet(object.server_url)
+        ? globalThis.String(object.server_url)
+        : "",
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
+      page: isSet(object.page) ? globalThis.Number(object.page) : 0,
+      pageSize: isSet(object.pageSize)
+        ? globalThis.Number(object.pageSize)
+        : isSet(object.page_size)
+        ? globalThis.Number(object.page_size)
+        : 0,
+    };
+  },
+
+  toJSON(message: ListDocumentsRequest): unknown {
+    const obj: any = {};
+    if (message.serverUrl !== "") {
+      obj.serverUrl = message.serverUrl;
+    }
+    if (message.project !== "") {
+      obj.project = message.project;
+    }
+    if (message.page !== 0) {
+      obj.page = Math.round(message.page);
+    }
+    if (message.pageSize !== 0) {
+      obj.pageSize = Math.round(message.pageSize);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ListDocumentsRequest>, I>>(base?: I): ListDocumentsRequest {
+    return ListDocumentsRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListDocumentsRequest>, I>>(object: I): ListDocumentsRequest {
+    const message = createBaseListDocumentsRequest();
+    message.serverUrl = object.serverUrl ?? "";
+    message.project = object.project ?? "";
+    message.page = object.page ?? 0;
+    message.pageSize = object.pageSize ?? 0;
+    return message;
+  },
+};
+
+function createBaseListDocumentsResponse(): ListDocumentsResponse {
+  return { project: "", page: 0, pageSize: 0, total: 0, totalPages: 0, documents: [] };
+}
+
+export const ListDocumentsResponse: MessageFns<ListDocumentsResponse> = {
+  encode(message: ListDocumentsResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.project !== "") {
+      writer.uint32(10).string(message.project);
+    }
+    if (message.page !== 0) {
+      writer.uint32(16).int32(message.page);
+    }
+    if (message.pageSize !== 0) {
+      writer.uint32(24).int32(message.pageSize);
+    }
+    if (message.total !== 0) {
+      writer.uint32(32).int32(message.total);
+    }
+    if (message.totalPages !== 0) {
+      writer.uint32(40).int32(message.totalPages);
+    }
+    for (const v of message.documents) {
+      DocumentInfo.encode(v!, writer.uint32(50).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListDocumentsResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListDocumentsResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.project = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.page = reader.int32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.pageSize = reader.int32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.total = reader.int32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.totalPages = reader.int32();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.documents.push(DocumentInfo.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListDocumentsResponse {
+    return {
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
+      page: isSet(object.page) ? globalThis.Number(object.page) : 0,
+      pageSize: isSet(object.pageSize)
+        ? globalThis.Number(object.pageSize)
+        : isSet(object.page_size)
+        ? globalThis.Number(object.page_size)
+        : 0,
+      total: isSet(object.total) ? globalThis.Number(object.total) : 0,
+      totalPages: isSet(object.totalPages)
+        ? globalThis.Number(object.totalPages)
+        : isSet(object.total_pages)
+        ? globalThis.Number(object.total_pages)
+        : 0,
+      documents: globalThis.Array.isArray(object?.documents)
+        ? object.documents.map((e: any) => DocumentInfo.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: ListDocumentsResponse): unknown {
+    const obj: any = {};
+    if (message.project !== "") {
+      obj.project = message.project;
+    }
+    if (message.page !== 0) {
+      obj.page = Math.round(message.page);
+    }
+    if (message.pageSize !== 0) {
+      obj.pageSize = Math.round(message.pageSize);
+    }
+    if (message.total !== 0) {
+      obj.total = Math.round(message.total);
+    }
+    if (message.totalPages !== 0) {
+      obj.totalPages = Math.round(message.totalPages);
+    }
+    if (message.documents?.length) {
+      obj.documents = message.documents.map((e) => DocumentInfo.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ListDocumentsResponse>, I>>(base?: I): ListDocumentsResponse {
+    return ListDocumentsResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListDocumentsResponse>, I>>(object: I): ListDocumentsResponse {
+    const message = createBaseListDocumentsResponse();
+    message.project = object.project ?? "";
+    message.page = object.page ?? 0;
+    message.pageSize = object.pageSize ?? 0;
+    message.total = object.total ?? 0;
+    message.totalPages = object.totalPages ?? 0;
+    message.documents = object.documents?.map((e) => DocumentInfo.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseDeleteDocumentRequest(): DeleteDocumentRequest {
+  return { serverUrl: "", project: "", path: "" };
+}
+
+export const DeleteDocumentRequest: MessageFns<DeleteDocumentRequest> = {
+  encode(message: DeleteDocumentRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.serverUrl !== "") {
+      writer.uint32(10).string(message.serverUrl);
+    }
+    if (message.project !== "") {
+      writer.uint32(18).string(message.project);
+    }
+    if (message.path !== "") {
+      writer.uint32(26).string(message.path);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): DeleteDocumentRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDeleteDocumentRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.serverUrl = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.project = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DeleteDocumentRequest {
+    return {
+      serverUrl: isSet(object.serverUrl)
+        ? globalThis.String(object.serverUrl)
+        : isSet(object.server_url)
+        ? globalThis.String(object.server_url)
+        : "",
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
+      path: isSet(object.path) ? globalThis.String(object.path) : "",
+    };
+  },
+
+  toJSON(message: DeleteDocumentRequest): unknown {
+    const obj: any = {};
+    if (message.serverUrl !== "") {
+      obj.serverUrl = message.serverUrl;
+    }
+    if (message.project !== "") {
+      obj.project = message.project;
+    }
+    if (message.path !== "") {
+      obj.path = message.path;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<DeleteDocumentRequest>, I>>(base?: I): DeleteDocumentRequest {
+    return DeleteDocumentRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<DeleteDocumentRequest>, I>>(object: I): DeleteDocumentRequest {
+    const message = createBaseDeleteDocumentRequest();
+    message.serverUrl = object.serverUrl ?? "";
+    message.project = object.project ?? "";
+    message.path = object.path ?? "";
+    return message;
+  },
+};
+
+function createBaseDeleteDocumentResponse(): DeleteDocumentResponse {
+  return { project: "", path: "", chunksRemoved: 0, fileDeleted: false, status: "" };
+}
+
+export const DeleteDocumentResponse: MessageFns<DeleteDocumentResponse> = {
+  encode(message: DeleteDocumentResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.project !== "") {
+      writer.uint32(10).string(message.project);
+    }
+    if (message.path !== "") {
+      writer.uint32(18).string(message.path);
+    }
+    if (message.chunksRemoved !== 0) {
+      writer.uint32(24).int32(message.chunksRemoved);
+    }
+    if (message.fileDeleted !== false) {
+      writer.uint32(32).bool(message.fileDeleted);
+    }
+    if (message.status !== "") {
+      writer.uint32(42).string(message.status);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): DeleteDocumentResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDeleteDocumentResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.project = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.chunksRemoved = reader.int32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.fileDeleted = reader.bool();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.status = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DeleteDocumentResponse {
+    return {
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
+      path: isSet(object.path) ? globalThis.String(object.path) : "",
+      chunksRemoved: isSet(object.chunksRemoved)
+        ? globalThis.Number(object.chunksRemoved)
+        : isSet(object.chunks_removed)
+        ? globalThis.Number(object.chunks_removed)
+        : 0,
+      fileDeleted: isSet(object.fileDeleted)
+        ? globalThis.Boolean(object.fileDeleted)
+        : isSet(object.file_deleted)
+        ? globalThis.Boolean(object.file_deleted)
+        : false,
+      status: isSet(object.status) ? globalThis.String(object.status) : "",
+    };
+  },
+
+  toJSON(message: DeleteDocumentResponse): unknown {
+    const obj: any = {};
+    if (message.project !== "") {
+      obj.project = message.project;
+    }
+    if (message.path !== "") {
+      obj.path = message.path;
+    }
+    if (message.chunksRemoved !== 0) {
+      obj.chunksRemoved = Math.round(message.chunksRemoved);
+    }
+    if (message.fileDeleted !== false) {
+      obj.fileDeleted = message.fileDeleted;
+    }
+    if (message.status !== "") {
+      obj.status = message.status;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<DeleteDocumentResponse>, I>>(base?: I): DeleteDocumentResponse {
+    return DeleteDocumentResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<DeleteDocumentResponse>, I>>(object: I): DeleteDocumentResponse {
+    const message = createBaseDeleteDocumentResponse();
+    message.project = object.project ?? "";
+    message.path = object.path ?? "";
+    message.chunksRemoved = object.chunksRemoved ?? 0;
+    message.fileDeleted = object.fileDeleted ?? false;
+    message.status = object.status ?? "";
+    return message;
+  },
+};
+
+function createBasePollIndexJobRequest(): PollIndexJobRequest {
+  return { serverUrl: "", project: "", jobId: "" };
+}
+
+export const PollIndexJobRequest: MessageFns<PollIndexJobRequest> = {
+  encode(message: PollIndexJobRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.serverUrl !== "") {
+      writer.uint32(10).string(message.serverUrl);
+    }
+    if (message.project !== "") {
+      writer.uint32(18).string(message.project);
+    }
+    if (message.jobId !== "") {
+      writer.uint32(26).string(message.jobId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): PollIndexJobRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePollIndexJobRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.serverUrl = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.project = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.jobId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PollIndexJobRequest {
+    return {
+      serverUrl: isSet(object.serverUrl)
+        ? globalThis.String(object.serverUrl)
+        : isSet(object.server_url)
+        ? globalThis.String(object.server_url)
+        : "",
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
+      jobId: isSet(object.jobId)
+        ? globalThis.String(object.jobId)
+        : isSet(object.job_id)
+        ? globalThis.String(object.job_id)
+        : "",
+    };
+  },
+
+  toJSON(message: PollIndexJobRequest): unknown {
+    const obj: any = {};
+    if (message.serverUrl !== "") {
+      obj.serverUrl = message.serverUrl;
+    }
+    if (message.project !== "") {
+      obj.project = message.project;
+    }
+    if (message.jobId !== "") {
+      obj.jobId = message.jobId;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PollIndexJobRequest>, I>>(base?: I): PollIndexJobRequest {
+    return PollIndexJobRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PollIndexJobRequest>, I>>(object: I): PollIndexJobRequest {
+    const message = createBasePollIndexJobRequest();
+    message.serverUrl = object.serverUrl ?? "";
+    message.project = object.project ?? "";
+    message.jobId = object.jobId ?? "";
+    return message;
+  },
+};
+
+function createBasePollIndexJobResponse(): PollIndexJobResponse {
+  return {
+    jobId: "",
+    project: "",
+    type: "",
+    status: "",
+    startedAt: "",
+    finishedAt: "",
+    filesScanned: 0,
+    filesIndexed: 0,
+    filesFailed: 0,
+    chunksAdded: 0,
+    error: "",
+  };
+}
+
+export const PollIndexJobResponse: MessageFns<PollIndexJobResponse> = {
+  encode(message: PollIndexJobResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.jobId !== "") {
+      writer.uint32(10).string(message.jobId);
+    }
+    if (message.project !== "") {
+      writer.uint32(18).string(message.project);
+    }
+    if (message.type !== "") {
+      writer.uint32(26).string(message.type);
+    }
+    if (message.status !== "") {
+      writer.uint32(34).string(message.status);
+    }
+    if (message.startedAt !== "") {
+      writer.uint32(42).string(message.startedAt);
+    }
+    if (message.finishedAt !== "") {
+      writer.uint32(50).string(message.finishedAt);
+    }
+    if (message.filesScanned !== 0) {
+      writer.uint32(56).int32(message.filesScanned);
+    }
+    if (message.filesIndexed !== 0) {
+      writer.uint32(64).int32(message.filesIndexed);
+    }
+    if (message.filesFailed !== 0) {
+      writer.uint32(72).int32(message.filesFailed);
+    }
+    if (message.chunksAdded !== 0) {
+      writer.uint32(80).int32(message.chunksAdded);
+    }
+    if (message.error !== "") {
+      writer.uint32(90).string(message.error);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): PollIndexJobResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePollIndexJobResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.jobId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.project = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.type = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.status = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.startedAt = reader.string();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.finishedAt = reader.string();
+          continue;
+        }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.filesScanned = reader.int32();
+          continue;
+        }
+        case 8: {
+          if (tag !== 64) {
+            break;
+          }
+
+          message.filesIndexed = reader.int32();
+          continue;
+        }
+        case 9: {
+          if (tag !== 72) {
+            break;
+          }
+
+          message.filesFailed = reader.int32();
+          continue;
+        }
+        case 10: {
+          if (tag !== 80) {
+            break;
+          }
+
+          message.chunksAdded = reader.int32();
+          continue;
+        }
+        case 11: {
+          if (tag !== 90) {
+            break;
+          }
+
+          message.error = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PollIndexJobResponse {
+    return {
+      jobId: isSet(object.jobId)
+        ? globalThis.String(object.jobId)
+        : isSet(object.job_id)
+        ? globalThis.String(object.job_id)
+        : "",
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
+      type: isSet(object.type) ? globalThis.String(object.type) : "",
+      status: isSet(object.status) ? globalThis.String(object.status) : "",
+      startedAt: isSet(object.startedAt)
+        ? globalThis.String(object.startedAt)
+        : isSet(object.started_at)
+        ? globalThis.String(object.started_at)
+        : "",
+      finishedAt: isSet(object.finishedAt)
+        ? globalThis.String(object.finishedAt)
+        : isSet(object.finished_at)
+        ? globalThis.String(object.finished_at)
+        : "",
+      filesScanned: isSet(object.filesScanned)
+        ? globalThis.Number(object.filesScanned)
+        : isSet(object.files_scanned)
+        ? globalThis.Number(object.files_scanned)
+        : 0,
+      filesIndexed: isSet(object.filesIndexed)
+        ? globalThis.Number(object.filesIndexed)
+        : isSet(object.files_indexed)
+        ? globalThis.Number(object.files_indexed)
+        : 0,
+      filesFailed: isSet(object.filesFailed)
+        ? globalThis.Number(object.filesFailed)
+        : isSet(object.files_failed)
+        ? globalThis.Number(object.files_failed)
+        : 0,
+      chunksAdded: isSet(object.chunksAdded)
+        ? globalThis.Number(object.chunksAdded)
+        : isSet(object.chunks_added)
+        ? globalThis.Number(object.chunks_added)
+        : 0,
+      error: isSet(object.error) ? globalThis.String(object.error) : "",
+    };
+  },
+
+  toJSON(message: PollIndexJobResponse): unknown {
+    const obj: any = {};
+    if (message.jobId !== "") {
+      obj.jobId = message.jobId;
+    }
+    if (message.project !== "") {
+      obj.project = message.project;
+    }
+    if (message.type !== "") {
+      obj.type = message.type;
+    }
+    if (message.status !== "") {
+      obj.status = message.status;
+    }
+    if (message.startedAt !== "") {
+      obj.startedAt = message.startedAt;
+    }
+    if (message.finishedAt !== "") {
+      obj.finishedAt = message.finishedAt;
+    }
+    if (message.filesScanned !== 0) {
+      obj.filesScanned = Math.round(message.filesScanned);
+    }
+    if (message.filesIndexed !== 0) {
+      obj.filesIndexed = Math.round(message.filesIndexed);
+    }
+    if (message.filesFailed !== 0) {
+      obj.filesFailed = Math.round(message.filesFailed);
+    }
+    if (message.chunksAdded !== 0) {
+      obj.chunksAdded = Math.round(message.chunksAdded);
+    }
+    if (message.error !== "") {
+      obj.error = message.error;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PollIndexJobResponse>, I>>(base?: I): PollIndexJobResponse {
+    return PollIndexJobResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PollIndexJobResponse>, I>>(object: I): PollIndexJobResponse {
+    const message = createBasePollIndexJobResponse();
+    message.jobId = object.jobId ?? "";
+    message.project = object.project ?? "";
+    message.type = object.type ?? "";
+    message.status = object.status ?? "";
+    message.startedAt = object.startedAt ?? "";
+    message.finishedAt = object.finishedAt ?? "";
+    message.filesScanned = object.filesScanned ?? 0;
+    message.filesIndexed = object.filesIndexed ?? 0;
+    message.filesFailed = object.filesFailed ?? 0;
+    message.chunksAdded = object.chunksAdded ?? 0;
+    message.error = object.error ?? "";
     return message;
   },
 };
@@ -2339,6 +3392,30 @@ export const DocsIndexServiceDefinition = {
       requestType: CreateProjectRequest as typeof CreateProjectRequest,
       requestStream: false,
       responseType: CreateProjectResponse as typeof CreateProjectResponse,
+      responseStream: false,
+      options: {},
+    },
+    listDocuments: {
+      name: "listDocuments",
+      requestType: ListDocumentsRequest as typeof ListDocumentsRequest,
+      requestStream: false,
+      responseType: ListDocumentsResponse as typeof ListDocumentsResponse,
+      responseStream: false,
+      options: {},
+    },
+    deleteDocument: {
+      name: "deleteDocument",
+      requestType: DeleteDocumentRequest as typeof DeleteDocumentRequest,
+      requestStream: false,
+      responseType: DeleteDocumentResponse as typeof DeleteDocumentResponse,
+      responseStream: false,
+      options: {},
+    },
+    pollIndexJob: {
+      name: "pollIndexJob",
+      requestType: PollIndexJobRequest as typeof PollIndexJobRequest,
+      requestStream: false,
+      responseType: PollIndexJobResponse as typeof PollIndexJobResponse,
       responseStream: false,
       options: {},
     },

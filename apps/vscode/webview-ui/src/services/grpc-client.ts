@@ -311,6 +311,30 @@ export class DocsIndexServiceClient extends ProtoBusClient {
 			proto.cline.CreateProjectResponse.fromJSON,
 		)
 	}
+	static async listDocuments(request: proto.cline.ListDocumentsRequest): Promise<proto.cline.ListDocumentsResponse> {
+		return this.makeUnaryRequest(
+			"listDocuments",
+			request,
+			proto.cline.ListDocumentsRequest.toJSON,
+			proto.cline.ListDocumentsResponse.fromJSON,
+		)
+	}
+	static async deleteDocument(request: proto.cline.DeleteDocumentRequest): Promise<proto.cline.DeleteDocumentResponse> {
+		return this.makeUnaryRequest(
+			"deleteDocument",
+			request,
+			proto.cline.DeleteDocumentRequest.toJSON,
+			proto.cline.DeleteDocumentResponse.fromJSON,
+		)
+	}
+	static async pollIndexJob(request: proto.cline.PollIndexJobRequest): Promise<proto.cline.PollIndexJobResponse> {
+		return this.makeUnaryRequest(
+			"pollIndexJob",
+			request,
+			proto.cline.PollIndexJobRequest.toJSON,
+			proto.cline.PollIndexJobResponse.fromJSON,
+		)
+	}
 }
 export class FileServiceClient extends ProtoBusClient {
 	static override serviceName: string = "cline.FileService"

@@ -69,6 +69,9 @@ export type DocsIndexServiceHandlers = {
      registerMcpServer:(controller: Controller, request: proto.cline.RegisterMcpRequest) => Promise<proto.cline.Empty>
      unregisterMcpServer:(controller: Controller, request: proto.cline.UnregisterMcpRequest) => Promise<proto.cline.Empty>
      createProject:(controller: Controller, request: proto.cline.CreateProjectRequest) => Promise<proto.cline.CreateProjectResponse>
+     listDocuments:(controller: Controller, request: proto.cline.ListDocumentsRequest) => Promise<proto.cline.ListDocumentsResponse>
+     deleteDocument:(controller: Controller, request: proto.cline.DeleteDocumentRequest) => Promise<proto.cline.DeleteDocumentResponse>
+     pollIndexJob:(controller: Controller, request: proto.cline.PollIndexJobRequest) => Promise<proto.cline.PollIndexJobResponse>
 }
 
 // File Service Handler Types
