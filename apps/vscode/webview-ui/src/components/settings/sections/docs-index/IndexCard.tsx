@@ -1,9 +1,11 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import {
 	DocsIndexProjectRequest,
 	IndexUrlRequest,
+	PollIndexJobRequest,
 	type DocsIndexProjectResponse,
 	type IndexUrlResponse,
+	type PollIndexJobResponse,
 } from "@shared/proto/cline/docs_index"
 import { DocsIndexServiceClient } from "@/services/grpc-client"
 
@@ -14,37 +16,75 @@ interface IndexCardProps {
 }
 
 export default function IndexCard({ serverUrl, connected, selectedProject }: IndexCardProps) {
-	const [indexing, setIndexing] = useState(false)
 	const [indexResult, setIndexResult] = useState<DocsIndexProjectResponse | undefined>()
 	const [urlInput, setUrlInput] = useState("")
 	const [depth, setDepth] = useState(3)
 	const [maxPages, setMaxPages] = useState(50)
-	const [urlIndexing, setUrlIndexing] = useState(false)
 	const [urlResult, setUrlResult] = useState<IndexUrlResponse | undefined>()
 	const [error, setError] = useState<string | null>(null)
+	const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+	const [activeJobId, setActiveJobId] = useState<string | null>(null)
+	const [activeJobType, setActiveJobType] = useState<"project" | "url" | null>(null)
+	const [jobProgress, setJobProgress] = useState<PollIndexJobResponse | null>(null)
 
-	const disabled = !connected || !selectedProject
+	const isJobActive = activeJobId !== null
+	const disabled = !connected || !selectedProject || isJobActive
+
+	const stopPolling = () => {
+		if (pollIntervalRef.current) {
+			clearInterval(pollIntervalRef.current)
+			pollIntervalRef.current = null
+		}
+		setActiveJobId(null)
+		setActiveJobType(null)
+	}
+
+	const startPolling = (jobId: string, type: "project" | "url") => {
+		stopPolling()
+		setActiveJobId(jobId)
+		setActiveJobType(type)
+		setJobProgress(null)
+
+		const poll = async () => {
+			try {
+				const job = await DocsIndexServiceClient.pollIndexJob(
+					PollIndexJobRequest.create({ serverUrl, project: selectedProject, jobId }),
+				)
+				setJobProgress(job)
+				if (job.status === "completed" || job.status === "failed") {
+					stopPolling()
+				}
+			} catch (err) {
+				setError(`Poll failed: ${err instanceof Error ? err.message : String(err)}`)
+				stopPolling()
+			}
+		}
+
+		poll()
+		pollIntervalRef.current = setInterval(poll, 2000)
+	}
 
 	const handleIndexProject = async () => {
-		setIndexing(true)
 		setError(null)
 		setIndexResult(undefined)
+		setJobProgress(null)
 		try {
 			const response = await DocsIndexServiceClient.indexDocsProject(
 				DocsIndexProjectRequest.create({ serverUrl, project: selectedProject }),
 			)
 			setIndexResult(response)
+			if (response.jobId) {
+				startPolling(response.jobId, "project")
+			}
 		} catch (err) {
 			setError(`Index failed: ${err instanceof Error ? err.message : String(err)}`)
-		} finally {
-			setIndexing(false)
 		}
 	}
 
 	const handleIndexUrl = async () => {
-		setUrlIndexing(true)
 		setError(null)
 		setUrlResult(undefined)
+		setJobProgress(null)
 		try {
 			const response = await DocsIndexServiceClient.indexUrl(
 				IndexUrlRequest.create({
@@ -56,10 +96,11 @@ export default function IndexCard({ serverUrl, connected, selectedProject }: Ind
 				}),
 			)
 			setUrlResult(response)
+			if (response.jobId) {
+				startPolling(response.jobId, "url")
+			}
 		} catch (err) {
 			setError(`URL index failed: ${err instanceof Error ? err.message : String(err)}`)
-		} finally {
-			setUrlIndexing(false)
 		}
 	}
 
@@ -77,18 +118,18 @@ export default function IndexCard({ serverUrl, connected, selectedProject }: Ind
 			<div style={{ marginBottom: "12px" }}>
 				<button
 					onClick={handleIndexProject}
-					disabled={disabled || indexing}
+					disabled={disabled}
 					style={{
 						padding: "4px 12px",
 						fontSize: "12px",
-						cursor: disabled || indexing ? "not-allowed" : "pointer",
+						cursor: disabled ? "not-allowed" : "pointer",
 						background: "var(--vscode-button-background)",
 						color: "var(--vscode-button-foreground)",
 						border: "none",
 						borderRadius: "3px",
-						opacity: disabled || indexing ? 0.7 : 1,
+						opacity: disabled ? 0.7 : 1,
 					}}>
-					{indexing ? "Indexing..." : "Index Project"}
+					{activeJobType === "project" ? "Indexing..." : "Index Project"}
 				</button>
 				{indexResult && (
 					<div
@@ -99,6 +140,25 @@ export default function IndexCard({ serverUrl, connected, selectedProject }: Ind
 						}}>
 						Scanned {indexResult.filesScanned}, indexed {indexResult.filesIndexed} new,{" "}
 						{indexResult.chunksAdded} chunks added ({(indexResult.elapsedMs / 1000).toFixed(1)}s)
+					</div>
+				)}
+				{jobProgress && activeJobType === "project" && (
+					<div
+						style={{
+							marginTop: "8px",
+							fontSize: "12px",
+							color:
+								jobProgress.status === "failed"
+									? "var(--vscode-errorForeground)"
+									: jobProgress.status === "completed"
+										? "var(--vscode-testing-iconPassed)"
+										: "var(--vscode-descriptionForeground)",
+						}}>
+						{jobProgress.status === "completed"
+							? `Indexed ${jobProgress.filesIndexed} files (${jobProgress.chunksAdded} chunks, ${jobProgress.filesFailed} failed)`
+							: jobProgress.status === "failed"
+								? `Indexing failed: ${jobProgress.error || "unknown error"}`
+								: `Status: ${jobProgress.status} — ${jobProgress.filesIndexed} files indexed, ${jobProgress.chunksAdded} chunks added...`}
 					</div>
 				)}
 			</div>
@@ -150,19 +210,19 @@ export default function IndexCard({ serverUrl, connected, selectedProject }: Ind
 					</div>
 					<button
 						onClick={handleIndexUrl}
-						disabled={disabled || urlIndexing || !urlInput}
+						disabled={disabled || !urlInput}
 						style={{
 							padding: "4px 12px",
 							fontSize: "12px",
-							cursor: disabled || urlIndexing || !urlInput ? "not-allowed" : "pointer",
+							cursor: disabled || !urlInput ? "not-allowed" : "pointer",
 							background: "var(--vscode-button-background)",
 							color: "var(--vscode-button-foreground)",
 							border: "none",
 							borderRadius: "3px",
-							opacity: disabled || urlIndexing || !urlInput ? 0.7 : 1,
+							opacity: disabled || !urlInput ? 0.7 : 1,
 							alignSelf: "flex-start",
 						}}>
-						{urlIndexing ? "Crawling..." : "Index URL"}
+						{activeJobType === "url" ? "Crawling..." : "Index URL"}
 					</button>
 					{urlResult && (
 						<div
@@ -171,6 +231,25 @@ export default function IndexCard({ serverUrl, connected, selectedProject }: Ind
 								color: "var(--vscode-descriptionForeground)",
 							}}>
 							Crawled {urlResult.pagesCrawled} pages, {urlResult.chunksAdded} chunks added
+						</div>
+					)}
+					{jobProgress && activeJobType === "url" && (
+						<div
+							style={{
+								marginTop: "8px",
+								fontSize: "12px",
+								color:
+									jobProgress.status === "failed"
+										? "var(--vscode-errorForeground)"
+										: jobProgress.status === "completed"
+											? "var(--vscode-testing-iconPassed)"
+											: "var(--vscode-descriptionForeground)",
+							}}>
+							{jobProgress.status === "completed"
+								? `Crawled ${jobProgress.filesIndexed} pages (${jobProgress.chunksAdded} chunks added)`
+								: jobProgress.status === "failed"
+									? `URL indexing failed: ${jobProgress.error || "unknown error"}`
+									: `Status: ${jobProgress.status} — ${jobProgress.filesIndexed} pages crawled...`}
 						</div>
 					)}
 				</div>
