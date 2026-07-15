@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react"
 import {
+	CreateProjectRequest,
 	ListProjectsRequest,
 	ProjectStatsRequest,
 	type ProjectInfo,
 	type ProjectStatsResponse,
 } from "@shared/proto/cline/docs_index"
 import { DocsIndexServiceClient } from "@/services/grpc-client"
+import { useExtensionState } from "@/context/ExtensionStateContext"
 
 interface ProjectsCardProps {
 	serverUrl: string
@@ -27,6 +29,12 @@ export default function ProjectsCard({
 	const [stats, setStats] = useState<ProjectStatsResponse | undefined>()
 	const [loading, setLoading] = useState(false)
 
+	const { workspaceRoots } = useExtensionState()
+	const [newProjectName, setNewProjectName] = useState("")
+	const [creating, setCreating] = useState(false)
+
+	const workspaceName = workspaceRoots?.[0]?.name ?? ""
+
 	const refreshProjects = useCallback(async () => {
 		if (!connected) return
 		setLoading(true)
@@ -34,14 +42,35 @@ export default function ProjectsCard({
 			const response = await DocsIndexServiceClient.listProjects(ListProjectsRequest.create({ serverUrl }))
 			setProjects(response.projects ?? [])
 			if (response.projects.length > 0 && !selectedProject) {
-				setSelectedProject(response.projects[0].name)
+				// Auto-select: prefer project matching workspace folder name, else first project
+				const match = response.projects.find(
+					(p) => p.name.toLowerCase() === workspaceName.toLowerCase(),
+				)
+				setSelectedProject(match ? match.name : response.projects[0].name)
 			}
 		} catch (err) {
 			console.error("Failed to list projects:", err)
 		} finally {
 			setLoading(false)
 		}
-	}, [serverUrl, connected, setProjects, selectedProject, setSelectedProject])
+	}, [serverUrl, connected, setProjects, selectedProject, setSelectedProject, workspaceName])
+
+	const handleCreateProject = useCallback(async () => {
+		if (!connected || !newProjectName.trim()) return
+		setCreating(true)
+		try {
+			await DocsIndexServiceClient.createProject(
+				CreateProjectRequest.create({ serverUrl, project: newProjectName.trim() }),
+			)
+			setNewProjectName("")
+			await refreshProjects()
+			setSelectedProject(newProjectName.trim())
+		} catch (err) {
+			console.error("Failed to create project:", err)
+		} finally {
+			setCreating(false)
+		}
+	}, [connected, newProjectName, serverUrl, refreshProjects, setSelectedProject])
 
 	useEffect(() => {
 		if (connected) {
@@ -105,6 +134,44 @@ export default function ProjectsCard({
 					</option>
 				))}
 			</select>
+			<div style={{ display: "flex", gap: "4px", marginBottom: "8px" }}>
+				<input
+					type="text"
+					value={newProjectName}
+					onChange={(e) => setNewProjectName(e.target.value)}
+					placeholder="New project name..."
+					disabled={!connected}
+					onKeyDown={(e) => {
+						if (e.key === "Enter") {
+							handleCreateProject()
+						}
+					}}
+					style={{
+						flex: 1,
+						padding: "4px 8px",
+						fontSize: "12px",
+						background: "var(--vscode-input-background)",
+						color: "var(--vscode-input-foreground)",
+						border: "1px solid var(--vscode-input-border)",
+						borderRadius: "3px",
+					}}
+				/>
+				<button
+					onClick={handleCreateProject}
+					disabled={!connected || !newProjectName.trim() || creating}
+					style={{
+						padding: "4px 12px",
+						fontSize: "12px",
+						cursor: !connected || !newProjectName.trim() || creating ? "not-allowed" : "pointer",
+						background: "var(--vscode-button-background)",
+						color: "var(--vscode-button-foreground)",
+						border: "none",
+						borderRadius: "3px",
+						opacity: !connected || !newProjectName.trim() || creating ? 0.5 : 1,
+					}}>
+					{creating ? "Creating..." : "Create"}
+				</button>
+			</div>
 			{stats && (
 				<div style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)", display: "flex", flexDirection: "column", gap: "2px" }}>
 					<div>Total chunks: {stats.totalChunks}</div>

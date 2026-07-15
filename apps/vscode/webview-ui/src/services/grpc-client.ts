@@ -303,6 +303,14 @@ export class DocsIndexServiceClient extends ProtoBusClient {
 			proto.cline.Empty.fromJSON,
 		)
 	}
+	static async createProject(request: proto.cline.CreateProjectRequest): Promise<proto.cline.CreateProjectResponse> {
+		return this.makeUnaryRequest(
+			"createProject",
+			request,
+			proto.cline.CreateProjectRequest.toJSON,
+			proto.cline.CreateProjectResponse.fromJSON,
+		)
+	}
 }
 export class FileServiceClient extends ProtoBusClient {
 	static override serviceName: string = "cline.FileService"
