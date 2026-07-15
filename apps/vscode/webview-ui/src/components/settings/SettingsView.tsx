@@ -1,6 +1,7 @@
 import type { ExtensionMessage } from "@shared/ExtensionMessage"
 import { isClineInternalTester } from "@shared/internal/account"
 import { ResetStateRequest } from "@shared/proto/cline/state"
+import type { ProjectInfo } from "@shared/proto/cline/docs_index"
 import type { UserOrganization } from "@shared/proto/index.cline"
 import {
 	CheckCheck,
@@ -161,6 +162,10 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 	const { activeOrganization, clineUser } = useClineAuth()
 
 	const [activeTab, setActiveTab] = useState<string>(targetSection || SETTINGS_TABS[0].id)
+	const [docsServerUrl, setDocsServerUrl] = useState("http://localhost:20130")
+	const [docsConnected, setDocsConnected] = useState(false)
+	const [docsProjects, setDocsProjects] = useState<ProjectInfo[]>([])
+	const [docsSelectedProject, setDocsSelectedProject] = useState("")
 
 	// Optimized message handler with early returns
 	const handleMessage = useCallback((event: MessageEvent) => {
@@ -260,10 +265,19 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 			props.onResetState = handleResetState
 		} else if (activeTab === "api-config") {
 			props.initialModelTab = settingsInitialModelTab
+		} else if (activeTab === "docs-index") {
+			props.serverUrl = docsServerUrl
+			props.setServerUrl = setDocsServerUrl
+			props.connected = docsConnected
+			props.setConnected = setDocsConnected
+			props.projects = docsProjects
+			props.setProjects = setDocsProjects
+			props.selectedProject = docsSelectedProject
+			props.setSelectedProject = setDocsSelectedProject
 		}
 
 		return <Component {...props} />
-	}, [activeTab, handleResetState, settingsInitialModelTab, version, TAB_CONTENT_MAP])
+	}, [activeTab, handleResetState, settingsInitialModelTab, version, TAB_CONTENT_MAP, docsServerUrl, docsConnected, docsProjects, docsSelectedProject])
 
 	return (
 		<Tab>
