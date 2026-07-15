@@ -58,6 +58,7 @@ import { searchDocuments } from "@core/controller/docsIndex/searchDocuments"
 import { listDocsIndexTools } from "@core/controller/docsIndex/listDocsIndexTools"
 import { registerMcpServer } from "@core/controller/docsIndex/registerMcpServer"
 import { unregisterMcpServer } from "@core/controller/docsIndex/unregisterMcpServer"
+import { createProject } from "@core/controller/docsIndex/createProject"
 
 // File Service
 import { copyToClipboard } from "@core/controller/file/copyToClipboard"
@@ -314,6 +315,7 @@ export function addProtobusServices(
          listDocsIndexTools: wrapper<cline.EmptyRequest,cline.DocsIndexTools>(listDocsIndexTools, controller),
          registerMcpServer: wrapper<cline.RegisterMcpRequest,cline.Empty>(registerMcpServer, controller),
          unregisterMcpServer: wrapper<cline.UnregisterMcpRequest,cline.Empty>(unregisterMcpServer, controller),
+         createProject: wrapper<cline.CreateProjectRequest,cline.CreateProjectResponse>(createProject, controller),
     });
 
     // File Service

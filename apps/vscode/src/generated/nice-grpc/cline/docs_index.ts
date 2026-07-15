@@ -127,6 +127,17 @@ export interface RegisterMcpRequest {
 export interface UnregisterMcpRequest {
 }
 
+export interface CreateProjectRequest {
+  serverUrl: string;
+  project: string;
+}
+
+export interface CreateProjectResponse {
+  project: string;
+  status: string;
+  message: string;
+}
+
 function createBasePingRequest(): PingRequest {
   return { serverUrl: "" };
 }
@@ -2063,6 +2074,178 @@ export const UnregisterMcpRequest: MessageFns<UnregisterMcpRequest> = {
   },
 };
 
+function createBaseCreateProjectRequest(): CreateProjectRequest {
+  return { serverUrl: "", project: "" };
+}
+
+export const CreateProjectRequest: MessageFns<CreateProjectRequest> = {
+  encode(message: CreateProjectRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.serverUrl !== "") {
+      writer.uint32(10).string(message.serverUrl);
+    }
+    if (message.project !== "") {
+      writer.uint32(18).string(message.project);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): CreateProjectRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCreateProjectRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.serverUrl = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.project = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): CreateProjectRequest {
+    return {
+      serverUrl: isSet(object.serverUrl)
+        ? globalThis.String(object.serverUrl)
+        : isSet(object.server_url)
+        ? globalThis.String(object.server_url)
+        : "",
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
+    };
+  },
+
+  toJSON(message: CreateProjectRequest): unknown {
+    const obj: any = {};
+    if (message.serverUrl !== "") {
+      obj.serverUrl = message.serverUrl;
+    }
+    if (message.project !== "") {
+      obj.project = message.project;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<CreateProjectRequest>): CreateProjectRequest {
+    return CreateProjectRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<CreateProjectRequest>): CreateProjectRequest {
+    const message = createBaseCreateProjectRequest();
+    message.serverUrl = object.serverUrl ?? "";
+    message.project = object.project ?? "";
+    return message;
+  },
+};
+
+function createBaseCreateProjectResponse(): CreateProjectResponse {
+  return { project: "", status: "", message: "" };
+}
+
+export const CreateProjectResponse: MessageFns<CreateProjectResponse> = {
+  encode(message: CreateProjectResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.project !== "") {
+      writer.uint32(10).string(message.project);
+    }
+    if (message.status !== "") {
+      writer.uint32(18).string(message.status);
+    }
+    if (message.message !== "") {
+      writer.uint32(26).string(message.message);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): CreateProjectResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCreateProjectResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.project = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.status = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.message = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): CreateProjectResponse {
+    return {
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
+      status: isSet(object.status) ? globalThis.String(object.status) : "",
+      message: isSet(object.message) ? globalThis.String(object.message) : "",
+    };
+  },
+
+  toJSON(message: CreateProjectResponse): unknown {
+    const obj: any = {};
+    if (message.project !== "") {
+      obj.project = message.project;
+    }
+    if (message.status !== "") {
+      obj.status = message.status;
+    }
+    if (message.message !== "") {
+      obj.message = message.message;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<CreateProjectResponse>): CreateProjectResponse {
+    return CreateProjectResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<CreateProjectResponse>): CreateProjectResponse {
+    const message = createBaseCreateProjectResponse();
+    message.project = object.project ?? "";
+    message.status = object.status ?? "";
+    message.message = object.message ?? "";
+    return message;
+  },
+};
+
 export type DocsIndexServiceDefinition = typeof DocsIndexServiceDefinition;
 export const DocsIndexServiceDefinition = {
   name: "DocsIndexService",
@@ -2148,6 +2331,14 @@ export const DocsIndexServiceDefinition = {
       responseStream: false,
       options: {},
     },
+    createProject: {
+      name: "createProject",
+      requestType: CreateProjectRequest as typeof CreateProjectRequest,
+      requestStream: false,
+      responseType: CreateProjectResponse as typeof CreateProjectResponse,
+      responseStream: false,
+      options: {},
+    },
   },
 } as const;
 
@@ -2183,6 +2374,10 @@ export interface DocsIndexServiceImplementation<CallContextExt = {}> {
     request: UnregisterMcpRequest,
     context: CallContext & CallContextExt,
   ): Promise<DeepPartial<Empty>>;
+  createProject(
+    request: CreateProjectRequest,
+    context: CallContext & CallContextExt,
+  ): Promise<DeepPartial<CreateProjectResponse>>;
 }
 
 export interface DocsIndexServiceClient<CallOptionsExt = {}> {
@@ -2217,6 +2412,10 @@ export interface DocsIndexServiceClient<CallOptionsExt = {}> {
     request: DeepPartial<UnregisterMcpRequest>,
     options?: CallOptions & CallOptionsExt,
   ): Promise<Empty>;
+  createProject(
+    request: DeepPartial<CreateProjectRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<CreateProjectResponse>;
 }
 
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;

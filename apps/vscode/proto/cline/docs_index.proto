@@ -19,6 +19,7 @@ service DocsIndexService {
   rpc listDocsIndexTools(EmptyRequest) returns (DocsIndexTools);
   rpc registerMcpServer(RegisterMcpRequest) returns (Empty);
   rpc unregisterMcpServer(UnregisterMcpRequest) returns (Empty);
+  rpc createProject(CreateProjectRequest) returns (CreateProjectResponse);
 }
 
 message PingRequest {
@@ -132,3 +133,14 @@ message RegisterMcpRequest {
 }
 
 message UnregisterMcpRequest {}
+
+message CreateProjectRequest {
+  string server_url = 1;
+  string project = 2;
+}
+
+message CreateProjectResponse {
+  string project = 1;
+  string status = 2;
+  string message = 3;
+}
