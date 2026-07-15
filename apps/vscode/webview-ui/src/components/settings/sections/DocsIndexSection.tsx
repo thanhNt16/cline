@@ -1,5 +1,6 @@
 import type { ProjectInfo } from "@shared/proto/cline/docs_index"
 import ConnectionCard from "./docs-index/ConnectionCard"
+import DocumentsCard from "./docs-index/DocumentsCard"
 import IndexCard from "./docs-index/IndexCard"
 import ProjectsCard from "./docs-index/ProjectsCard"
 import SearchCard from "./docs-index/SearchCard"
@@ -46,6 +47,7 @@ export const DocsIndexSection = ({
 			/>
 			<UploadCard serverUrl={serverUrl} connected={connected} selectedProject={selectedProject} />
 			<IndexCard serverUrl={serverUrl} connected={connected} selectedProject={selectedProject} />
+			<DocumentsCard serverUrl={serverUrl} connected={connected} selectedProject={selectedProject} />
 			<SearchCard serverUrl={serverUrl} connected={connected} selectedProject={selectedProject} />
 			<ToolsCard />
 		</div>
