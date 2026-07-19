@@ -1,7 +1,7 @@
 import { EmptyRequest } from "@shared/proto/cline/common"
 import {
 	MarketplaceEntriesRequest,
-	type MarketplaceEntry,
+	MarketplaceEntry,
 	MarketplaceEntryRequest,
 	type MarketplaceLocalInstalledEntry,
 	MarketplaceLocalInstalledEntryRequest,
@@ -1002,6 +1002,7 @@ const MarketplaceView = ({ initialType = "skill", onDone }: MarketplaceViewProps
 	const [selectedTag, setSelectedTag] = useState<string | null>(null)
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
+	const [githubUrl, setGithubUrl] = useState("")
 
 	const refresh = useCallback(async () => {
 		setLoading(true)
@@ -1150,6 +1151,30 @@ const MarketplaceView = ({ initialType = "skill", onDone }: MarketplaceViewProps
 		[refresh],
 	)
 
+	/** Install a skill from a raw GitHub URL by constructing a synthetic marketplace entry. */
+	const handleInstallFromUrl = useCallback(async () => {
+		const trimmed = githubUrl.trim()
+		if (!trimmed) return
+		setInstallingId(`url-${trimmed}`)
+		setError(null)
+		try {
+			const syntheticEntry = MarketplaceEntry.create({
+				id: `url-${Date.now()}`,
+				type: "skill",
+				name: trimmed,
+				install: { args: [trimmed] },
+			})
+			await MarketplaceServiceClient.installMarketplaceEntry(MarketplaceEntryRequest.create({ entry: syntheticEntry }))
+			setGithubUrl("")
+			await refresh()
+			setActiveSection("installed")
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err))
+		} finally {
+			setInstallingId(null)
+		}
+	}, [githubUrl, refresh])
+
 	const handleUninstallMarketplace = useCallback(
 		async (entry: MarketplaceEntry) => {
 			setUninstallingId(entryKey(entry))
@@ -1296,6 +1321,33 @@ const MarketplaceView = ({ initialType = "skill", onDone }: MarketplaceViewProps
 											))}
 										</Section>
 									))}
+
+								{/* Install skill from GitHub URL */}
+								{activeType === "skill" && currentSection === "installed" && (
+									<div className="flex flex-col gap-1.5 p-1 pb-2">
+										<div className="flex items-center gap-1.5">
+											<VSCodeTextField
+												className="flex-1"
+												onInput={(e: any) => setGithubUrl((e.target as HTMLInputElement).value)}
+												placeholder="Paste GitHub URL (e.g. https://github.com/obra/superpowers)"
+												style={{ fontSize: "12px" }}
+												value={githubUrl}
+											/>
+											<VSCodeButton
+												appearance="primary"
+												disabled={!githubUrl.trim() || installingId != null}
+												onClick={handleInstallFromUrl}
+												style={{ fontSize: "12px", padding: "2px 10px" }}>
+												{installingId?.startsWith("url-") ? (
+													<LoaderCircleIcon className="w-3.5 h-3.5 animate-spin" />
+												) : (
+													<DownloadIcon className="w-3.5 h-3.5" />
+												)}
+												Install
+											</VSCodeButton>
+										</div>
+									</div>
+								)}
 
 								{currentSection === "marketplace" && (
 									<MarketplaceCatalogSection
