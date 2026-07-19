@@ -106,38 +106,15 @@ export default function SearchCard({ serverUrl, connected, selectedProject }: Se
 							No results found.
 						</div>
 					) : (
-						results.map((result, i) => {
-							let metadata: Record<string, any> = {}
-							try {
-								metadata = JSON.parse(result.metadata)
-							} catch {}
-							return (
-								<div
-									key={i}
-									style={{
-										padding: "8px",
-										border: "1px solid var(--vscode-panel-border)",
-										borderRadius: "3px",
-										fontSize: "12px",
-									}}>
-									<div style={{ marginBottom: "4px" }}>
-										{result.text.length > 200 ? result.text.slice(0, 200) + "..." : result.text}
+							results.map((result, i) => (
+								<div key={`${result.docId}-${i}`} style={{ padding: "8px 0", borderBottom: "1px solid var(--vscode-panel-border)", fontSize: "12px" }}>
+									<div style={{ fontWeight: 500 }}>
+										{result.sourceName} · p.{result.page} · #{result.chunkIndex}
 									</div>
-									<div
-										style={{
-											display: "flex",
-											gap: "8px",
-											fontSize: "11px",
-											color: "var(--vscode-descriptionForeground)",
-										}}>
-										<span>Score: {(result.score * 100).toFixed(1)}%</span>
-										<span>Hybrid: {(result.hybridScore * 100).toFixed(1)}%</span>
-										{metadata.file_type && <span>Type: {metadata.file_type}</span>}
-										{metadata.page && <span>Page: {metadata.page}</span>}
-									</div>
+									<div style={{ color: "var(--vscode-descriptionForeground)", margin: "2px 0" }}>{result.text.slice(0, 200)}</div>
+									<div style={{ color: "var(--vscode-descriptionForeground)", fontSize: "11px" }}>score {(result.score * 100).toFixed(1)}%</div>
 								</div>
-							)
-						})
+							))
 					)}
 				</div>
 			)}

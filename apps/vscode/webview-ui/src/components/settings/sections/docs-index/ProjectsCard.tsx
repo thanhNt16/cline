@@ -2,12 +2,9 @@ import { useCallback, useEffect, useState } from "react"
 import {
 	CreateProjectRequest,
 	ListProjectsRequest,
-	ProjectStatsRequest,
 	type ProjectInfo,
-	type ProjectStatsResponse,
 } from "@shared/proto/cline/docs_index"
 import { DocsIndexServiceClient } from "@/services/grpc-client"
-import { useExtensionState } from "@/context/ExtensionStateContext"
 
 interface ProjectsCardProps {
 	serverUrl: string
@@ -26,15 +23,9 @@ export default function ProjectsCard({
 	selectedProject,
 	setSelectedProject,
 }: ProjectsCardProps) {
-	const [stats, setStats] = useState<ProjectStatsResponse | undefined>()
 	const [loading, setLoading] = useState(false)
-
-	const { workspaceRoots } = useExtensionState()
 	const [newProjectName, setNewProjectName] = useState("")
-	const [newMountPath, setNewMountPath] = useState("")
 	const [creating, setCreating] = useState(false)
-
-	const workspaceName = workspaceRoots?.[0]?.name ?? ""
 
 	const refreshProjects = useCallback(async () => {
 		if (!connected) return
@@ -43,34 +34,23 @@ export default function ProjectsCard({
 			const response = await DocsIndexServiceClient.listProjects(ListProjectsRequest.create({ serverUrl }))
 			setProjects(response.projects ?? [])
 			if (response.projects.length > 0 && !selectedProject) {
-				// Auto-select: prefer project matching workspace folder name, else first project
-				const match = response.projects.find(
-					(p) => p.name.toLowerCase() === workspaceName.toLowerCase(),
-				)
-				setSelectedProject(match ? match.name : response.projects[0].name)
+				setSelectedProject(response.projects[0].name)
 			}
 		} catch (err) {
 			console.error("Failed to list projects:", err)
 		} finally {
 			setLoading(false)
 		}
-	}, [serverUrl, connected, setProjects, selectedProject, setSelectedProject, workspaceName])
+	}, [serverUrl, connected, setProjects, selectedProject, setSelectedProject])
 
 	const handleCreateProject = useCallback(async () => {
 		if (!connected || !newProjectName.trim()) return
-		// Default mountPath: workspace folder + project name (or just project name)
-		const defaultMountPath = newMountPath.trim() || `${workspaceName ? `/${workspaceName}/${newProjectName.trim()}` : `/${newProjectName.trim()}`}`
 		setCreating(true)
 		try {
 			await DocsIndexServiceClient.createProject(
-				CreateProjectRequest.create({
-					serverUrl,
-					name: newProjectName.trim(),
-					mountPath: defaultMountPath,
-				}),
+				CreateProjectRequest.create({ serverUrl, name: newProjectName.trim() }),
 			)
 			setNewProjectName("")
-			setNewMountPath("")
 			await refreshProjects()
 			setSelectedProject(newProjectName.trim())
 		} catch (err) {
@@ -78,23 +58,13 @@ export default function ProjectsCard({
 		} finally {
 			setCreating(false)
 		}
-	}, [connected, newProjectName, newMountPath, serverUrl, workspaceName, refreshProjects, setSelectedProject])
+	}, [connected, newProjectName, serverUrl, refreshProjects, setSelectedProject])
 
 	useEffect(() => {
 		if (connected) {
 			refreshProjects()
 		}
 	}, [connected, refreshProjects])
-
-	useEffect(() => {
-		if (!connected || !selectedProject) {
-			setStats(undefined)
-			return
-		}
-		DocsIndexServiceClient.projectStats(ProjectStatsRequest.create({ serverUrl, project: selectedProject }))
-			.then(setStats)
-			.catch((err) => console.error("Failed to get project stats:", err))
-	}, [connected, serverUrl, selectedProject])
 
 	return (
 		<div
@@ -138,7 +108,7 @@ export default function ProjectsCard({
 				{projects.length === 0 && <option value="">No projects available</option>}
 				{projects.map((p) => (
 					<option key={p.name} value={p.name}>
-						{p.name} ({p.totalChunks} chunks)
+						{p.name}
 					</option>
 				))}
 			</select>
@@ -154,22 +124,6 @@ export default function ProjectsCard({
 							handleCreateProject()
 						}
 					}}
-					style={{
-						flex: 1,
-						padding: "4px 8px",
-						fontSize: "12px",
-						background: "var(--vscode-input-background)",
-						color: "var(--vscode-input-foreground)",
-						border: "1px solid var(--vscode-input-border)",
-						borderRadius: "3px",
-					}}
-				/>
-				<input
-					type="text"
-					value={newMountPath}
-					onChange={(e) => setNewMountPath(e.target.value)}
-					placeholder="Mount path (optional, e.g. /data/projects/myproject)"
-					disabled={!connected || creating}
 					style={{
 						flex: 1,
 						padding: "4px 8px",
@@ -196,20 +150,6 @@ export default function ProjectsCard({
 					{creating ? "Creating..." : "Create"}
 				</button>
 			</div>
-			{stats && (
-				<div style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)", display: "flex", flexDirection: "column", gap: "2px" }}>
-					<div>Total chunks: {stats.totalChunks}</div>
-					<div>Files indexed: {stats.filesIndexed}</div>
-					{Object.entries(stats.byFormat).length > 0 && (
-						<div>
-							Formats:{" "}
-							{Object.entries(stats.byFormat)
-								.map(([fmt, count]) => `${fmt}: ${count}`)
-								.join(", ")}
-						</div>
-					)}
-				</div>
-			)}
 		</div>
 	)
 }

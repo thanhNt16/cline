@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { UploadFileRequest, type UploadFileResponse } from "@shared/proto/cline/docs_index"
+import { UploadFileRequest } from "@shared/proto/cline/docs_index"
 import { DocsIndexServiceClient } from "@/services/grpc-client"
 
 interface UploadCardProps {
@@ -10,18 +10,18 @@ interface UploadCardProps {
 
 export default function UploadCard({ serverUrl, connected, selectedProject }: UploadCardProps) {
 	const [uploading, setUploading] = useState(false)
-	const [result, setResult] = useState<UploadFileResponse | undefined>()
+	const [status, setStatus] = useState<string | null>(null)
 	const [error, setError] = useState<string | null>(null)
 
 	const handleUpload = async () => {
 		setUploading(true)
 		setError(null)
-		setResult(undefined)
+		setStatus(null)
 		try {
-			const response = await DocsIndexServiceClient.uploadFile(
+			const res = await DocsIndexServiceClient.uploadFile(
 				UploadFileRequest.create({ serverUrl, project: selectedProject }),
 			)
-			setResult(response)
+			setStatus(res.taskId ? `Uploaded — indexing task ${res.taskId}` : `Status: ${res.status}`)
 		} catch (err) {
 			setError(`Upload failed: ${err instanceof Error ? err.message : String(err)}`)
 		} finally {
@@ -55,20 +55,16 @@ export default function UploadCard({ serverUrl, connected, selectedProject }: Up
 				}}>
 				{uploading ? "Uploading..." : "Upload File"}
 			</button>
-			{result && (
+			{status && (
 				<div
 					style={{
 						marginTop: "8px",
 						fontSize: "12px",
 						color: "var(--vscode-descriptionForeground)",
 					}}>
-					{result.status === "cancelled" ? (
-						"Upload cancelled"
-					) : (
-						<>
-							Uploaded <strong>{result.filename}</strong> ({(result.size / 1024).toFixed(1)} KB) — {result.status}
-						</>
-					)}
+					{status}
+				</div>
+			)}
 				</div>
 			)}
 			{error && (
