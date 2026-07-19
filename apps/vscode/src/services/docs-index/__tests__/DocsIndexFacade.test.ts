@@ -8,19 +8,14 @@ mock.module("@/shared/services/Logger", () => ({
 const mockCallTool = mock(async (toolName: string, args: Record<string, unknown>) => {
 	if (toolName === "list_projects") {
 		return {
-			projects: [
-				{ name: "greenenergy", mount_path: "/data/projects/greenenergy", total_chunks: 279, status: "indexed" },
-			],
+			projects: ["greenenergy"],
 		}
 	}
-	if (toolName === "project_stats") {
-		return { project: "greenenergy", total_chunks: 279, files_indexed: 2, by_format: { pdf: 278, txt: 1 } }
-	}
-	if (toolName === "search_documents") {
+	if (toolName === "search") {
 		return {
 			project: "greenenergy",
 			query: "OCPP",
-			results: [{ text: "OCPP specification...", score: 0.862, hybrid_score: 0.827, metadata: { path: "...", page: 3 } }],
+			results: [{ score: 0.862, doc_id: "doc-1", source_name: "spec.pdf", page: 3, chunk_index: 0, text: "OCPP specification..." }],
 		}
 	}
 	return {}
@@ -31,58 +26,25 @@ mock.module("../VesselIndexerClient", () => ({
 		connect = mock(async () => {})
 		callTool = mockCallTool
 		uploadFile = mock(async () => ({
+			task_id: "task-789",
+		}))
+		createProject = mock(async (name: string) => ({
+			project: name,
+			status: "ok",
+		}))
+		indexUrl = mock(async (project: string, url: string) => ({
+			task_id: "task-456",
+		}))
+		getTask = mock(async (taskId: string) => ({
+			id: taskId,
 			project: "greenenergy",
-			filename: "doc.pdf",
-			path: "/data/projects/greenenergy/doc.pdf",
-			size: 1048576,
-			status: "indexed",
-		}))
-		createProject = mock(async (name: string, mountPath: string) => ({
-			name,
-			mount_path: mountPath,
-			status: "created",
-			message: "",
-		}))
-		startIndexProject = mock(async (project: string) => ({
-			job_id: "job-123",
-			project,
-			status: "queued",
-			started_at: "2026-07-15T10:00:00Z",
-		}))
-		startIndexUrl = mock(async (project: string) => ({
-			job_id: "job-456",
-			project,
-			status: "queued",
-			started_at: "2026-07-15T10:00:00Z",
-		}))
-		listDocuments = mock(async (project: string) => ({
-			project,
-			page: 1,
-			page_size: 20,
-			total: 0,
-			total_pages: 0,
-			documents: [],
-		}))
-		deleteDocument = mock(async (project: string, path: string) => ({
-			project,
-			path,
-			chunks_removed: 0,
-			file_deleted: false,
-			status: "deleted",
-		}))
-		pollIndexJob = mock(async (project: string, jobId: string) => ({
-			id: jobId,
-			job_id: jobId,
-			project,
-			type: "project",
 			status: "completed",
-			started_at: "2026-07-15T10:00:00Z",
-			finished_at: "2026-07-15T10:00:30Z",
-			files_scanned: 3,
-			files_indexed: 1,
-			files_failed: 0,
-			chunks_added: 278,
-			error: "",
+			progress: 1,
+			message: "done",
+			detail: "",
+		}))
+		deleteDocument = mock(async (project: string, source: string) => ({
+			status: "ok",
 		}))
 		close = mock(async () => {})
 	},
@@ -101,43 +63,47 @@ describe("DocsIndexFacade", () => {
 		expect(result.connected).toBe(true)
 	})
 
-	test("listProjects maps snake_case to camelCase proto fields", async () => {
+	test("listProjects returns ProjectInfo with name strings", async () => {
 		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
 		const result = await facade.listProjects("http://localhost:20130")
 		expect(result.projects.length).toBe(1)
 		expect(result.projects[0].name).toBe("greenenergy")
-		expect(result.projects[0].mountPath).toBe("/data/projects/greenenergy")
-		expect(result.projects[0].totalChunks).toBe(279)
 	})
 
-	test("projectStats maps by_format map correctly", async () => {
-		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
-		const result = await facade.projectStats("http://localhost:20130", "greenenergy")
-		expect(result.totalChunks).toBe(279)
-		expect(result.filesIndexed).toBe(2)
-		expect(result.byFormat["pdf"]).toBe(278)
-	})
-
-	test("indexDocsProject returns async job_id", async () => {
-		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
-		const result = await facade.indexDocsProject("http://localhost:20130", "greenenergy")
-		expect(result.jobId).toBe("job-123")
-		expect(result.project).toBe("greenenergy")
-		expect(result.status).toBe("queued")
-	})
-
-	test("searchDocuments maps results with metadata as JSON string", async () => {
+	test("searchDocuments returns SearchResult with new fields", async () => {
 		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
 		const result = await facade.searchDocuments("http://localhost:20130", "greenenergy", "OCPP", 10)
 		expect(result.results.length).toBe(1)
 		expect(result.results[0].score).toBe(0.862)
-		expect(result.results[0].metadata).toContain("page")
+		expect(result.results[0].docId).toBe("doc-1")
+		expect(result.results[0].sourceName).toBe("spec.pdf")
 	})
 
-	test("listDocsIndexTools returns 6 tools", async () => {
+	test("createProject calls client and returns CreateProjectResponse", async () => {
+		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
+		const result = await facade.createProject("http://localhost:20130", "greenenergy")
+		expect(result.project).toBe("greenenergy")
+		expect(result.status).toBe("ok")
+	})
+
+	test("uploadFile returns taskId", async () => {
+		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
+		const result = await facade.uploadFile("http://localhost:20130", "greenenergy", "/tmp/doc.pdf")
+		expect(result.taskId).toBe("task-789")
+		expect(result.status).toBe("accepted")
+	})
+
+	test("getTask returns task status", async () => {
+		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
+		const result = await facade.getTask("http://localhost:20130", "task-123")
+		expect(result.id).toBe("task-123")
+		expect(result.status).toBe("completed")
+	})
+
+	test("listDocsIndexTools returns 7 tools", async () => {
 		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
 		const result = facade.listDocsIndexTools()
-		expect(result.tools.length).toBe(6)
-		expect(result.tools[0].name).toBe("search_documents")
+		expect(result.tools.length).toBe(7)
+		expect(result.tools[0].name).toBe("create_project")
 	})
 })

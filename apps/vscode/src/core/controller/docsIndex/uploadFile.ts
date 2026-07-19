@@ -10,10 +10,10 @@ export async function uploadFile(controller: Controller, request: UploadFileRequ
 		files = result.files
 	} catch (error) {
 		Logger.error("[DocsIndex] Failed to open file dialog:", error)
-		return UploadFileResponse.create({ project: request.project, filename: "", path: "", size: 0, status: "cancelled" })
+		return UploadFileResponse.create({ taskId: "", project: request.project, status: "cancelled" })
 	}
 	if (files.length === 0) {
-		return UploadFileResponse.create({ project: request.project, filename: "", path: "", size: 0, status: "cancelled" })
+		return UploadFileResponse.create({ taskId: "", project: request.project, status: "cancelled" })
 	}
 	return await controller.docsIndex.uploadFile(request.serverUrl, request.project, files[0])
 }
