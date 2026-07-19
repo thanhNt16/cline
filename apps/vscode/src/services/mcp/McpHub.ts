@@ -1,6 +1,7 @@
 import { setTimeout as setTimeoutPromise } from "node:timers/promises"
 import { sendMcpServersUpdate } from "@core/controller/mcp/subscribeToMcpServers"
 import {
+	getGlobalMcpSettingsFilePath,
 	getMcpSettingsFilePath as getMcpSettingsFilePathHelper,
 	getProjectMcpSettingsFilePaths,
 } from "@core/storage/disk"
@@ -47,9 +48,9 @@ import { expandEnvironmentVariables } from "@/utils/envExpansion"
 import type { TelemetryService } from "../telemetry/TelemetryService"
 import { DEFAULT_REQUEST_TIMEOUT_MS } from "./constants"
 import { McpOAuthManager } from "./McpOAuthManager"
-import { updateMcpSettingsFile } from "./settingsLock"
 import { StreamableHttpReconnectHandler } from "./StreamableHttpReconnectHandler"
 import { BaseConfigSchema, McpSettingsSchema, ServerConfigSchema } from "./schemas"
+import { updateMcpSettingsFile } from "./settingsLock"
 import type { McpConnection, McpServerConfig, Transport } from "./types"
 export class McpHub {
 	getMcpServersPath: () => Promise<string>
@@ -59,6 +60,7 @@ export class McpHub {
 	private mcpOAuthManager: McpOAuthManager
 
 	private settingsWatcher?: FSWatcher
+	private globalSettingsWatcher?: FSWatcher
 	private watchedSettingsPath?: string
 	private fileWatchers: Map<string, FSWatcher> = new Map()
 	private projectSettingsWatchers: FSWatcher[] = []
@@ -190,17 +192,41 @@ export class McpHub {
 
 	private async readAndValidateMcpSettingsFile(): Promise<z.infer<typeof McpSettingsSchema> | undefined> {
 		try {
+			// --- Layer 1: Global base from ~/.cellockai/cline_mcp_settings.json ---
+			let baseServers: Record<string, any> = {}
+			try {
+				const globalPath = getGlobalMcpSettingsFilePath()
+				const globalContent = (await fs.readFile(globalPath, "utf-8")).trim()
+				if (globalContent && globalContent !== "{}" && globalContent !== '{"mcpServers":{}}') {
+					let globalConfig: any
+					try {
+						globalConfig = JSON.parse(globalContent)
+					} catch {
+						Logger.warn(`Invalid JSON in global MCP settings: ${globalPath}`)
+					}
+					if (globalConfig) {
+						globalConfig = expandEnvironmentVariables(globalConfig)
+						const globalResult = McpSettingsSchema.safeParse(globalConfig)
+						if (globalResult.success) {
+							baseServers = (globalResult.data?.mcpServers ?? {}) as Record<string, any>
+						} else {
+							Logger.warn(`Invalid schema in global MCP settings: ${globalPath}`)
+						}
+					}
+				}
+			} catch {
+				// ~/.cellockai/cline_mcp_settings.json doesn't exist — that's fine
+			}
+
+			// --- Layer 2: Workspace .cellockai/cline_mcp_settings.json ---
 			const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
 			const content = await fs.readFile(settingsPath, "utf-8")
+			let workspaceServers: Record<string, any> = {}
 
-			let globalServers: Record<string, any>
-
-			// Handle empty or minimal files silently - this is a valid state meaning "no MCP servers"
 			const trimmedContent = content.trim()
 			if (!trimmedContent || trimmedContent === "{}" || trimmedContent === '{"mcpServers":{}}') {
-				globalServers = {}
+				workspaceServers = {}
 			} else {
-				// Parse JSON file content
 				let config: any
 				try {
 					config = JSON.parse(content)
@@ -225,21 +251,14 @@ export class McpHub {
 					return undefined
 				}
 
-				// Expand environment variables before validation
-				// This allows ${env:VAR_NAME} syntax in URLs, headers, env vars, etc.
 				config = expandEnvironmentVariables(config)
 
-				// Validate against schema
 				const result = McpSettingsSchema.safeParse(config)
 				if (!result.success) {
-					// Build a human-readable summary of what failed.
-					// Zod paths look like ["mcpServers", "linear", "transport", "url"] — we want to surface
-					// the server name (index 1) and the field path so users know exactly what to fix.
 					const issuesByServer = new Map<string, string[]>()
 					for (const issue of result.error.issues) {
-						// path[0] === "mcpServers", path[1] === serverName
 						const serverName = issue.path.length >= 2 ? String(issue.path[1]) : "(unknown server)"
-						const fieldPath = issue.path.slice(2).join(".") // e.g. "transport.url" or "command"
+						const fieldPath = issue.path.slice(2).join(".")
 						const detail = fieldPath ? `${fieldPath}: ${issue.message}` : issue.message
 						if (!issuesByServer.has(serverName)) {
 							issuesByServer.set(serverName, [])
@@ -272,14 +291,16 @@ export class McpHub {
 					return undefined
 				}
 
-				globalServers = (result.data?.mcpServers ?? {}) as Record<string, any>
+				workspaceServers = (result.data?.mcpServers ?? {}) as Record<string, any>
 			}
 
+			// --- Merge: base (global) + workspace + per-root mcp.json ---
+			const mergedServers: Record<string, any> = { ...baseServers, ...workspaceServers }
+
 			// Merge project-level MCP sources (.cellockai/mcp.json from each workspace
-			// root) over the global map. Project entries win on name collision. A
+			// root) over the merged map. Project entries win on name collision. A
 			// malformed project file is logged and skipped without failing the load.
 			const projectFilePaths = await getProjectMcpSettingsFilePaths()
-			const mergedServers: Record<string, any> = { ...globalServers }
 			for (const projectFilePath of projectFilePaths) {
 				try {
 					const projectContent = (await fs.readFile(projectFilePath, "utf-8")).trim()
@@ -398,9 +419,7 @@ export class McpHub {
 			// the watcher starts (e.g. first-time .cellockai setup).
 			const settings = await this.readAndValidateMcpSettingsFile()
 			if (settings) {
-				const fingerprint = this.computeConnectionFingerprint(
-					settings.mcpServers as Record<string, McpServerConfig>,
-				)
+				const fingerprint = this.computeConnectionFingerprint(settings.mcpServers as Record<string, McpServerConfig>)
 				if (fingerprint === this.lastConnectionFingerprint) return
 				this.lastConnectionFingerprint = fingerprint
 				try {
@@ -418,6 +437,56 @@ export class McpHub {
 		// Watch project-level MCP merge files (.cellockai/mcp.json from each
 		// workspace root). Changes to these files must also trigger a reload.
 		await this.watchProjectMcpSettingsFiles()
+		this.watchGlobalMcpSettingsFile()
+	}
+
+	private watchGlobalMcpSettingsFile(): void {
+		const globalPath = getGlobalMcpSettingsFilePath()
+
+		this.globalSettingsWatcher = chokidar.watch(globalPath, {
+			persistent: true,
+			ignoreInitial: true,
+			awaitWriteFinish: {
+				stabilityThreshold: 100,
+				pollInterval: 100,
+			},
+			atomic: true,
+		})
+
+		this.globalSettingsWatcher.on("change", async () => {
+			try {
+				const settings = await this.readAndValidateMcpSettingsFile()
+				if (settings) {
+					const fingerprint = this.computeConnectionFingerprint(settings.mcpServers as Record<string, McpServerConfig>)
+					if (fingerprint === this.lastConnectionFingerprint) {
+						return
+					}
+					this.lastConnectionFingerprint = fingerprint
+					await this.updateServerConnections(settings.mcpServers)
+				}
+			} catch (error) {
+				Logger.error("Failed to process global MCP settings change:", error)
+			}
+		})
+
+		this.globalSettingsWatcher.on("add", async () => {
+			try {
+				const settings = await this.readAndValidateMcpSettingsFile()
+				if (settings) {
+					const fingerprint = this.computeConnectionFingerprint(settings.mcpServers as Record<string, McpServerConfig>)
+					if (fingerprint !== this.lastConnectionFingerprint) {
+						this.lastConnectionFingerprint = fingerprint
+						await this.updateServerConnections(settings.mcpServers)
+					}
+				}
+			} catch (error) {
+				Logger.error("Failed to process global MCP settings file creation:", error)
+			}
+		})
+
+		this.globalSettingsWatcher.on("error", (error) => {
+			Logger.error("Error watching global MCP settings file:", error)
+		})
 	}
 
 	/**
@@ -469,9 +538,7 @@ export class McpHub {
 			watcher.on("change", async () => {
 				const settings = await this.readAndValidateMcpSettingsFile()
 				if (settings) {
-					const fingerprint = this.computeConnectionFingerprint(
-						settings.mcpServers as Record<string, McpServerConfig>,
-					)
+					const fingerprint = this.computeConnectionFingerprint(settings.mcpServers as Record<string, McpServerConfig>)
 					if (fingerprint === this.lastConnectionFingerprint) return
 					this.lastConnectionFingerprint = fingerprint
 					try {
@@ -2106,6 +2173,9 @@ export class McpHub {
 		this.connections = []
 		if (this.settingsWatcher) {
 			await this.settingsWatcher.close()
+		}
+		if (this.globalSettingsWatcher) {
+			await this.globalSettingsWatcher.close()
 		}
 	}
 }

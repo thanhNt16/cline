@@ -154,7 +154,10 @@ export async function getMcpSettingsFilePath(settingsDirectoryPath: string): Pro
 export async function getProjectMcpSettingsFilePaths(): Promise<string[]> {
 	let workspaceRootPaths: string[] = []
 	try {
-		workspaceRootPaths = StateManager.get().getGlobalStateKey("workspaceRoots")?.map((root) => root.path) || []
+		workspaceRootPaths =
+			StateManager.get()
+				.getGlobalStateKey("workspaceRoots")
+				?.map((root) => root.path) || []
 	} catch {
 		// StateManager not initialized (e.g. unit tests) — no project sources.
 		return []
@@ -163,6 +166,14 @@ export async function getProjectMcpSettingsFilePaths(): Promise<string[]> {
 	const candidates = workspaceRootPaths.map((root) => path.join(root, GlobalFileNames.projectMcpSettings))
 	const exists = await Promise.all(candidates.map((p) => fileExistsAtPath(p)))
 	return candidates.filter((_, i) => exists[i])
+}
+
+/**
+ * Returns the global MCP settings file path at ~/.cellockai/cline_mcp_settings.json.
+ * Does NOT create the file — the caller decides whether to seed it.
+ */
+export function getGlobalMcpSettingsFilePath(): string {
+	return path.join(os.homedir(), ".cellockai", GlobalFileNames.mcpSettings)
 }
 
 /**
