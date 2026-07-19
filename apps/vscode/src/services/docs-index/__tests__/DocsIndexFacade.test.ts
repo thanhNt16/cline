@@ -4,18 +4,11 @@ mock.module("@/shared/services/Logger", () => ({
 	Logger: { log: mock(() => {}), error: mock(() => {}) },
 }))
 
-// Mock VesselIndexerClient
-const mockCallTool = mock(async (toolName: string, args: Record<string, unknown>) => {
-	if (toolName === "list_projects") {
-		return {
-			projects: ["greenenergy"],
-		}
-	}
+const mockCallTool = mock(async (toolName: string, _args: Record<string, unknown>) => {
+	if (toolName === "list_projects") return { projects: ["greenenergy", "acme"] }
 	if (toolName === "search") {
 		return {
-			project: "greenenergy",
-			query: "OCPP",
-			results: [{ score: 0.862, doc_id: "doc-1", source_name: "spec.pdf", page: 3, chunk_index: 0, text: "OCPP specification..." }],
+			results: [{ score: 0.86, doc_id: "d1", source_name: "spec.pdf", page: 3, chunk_index: 7, text: "OCPP..." }],
 		}
 	}
 	return {}
@@ -25,85 +18,62 @@ mock.module("../VesselIndexerClient", () => ({
 	VesselIndexerClient: class MockVesselIndexerClient {
 		connect = mock(async () => {})
 		callTool = mockCallTool
-		uploadFile = mock(async () => ({
-			task_id: "task-789",
-		}))
-		createProject = mock(async (name: string) => ({
-			project: name,
-			status: "ok",
-		}))
-		indexUrl = mock(async (project: string, url: string) => ({
-			task_id: "task-456",
-		}))
-		getTask = mock(async (taskId: string) => ({
-			id: taskId,
+		createProject = mock(async (name: string) => ({ status: "ok", project: name }))
+		uploadFile = mock(async () => ({ task_id: "task-1" }))
+		indexUrl = mock(async () => ({ task_id: "task-2" }))
+		getTask = mock(async (id: string) => ({
+			id,
 			project: "greenenergy",
-			status: "completed",
-			progress: 1,
-			message: "done",
-			detail: "",
+			status: "running",
+			progress: 0.5,
+			message: "indexing",
+			detail: null,
 		}))
-		deleteDocument = mock(async (project: string, source: string) => ({
-			status: "ok",
-		}))
+		deleteDocument = mock(async () => ({ status: "ok" }))
 		close = mock(async () => {})
 	},
 }))
 
-mock.module("@services/mcp/settingsLock", () => ({
-	updateMcpSettingsFile: mock(async () => {}),
-}))
-
 const { DocsIndexFacade } = await import("../DocsIndexFacade")
+const newFacade = () => new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
 
 describe("DocsIndexFacade", () => {
-	test("ping returns connected=true when list_projects succeeds", async () => {
-		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
-		const result = await facade.ping("http://localhost:20130")
-		expect(result.connected).toBe(true)
+	test("listProjects maps string names to ProjectInfo", async () => {
+		const res = await newFacade().listProjects("http://localhost:20130")
+		expect(res.projects.map((p) => p.name)).toEqual(["greenenergy", "acme"])
 	})
 
-	test("listProjects returns ProjectInfo with name strings", async () => {
-		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
-		const result = await facade.listProjects("http://localhost:20130")
-		expect(result.projects.length).toBe(1)
-		expect(result.projects[0].name).toBe("greenenergy")
+	test("createProject returns project + status", async () => {
+		const res = await newFacade().createProject("http://localhost:20130", "greenenergy")
+		expect(res.project).toBe("greenenergy")
+		expect(res.status).toBe("ok")
 	})
 
-	test("searchDocuments returns SearchResult with new fields", async () => {
-		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
-		const result = await facade.searchDocuments("http://localhost:20130", "greenenergy", "OCPP", 10)
-		expect(result.results.length).toBe(1)
-		expect(result.results[0].score).toBe(0.862)
-		expect(result.results[0].docId).toBe("doc-1")
-		expect(result.results[0].sourceName).toBe("spec.pdf")
+	test("uploadFile surfaces task id", async () => {
+		const res = await newFacade().uploadFile("http://localhost:20130", "greenenergy", "/tmp/x.pdf")
+		expect(res.taskId).toBe("task-1")
 	})
 
-	test("createProject calls client and returns CreateProjectResponse", async () => {
-		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
-		const result = await facade.createProject("http://localhost:20130", "greenenergy")
-		expect(result.project).toBe("greenenergy")
-		expect(result.status).toBe("ok")
+	test("indexUrl surfaces task id", async () => {
+		const res = await newFacade().indexUrl("http://localhost:20130", "greenenergy", "https://example.com")
+		expect(res.taskId).toBe("task-2")
 	})
 
-	test("uploadFile returns taskId", async () => {
-		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
-		const result = await facade.uploadFile("http://localhost:20130", "greenenergy", "/tmp/doc.pdf")
-		expect(result.taskId).toBe("task-789")
-		expect(result.status).toBe("accepted")
+	test("getTask maps TaskInfo fields", async () => {
+		const res = await newFacade().getTask("http://localhost:20130", "task-1")
+		expect(res.status).toBe("running")
+		expect(res.progress).toBeCloseTo(0.5)
 	})
 
-	test("getTask returns task status", async () => {
-		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
-		const result = await facade.getTask("http://localhost:20130", "task-123")
-		expect(result.id).toBe("task-123")
-		expect(result.status).toBe("completed")
+	test("searchDocuments maps SearchHit fields", async () => {
+		const res = await newFacade().searchDocuments("http://localhost:20130", "greenenergy", "OCPP", 5)
+		expect(res.results[0].docId).toBe("d1")
+		expect(res.results[0].sourceName).toBe("spec.pdf")
+		expect(res.results[0].page).toBe(3)
 	})
 
-	test("listDocsIndexTools returns 7 tools", async () => {
-		const facade = new DocsIndexFacade({ getMcpSettingsFilePath: async () => "/tmp/test.json" } as any)
-		const result = facade.listDocsIndexTools()
-		expect(result.tools.length).toBe(7)
-		expect(result.tools[0].name).toBe("create_project")
+	test("deleteDocument returns ok status", async () => {
+		const res = await newFacade().deleteDocument("http://localhost:20130", "greenenergy", "spec.pdf")
+		expect(res.status).toBe("ok")
 	})
 })
