@@ -2,5 +2,5 @@ import { DeleteDocumentRequest, DeleteDocumentResponse } from "@shared/proto/cli
 import type { Controller } from "../index"
 
 export async function deleteDocument(controller: Controller, request: DeleteDocumentRequest): Promise<DeleteDocumentResponse> {
-	return await controller.docsIndex.deleteDocument(request.serverUrl, request.project, request.path)
+	return await controller.docsIndex.deleteDocument(request.serverUrl, request.project, request.source)
 }

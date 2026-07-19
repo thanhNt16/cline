@@ -60,18 +60,15 @@ export type CommandsServiceHandlers = {
 export type DocsIndexServiceHandlers = {
      ping:(controller: Controller, request: proto.cline.PingRequest) => Promise<proto.cline.PingResponse>
      listProjects:(controller: Controller, request: proto.cline.ListProjectsRequest) => Promise<proto.cline.ListProjectsResponse>
-     projectStats:(controller: Controller, request: proto.cline.ProjectStatsRequest) => Promise<proto.cline.ProjectStatsResponse>
-     indexDocsProject:(controller: Controller, request: proto.cline.DocsIndexProjectRequest) => Promise<proto.cline.DocsIndexProjectResponse>
-     indexUrl:(controller: Controller, request: proto.cline.IndexUrlRequest) => Promise<proto.cline.IndexUrlResponse>
+     createProject:(controller: Controller, request: proto.cline.CreateProjectRequest) => Promise<proto.cline.CreateProjectResponse>
      uploadFile:(controller: Controller, request: proto.cline.UploadFileRequest) => Promise<proto.cline.UploadFileResponse>
+     indexUrl:(controller: Controller, request: proto.cline.IndexUrlRequest) => Promise<proto.cline.IndexUrlResponse>
+     getTask:(controller: Controller, request: proto.cline.TaskStatusRequest) => Promise<proto.cline.TaskStatusResponse>
      searchDocuments:(controller: Controller, request: proto.cline.SearchDocumentsRequest) => Promise<proto.cline.SearchDocumentsResponse>
+     deleteDocument:(controller: Controller, request: proto.cline.DeleteDocumentRequest) => Promise<proto.cline.DeleteDocumentResponse>
      listDocsIndexTools:(controller: Controller, request: proto.cline.EmptyRequest) => Promise<proto.cline.DocsIndexTools>
      registerMcpServer:(controller: Controller, request: proto.cline.RegisterMcpRequest) => Promise<proto.cline.Empty>
      unregisterMcpServer:(controller: Controller, request: proto.cline.UnregisterMcpRequest) => Promise<proto.cline.Empty>
-     createProject:(controller: Controller, request: proto.cline.CreateProjectRequest) => Promise<proto.cline.CreateProjectResponse>
-     listDocuments:(controller: Controller, request: proto.cline.ListDocumentsRequest) => Promise<proto.cline.ListDocumentsResponse>
-     deleteDocument:(controller: Controller, request: proto.cline.DeleteDocumentRequest) => Promise<proto.cline.DeleteDocumentResponse>
-     pollIndexJob:(controller: Controller, request: proto.cline.PollIndexJobRequest) => Promise<proto.cline.PollIndexJobResponse>
 }
 
 // File Service Handler Types

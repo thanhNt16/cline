@@ -11,18 +11,15 @@ option java_package = "bot.cline.proto";
 service DocsIndexService {
   rpc ping(PingRequest) returns (PingResponse);
   rpc listProjects(ListProjectsRequest) returns (ListProjectsResponse);
-  rpc projectStats(ProjectStatsRequest) returns (ProjectStatsResponse);
-  rpc indexDocsProject(DocsIndexProjectRequest) returns (DocsIndexProjectResponse);
-  rpc indexUrl(IndexUrlRequest) returns (IndexUrlResponse);
+  rpc createProject(CreateProjectRequest) returns (CreateProjectResponse);
   rpc uploadFile(UploadFileRequest) returns (UploadFileResponse);
+  rpc indexUrl(IndexUrlRequest) returns (IndexUrlResponse);
+  rpc getTask(TaskStatusRequest) returns (TaskStatusResponse);
   rpc searchDocuments(SearchDocumentsRequest) returns (SearchDocumentsResponse);
+  rpc deleteDocument(DeleteDocumentRequest) returns (DeleteDocumentResponse);
   rpc listDocsIndexTools(EmptyRequest) returns (DocsIndexTools);
   rpc registerMcpServer(RegisterMcpRequest) returns (Empty);
   rpc unregisterMcpServer(UnregisterMcpRequest) returns (Empty);
-  rpc createProject(CreateProjectRequest) returns (CreateProjectResponse);
-  rpc listDocuments(ListDocumentsRequest) returns (ListDocumentsResponse);
-  rpc deleteDocument(DeleteDocumentRequest) returns (DeleteDocumentResponse);
-  rpc pollIndexJob(PollIndexJobRequest) returns (PollIndexJobResponse);
 }
 
 message PingRequest {
@@ -40,52 +37,22 @@ message ListProjectsRequest {
 
 message ProjectInfo {
   string name = 1;
-  string mount_path = 2;
-  int32 total_chunks = 3;
-  string status = 4;
 }
 
 message ListProjectsResponse {
   repeated ProjectInfo projects = 1;
 }
 
-message ProjectStatsRequest {
-  string server_url = 1;
-  string project = 2;
-}
-
-message ProjectStatsResponse {
-  string project = 1;
-  int32 total_chunks = 2;
-  int32 files_indexed = 3;
-  map<string, int32> by_format = 4;
-}
-
-message DocsIndexProjectRequest {
-  string server_url = 1;
-  string project = 2;
-}
-
-message DocsIndexProjectResponse {
-  string job_id = 1;
-  string project = 2;
-  string status = 3;
-  string started_at = 4;
-}
-
 message IndexUrlRequest {
   string server_url = 1;
   string project = 2;
   string url = 3;
-  int32 depth = 4;
-  int32 max_pages = 5;
 }
 
 message IndexUrlResponse {
-  string job_id = 1;
+  string task_id = 1;
   string project = 2;
   string status = 3;
-  string started_at = 4;
 }
 
 message UploadFileRequest {
@@ -94,11 +61,9 @@ message UploadFileRequest {
 }
 
 message UploadFileResponse {
-  string project = 1;
-  string filename = 2;
-  string path = 3;
-  int64 size = 4;
-  string status = 5;
+  string task_id = 1;
+  string project = 2;
+  string status = 3;
 }
 
 message SearchDocumentsRequest {
@@ -109,10 +74,12 @@ message SearchDocumentsRequest {
 }
 
 message SearchResult {
-  string text = 1;
-  double score = 2;
-  double hybrid_score = 3;
-  string metadata = 4;
+  double score = 1;
+  string doc_id = 2;
+  string source_name = 3;
+  int32 page = 4;
+  int32 chunk_index = 5;
+  string text = 6;
 }
 
 message SearchDocumentsResponse {
@@ -139,70 +106,33 @@ message UnregisterMcpRequest {}
 message CreateProjectRequest {
   string server_url = 1;
   string name = 2;
-  string mount_path = 3;
 }
 
 message CreateProjectResponse {
-  string name = 1;
-  string mount_path = 2;
-  string status = 3;
-  string message = 4;
-}
-
-message DocumentInfo {
-  string path = 1;
-  string file_type = 2;
-  int32 chunks = 3;
-  int64 size = 4;
-  string mod_time = 5;
-}
-
-message ListDocumentsRequest {
-  string server_url = 1;
-  string project = 2;
-  int32 page = 3;
-  int32 page_size = 4;
-}
-
-message ListDocumentsResponse {
   string project = 1;
-  int32 page = 2;
-  int32 page_size = 3;
-  int32 total = 4;
-  int32 total_pages = 5;
-  repeated DocumentInfo documents = 6;
+  string status = 2;
 }
 
 message DeleteDocumentRequest {
   string server_url = 1;
   string project = 2;
-  string path = 3;
+  string source = 3;
 }
 
 message DeleteDocumentResponse {
-  string project = 1;
-  string path = 2;
-  int32 chunks_removed = 3;
-  bool file_deleted = 4;
-  string status = 5;
+  string status = 1;
 }
 
-message PollIndexJobRequest {
+message TaskStatusRequest {
   string server_url = 1;
-  string project = 2;
-  string job_id = 3;
+  string task_id = 2;
 }
 
-message PollIndexJobResponse {
-  string job_id = 1;
+message TaskStatusResponse {
+  string id = 1;
   string project = 2;
-  string type = 3;
-  string status = 4;
-  string started_at = 5;
-  string finished_at = 6;
-  int32 files_scanned = 7;
-  int32 files_indexed = 8;
-  int32 files_failed = 9;
-  int32 chunks_added = 10;
-  string error = 11;
+  string status = 3;
+  float progress = 4;
+  string message = 5;
+  string detail = 6;
 }

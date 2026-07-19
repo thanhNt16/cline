@@ -24,57 +24,22 @@ export interface ListProjectsRequest {
 
 export interface ProjectInfo {
   name: string;
-  mountPath: string;
-  totalChunks: number;
-  status: string;
 }
 
 export interface ListProjectsResponse {
   projects: ProjectInfo[];
 }
 
-export interface ProjectStatsRequest {
-  serverUrl: string;
-  project: string;
-}
-
-export interface ProjectStatsResponse {
-  project: string;
-  totalChunks: number;
-  filesIndexed: number;
-  byFormat: { [key: string]: number };
-}
-
-export interface ProjectStatsResponse_ByFormatEntry {
-  key: string;
-  value: number;
-}
-
-export interface DocsIndexProjectRequest {
-  serverUrl: string;
-  project: string;
-}
-
-export interface DocsIndexProjectResponse {
-  jobId: string;
-  project: string;
-  status: string;
-  startedAt: string;
-}
-
 export interface IndexUrlRequest {
   serverUrl: string;
   project: string;
   url: string;
-  depth: number;
-  maxPages: number;
 }
 
 export interface IndexUrlResponse {
-  jobId: string;
+  taskId: string;
   project: string;
   status: string;
-  startedAt: string;
 }
 
 export interface UploadFileRequest {
@@ -83,10 +48,8 @@ export interface UploadFileRequest {
 }
 
 export interface UploadFileResponse {
+  taskId: string;
   project: string;
-  filename: string;
-  path: string;
-  size: number;
   status: string;
 }
 
@@ -98,10 +61,12 @@ export interface SearchDocumentsRequest {
 }
 
 export interface SearchResult {
-  text: string;
   score: number;
-  hybridScore: number;
-  metadata: string;
+  docId: string;
+  sourceName: string;
+  page: number;
+  chunkIndex: number;
+  text: string;
 }
 
 export interface SearchDocumentsResponse {
@@ -129,72 +94,35 @@ export interface UnregisterMcpRequest {
 export interface CreateProjectRequest {
   serverUrl: string;
   name: string;
-  mountPath: string;
 }
 
 export interface CreateProjectResponse {
-  name: string;
-  mountPath: string;
+  project: string;
   status: string;
-  message: string;
-}
-
-export interface DocumentInfo {
-  path: string;
-  fileType: string;
-  chunks: number;
-  size: number;
-  modTime: string;
-}
-
-export interface ListDocumentsRequest {
-  serverUrl: string;
-  project: string;
-  page: number;
-  pageSize: number;
-}
-
-export interface ListDocumentsResponse {
-  project: string;
-  page: number;
-  pageSize: number;
-  total: number;
-  totalPages: number;
-  documents: DocumentInfo[];
 }
 
 export interface DeleteDocumentRequest {
   serverUrl: string;
   project: string;
-  path: string;
+  source: string;
 }
 
 export interface DeleteDocumentResponse {
-  project: string;
-  path: string;
-  chunksRemoved: number;
-  fileDeleted: boolean;
   status: string;
 }
 
-export interface PollIndexJobRequest {
+export interface TaskStatusRequest {
   serverUrl: string;
-  project: string;
-  jobId: string;
+  taskId: string;
 }
 
-export interface PollIndexJobResponse {
-  jobId: string;
+export interface TaskStatusResponse {
+  id: string;
   project: string;
-  type: string;
   status: string;
-  startedAt: string;
-  finishedAt: string;
-  filesScanned: number;
-  filesIndexed: number;
-  filesFailed: number;
-  chunksAdded: number;
-  error: string;
+  progress: number;
+  message: string;
+  detail: string;
 }
 
 function createBasePingRequest(): PingRequest {
@@ -406,22 +334,13 @@ export const ListProjectsRequest: MessageFns<ListProjectsRequest> = {
 };
 
 function createBaseProjectInfo(): ProjectInfo {
-  return { name: "", mountPath: "", totalChunks: 0, status: "" };
+  return { name: "" };
 }
 
 export const ProjectInfo: MessageFns<ProjectInfo> = {
   encode(message: ProjectInfo, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.name !== "") {
       writer.uint32(10).string(message.name);
-    }
-    if (message.mountPath !== "") {
-      writer.uint32(18).string(message.mountPath);
-    }
-    if (message.totalChunks !== 0) {
-      writer.uint32(24).int32(message.totalChunks);
-    }
-    if (message.status !== "") {
-      writer.uint32(34).string(message.status);
     }
     return writer;
   },
@@ -441,30 +360,6 @@ export const ProjectInfo: MessageFns<ProjectInfo> = {
           message.name = reader.string();
           continue;
         }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.mountPath = reader.string();
-          continue;
-        }
-        case 3: {
-          if (tag !== 24) {
-            break;
-          }
-
-          message.totalChunks = reader.int32();
-          continue;
-        }
-        case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          message.status = reader.string();
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -475,35 +370,13 @@ export const ProjectInfo: MessageFns<ProjectInfo> = {
   },
 
   fromJSON(object: any): ProjectInfo {
-    return {
-      name: isSet(object.name) ? globalThis.String(object.name) : "",
-      mountPath: isSet(object.mountPath)
-        ? globalThis.String(object.mountPath)
-        : isSet(object.mount_path)
-        ? globalThis.String(object.mount_path)
-        : "",
-      totalChunks: isSet(object.totalChunks)
-        ? globalThis.Number(object.totalChunks)
-        : isSet(object.total_chunks)
-        ? globalThis.Number(object.total_chunks)
-        : 0,
-      status: isSet(object.status) ? globalThis.String(object.status) : "",
-    };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: ProjectInfo): unknown {
     const obj: any = {};
     if (message.name !== "") {
       obj.name = message.name;
-    }
-    if (message.mountPath !== "") {
-      obj.mountPath = message.mountPath;
-    }
-    if (message.totalChunks !== 0) {
-      obj.totalChunks = Math.round(message.totalChunks);
-    }
-    if (message.status !== "") {
-      obj.status = message.status;
     }
     return obj;
   },
@@ -514,9 +387,6 @@ export const ProjectInfo: MessageFns<ProjectInfo> = {
   fromPartial(object: DeepPartial<ProjectInfo>): ProjectInfo {
     const message = createBaseProjectInfo();
     message.name = object.name ?? "";
-    message.mountPath = object.mountPath ?? "";
-    message.totalChunks = object.totalChunks ?? 0;
-    message.status = object.status ?? "";
     return message;
   },
 };
@@ -583,509 +453,8 @@ export const ListProjectsResponse: MessageFns<ListProjectsResponse> = {
   },
 };
 
-function createBaseProjectStatsRequest(): ProjectStatsRequest {
-  return { serverUrl: "", project: "" };
-}
-
-export const ProjectStatsRequest: MessageFns<ProjectStatsRequest> = {
-  encode(message: ProjectStatsRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.serverUrl !== "") {
-      writer.uint32(10).string(message.serverUrl);
-    }
-    if (message.project !== "") {
-      writer.uint32(18).string(message.project);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): ProjectStatsRequest {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseProjectStatsRequest();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.serverUrl = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.project = reader.string();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): ProjectStatsRequest {
-    return {
-      serverUrl: isSet(object.serverUrl)
-        ? globalThis.String(object.serverUrl)
-        : isSet(object.server_url)
-        ? globalThis.String(object.server_url)
-        : "",
-      project: isSet(object.project) ? globalThis.String(object.project) : "",
-    };
-  },
-
-  toJSON(message: ProjectStatsRequest): unknown {
-    const obj: any = {};
-    if (message.serverUrl !== "") {
-      obj.serverUrl = message.serverUrl;
-    }
-    if (message.project !== "") {
-      obj.project = message.project;
-    }
-    return obj;
-  },
-
-  create(base?: DeepPartial<ProjectStatsRequest>): ProjectStatsRequest {
-    return ProjectStatsRequest.fromPartial(base ?? {});
-  },
-  fromPartial(object: DeepPartial<ProjectStatsRequest>): ProjectStatsRequest {
-    const message = createBaseProjectStatsRequest();
-    message.serverUrl = object.serverUrl ?? "";
-    message.project = object.project ?? "";
-    return message;
-  },
-};
-
-function createBaseProjectStatsResponse(): ProjectStatsResponse {
-  return { project: "", totalChunks: 0, filesIndexed: 0, byFormat: {} };
-}
-
-export const ProjectStatsResponse: MessageFns<ProjectStatsResponse> = {
-  encode(message: ProjectStatsResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.project !== "") {
-      writer.uint32(10).string(message.project);
-    }
-    if (message.totalChunks !== 0) {
-      writer.uint32(16).int32(message.totalChunks);
-    }
-    if (message.filesIndexed !== 0) {
-      writer.uint32(24).int32(message.filesIndexed);
-    }
-    globalThis.Object.entries(message.byFormat).forEach(([key, value]: [string, number]) => {
-      ProjectStatsResponse_ByFormatEntry.encode({ key: key as any, value }, writer.uint32(34).fork()).join();
-    });
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): ProjectStatsResponse {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseProjectStatsResponse();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.project = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 16) {
-            break;
-          }
-
-          message.totalChunks = reader.int32();
-          continue;
-        }
-        case 3: {
-          if (tag !== 24) {
-            break;
-          }
-
-          message.filesIndexed = reader.int32();
-          continue;
-        }
-        case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          const entry4 = ProjectStatsResponse_ByFormatEntry.decode(reader, reader.uint32());
-          if (entry4.value !== undefined) {
-            message.byFormat[entry4.key] = entry4.value;
-          }
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): ProjectStatsResponse {
-    return {
-      project: isSet(object.project) ? globalThis.String(object.project) : "",
-      totalChunks: isSet(object.totalChunks)
-        ? globalThis.Number(object.totalChunks)
-        : isSet(object.total_chunks)
-        ? globalThis.Number(object.total_chunks)
-        : 0,
-      filesIndexed: isSet(object.filesIndexed)
-        ? globalThis.Number(object.filesIndexed)
-        : isSet(object.files_indexed)
-        ? globalThis.Number(object.files_indexed)
-        : 0,
-      byFormat: isObject(object.byFormat)
-        ? (globalThis.Object.entries(object.byFormat) as [string, any][]).reduce(
-          (acc: { [key: string]: number }, [key, value]: [string, any]) => {
-            acc[key] = globalThis.Number(value);
-            return acc;
-          },
-          {},
-        )
-        : isObject(object.by_format)
-        ? (globalThis.Object.entries(object.by_format) as [string, any][]).reduce(
-          (acc: { [key: string]: number }, [key, value]: [string, any]) => {
-            acc[key] = globalThis.Number(value);
-            return acc;
-          },
-          {},
-        )
-        : {},
-    };
-  },
-
-  toJSON(message: ProjectStatsResponse): unknown {
-    const obj: any = {};
-    if (message.project !== "") {
-      obj.project = message.project;
-    }
-    if (message.totalChunks !== 0) {
-      obj.totalChunks = Math.round(message.totalChunks);
-    }
-    if (message.filesIndexed !== 0) {
-      obj.filesIndexed = Math.round(message.filesIndexed);
-    }
-    if (message.byFormat) {
-      const entries = globalThis.Object.entries(message.byFormat) as [string, number][];
-      if (entries.length > 0) {
-        obj.byFormat = {};
-        entries.forEach(([k, v]) => {
-          obj.byFormat[k] = Math.round(v);
-        });
-      }
-    }
-    return obj;
-  },
-
-  create(base?: DeepPartial<ProjectStatsResponse>): ProjectStatsResponse {
-    return ProjectStatsResponse.fromPartial(base ?? {});
-  },
-  fromPartial(object: DeepPartial<ProjectStatsResponse>): ProjectStatsResponse {
-    const message = createBaseProjectStatsResponse();
-    message.project = object.project ?? "";
-    message.totalChunks = object.totalChunks ?? 0;
-    message.filesIndexed = object.filesIndexed ?? 0;
-    message.byFormat = (globalThis.Object.entries(object.byFormat ?? {}) as [string, number][]).reduce(
-      (acc: { [key: string]: number }, [key, value]: [string, number]) => {
-        if (value !== undefined) {
-          acc[key] = globalThis.Number(value);
-        }
-        return acc;
-      },
-      {},
-    );
-    return message;
-  },
-};
-
-function createBaseProjectStatsResponse_ByFormatEntry(): ProjectStatsResponse_ByFormatEntry {
-  return { key: "", value: 0 };
-}
-
-export const ProjectStatsResponse_ByFormatEntry: MessageFns<ProjectStatsResponse_ByFormatEntry> = {
-  encode(message: ProjectStatsResponse_ByFormatEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.key !== "") {
-      writer.uint32(10).string(message.key);
-    }
-    if (message.value !== 0) {
-      writer.uint32(16).int32(message.value);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): ProjectStatsResponse_ByFormatEntry {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseProjectStatsResponse_ByFormatEntry();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.key = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 16) {
-            break;
-          }
-
-          message.value = reader.int32();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): ProjectStatsResponse_ByFormatEntry {
-    return {
-      key: isSet(object.key) ? globalThis.String(object.key) : "",
-      value: isSet(object.value) ? globalThis.Number(object.value) : 0,
-    };
-  },
-
-  toJSON(message: ProjectStatsResponse_ByFormatEntry): unknown {
-    const obj: any = {};
-    if (message.key !== "") {
-      obj.key = message.key;
-    }
-    if (message.value !== 0) {
-      obj.value = Math.round(message.value);
-    }
-    return obj;
-  },
-
-  create(base?: DeepPartial<ProjectStatsResponse_ByFormatEntry>): ProjectStatsResponse_ByFormatEntry {
-    return ProjectStatsResponse_ByFormatEntry.fromPartial(base ?? {});
-  },
-  fromPartial(object: DeepPartial<ProjectStatsResponse_ByFormatEntry>): ProjectStatsResponse_ByFormatEntry {
-    const message = createBaseProjectStatsResponse_ByFormatEntry();
-    message.key = object.key ?? "";
-    message.value = object.value ?? 0;
-    return message;
-  },
-};
-
-function createBaseDocsIndexProjectRequest(): DocsIndexProjectRequest {
-  return { serverUrl: "", project: "" };
-}
-
-export const DocsIndexProjectRequest: MessageFns<DocsIndexProjectRequest> = {
-  encode(message: DocsIndexProjectRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.serverUrl !== "") {
-      writer.uint32(10).string(message.serverUrl);
-    }
-    if (message.project !== "") {
-      writer.uint32(18).string(message.project);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): DocsIndexProjectRequest {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseDocsIndexProjectRequest();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.serverUrl = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.project = reader.string();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): DocsIndexProjectRequest {
-    return {
-      serverUrl: isSet(object.serverUrl)
-        ? globalThis.String(object.serverUrl)
-        : isSet(object.server_url)
-        ? globalThis.String(object.server_url)
-        : "",
-      project: isSet(object.project) ? globalThis.String(object.project) : "",
-    };
-  },
-
-  toJSON(message: DocsIndexProjectRequest): unknown {
-    const obj: any = {};
-    if (message.serverUrl !== "") {
-      obj.serverUrl = message.serverUrl;
-    }
-    if (message.project !== "") {
-      obj.project = message.project;
-    }
-    return obj;
-  },
-
-  create(base?: DeepPartial<DocsIndexProjectRequest>): DocsIndexProjectRequest {
-    return DocsIndexProjectRequest.fromPartial(base ?? {});
-  },
-  fromPartial(object: DeepPartial<DocsIndexProjectRequest>): DocsIndexProjectRequest {
-    const message = createBaseDocsIndexProjectRequest();
-    message.serverUrl = object.serverUrl ?? "";
-    message.project = object.project ?? "";
-    return message;
-  },
-};
-
-function createBaseDocsIndexProjectResponse(): DocsIndexProjectResponse {
-  return { jobId: "", project: "", status: "", startedAt: "" };
-}
-
-export const DocsIndexProjectResponse: MessageFns<DocsIndexProjectResponse> = {
-  encode(message: DocsIndexProjectResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.jobId !== "") {
-      writer.uint32(10).string(message.jobId);
-    }
-    if (message.project !== "") {
-      writer.uint32(18).string(message.project);
-    }
-    if (message.status !== "") {
-      writer.uint32(26).string(message.status);
-    }
-    if (message.startedAt !== "") {
-      writer.uint32(34).string(message.startedAt);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): DocsIndexProjectResponse {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseDocsIndexProjectResponse();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.jobId = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.project = reader.string();
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.status = reader.string();
-          continue;
-        }
-        case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          message.startedAt = reader.string();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): DocsIndexProjectResponse {
-    return {
-      jobId: isSet(object.jobId)
-        ? globalThis.String(object.jobId)
-        : isSet(object.job_id)
-        ? globalThis.String(object.job_id)
-        : "",
-      project: isSet(object.project) ? globalThis.String(object.project) : "",
-      status: isSet(object.status) ? globalThis.String(object.status) : "",
-      startedAt: isSet(object.startedAt)
-        ? globalThis.String(object.startedAt)
-        : isSet(object.started_at)
-        ? globalThis.String(object.started_at)
-        : "",
-    };
-  },
-
-  toJSON(message: DocsIndexProjectResponse): unknown {
-    const obj: any = {};
-    if (message.jobId !== "") {
-      obj.jobId = message.jobId;
-    }
-    if (message.project !== "") {
-      obj.project = message.project;
-    }
-    if (message.status !== "") {
-      obj.status = message.status;
-    }
-    if (message.startedAt !== "") {
-      obj.startedAt = message.startedAt;
-    }
-    return obj;
-  },
-
-  create(base?: DeepPartial<DocsIndexProjectResponse>): DocsIndexProjectResponse {
-    return DocsIndexProjectResponse.fromPartial(base ?? {});
-  },
-  fromPartial(object: DeepPartial<DocsIndexProjectResponse>): DocsIndexProjectResponse {
-    const message = createBaseDocsIndexProjectResponse();
-    message.jobId = object.jobId ?? "";
-    message.project = object.project ?? "";
-    message.status = object.status ?? "";
-    message.startedAt = object.startedAt ?? "";
-    return message;
-  },
-};
-
 function createBaseIndexUrlRequest(): IndexUrlRequest {
-  return { serverUrl: "", project: "", url: "", depth: 0, maxPages: 0 };
+  return { serverUrl: "", project: "", url: "" };
 }
 
 export const IndexUrlRequest: MessageFns<IndexUrlRequest> = {
@@ -1098,12 +467,6 @@ export const IndexUrlRequest: MessageFns<IndexUrlRequest> = {
     }
     if (message.url !== "") {
       writer.uint32(26).string(message.url);
-    }
-    if (message.depth !== 0) {
-      writer.uint32(32).int32(message.depth);
-    }
-    if (message.maxPages !== 0) {
-      writer.uint32(40).int32(message.maxPages);
     }
     return writer;
   },
@@ -1139,22 +502,6 @@ export const IndexUrlRequest: MessageFns<IndexUrlRequest> = {
           message.url = reader.string();
           continue;
         }
-        case 4: {
-          if (tag !== 32) {
-            break;
-          }
-
-          message.depth = reader.int32();
-          continue;
-        }
-        case 5: {
-          if (tag !== 40) {
-            break;
-          }
-
-          message.maxPages = reader.int32();
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1173,12 +520,6 @@ export const IndexUrlRequest: MessageFns<IndexUrlRequest> = {
         : "",
       project: isSet(object.project) ? globalThis.String(object.project) : "",
       url: isSet(object.url) ? globalThis.String(object.url) : "",
-      depth: isSet(object.depth) ? globalThis.Number(object.depth) : 0,
-      maxPages: isSet(object.maxPages)
-        ? globalThis.Number(object.maxPages)
-        : isSet(object.max_pages)
-        ? globalThis.Number(object.max_pages)
-        : 0,
     };
   },
 
@@ -1193,12 +534,6 @@ export const IndexUrlRequest: MessageFns<IndexUrlRequest> = {
     if (message.url !== "") {
       obj.url = message.url;
     }
-    if (message.depth !== 0) {
-      obj.depth = Math.round(message.depth);
-    }
-    if (message.maxPages !== 0) {
-      obj.maxPages = Math.round(message.maxPages);
-    }
     return obj;
   },
 
@@ -1210,29 +545,24 @@ export const IndexUrlRequest: MessageFns<IndexUrlRequest> = {
     message.serverUrl = object.serverUrl ?? "";
     message.project = object.project ?? "";
     message.url = object.url ?? "";
-    message.depth = object.depth ?? 0;
-    message.maxPages = object.maxPages ?? 0;
     return message;
   },
 };
 
 function createBaseIndexUrlResponse(): IndexUrlResponse {
-  return { jobId: "", project: "", status: "", startedAt: "" };
+  return { taskId: "", project: "", status: "" };
 }
 
 export const IndexUrlResponse: MessageFns<IndexUrlResponse> = {
   encode(message: IndexUrlResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.jobId !== "") {
-      writer.uint32(10).string(message.jobId);
+    if (message.taskId !== "") {
+      writer.uint32(10).string(message.taskId);
     }
     if (message.project !== "") {
       writer.uint32(18).string(message.project);
     }
     if (message.status !== "") {
       writer.uint32(26).string(message.status);
-    }
-    if (message.startedAt !== "") {
-      writer.uint32(34).string(message.startedAt);
     }
     return writer;
   },
@@ -1249,7 +579,7 @@ export const IndexUrlResponse: MessageFns<IndexUrlResponse> = {
             break;
           }
 
-          message.jobId = reader.string();
+          message.taskId = reader.string();
           continue;
         }
         case 2: {
@@ -1268,14 +598,6 @@ export const IndexUrlResponse: MessageFns<IndexUrlResponse> = {
           message.status = reader.string();
           continue;
         }
-        case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          message.startedAt = reader.string();
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1287,34 +609,26 @@ export const IndexUrlResponse: MessageFns<IndexUrlResponse> = {
 
   fromJSON(object: any): IndexUrlResponse {
     return {
-      jobId: isSet(object.jobId)
-        ? globalThis.String(object.jobId)
-        : isSet(object.job_id)
-        ? globalThis.String(object.job_id)
+      taskId: isSet(object.taskId)
+        ? globalThis.String(object.taskId)
+        : isSet(object.task_id)
+        ? globalThis.String(object.task_id)
         : "",
       project: isSet(object.project) ? globalThis.String(object.project) : "",
       status: isSet(object.status) ? globalThis.String(object.status) : "",
-      startedAt: isSet(object.startedAt)
-        ? globalThis.String(object.startedAt)
-        : isSet(object.started_at)
-        ? globalThis.String(object.started_at)
-        : "",
     };
   },
 
   toJSON(message: IndexUrlResponse): unknown {
     const obj: any = {};
-    if (message.jobId !== "") {
-      obj.jobId = message.jobId;
+    if (message.taskId !== "") {
+      obj.taskId = message.taskId;
     }
     if (message.project !== "") {
       obj.project = message.project;
     }
     if (message.status !== "") {
       obj.status = message.status;
-    }
-    if (message.startedAt !== "") {
-      obj.startedAt = message.startedAt;
     }
     return obj;
   },
@@ -1324,10 +638,9 @@ export const IndexUrlResponse: MessageFns<IndexUrlResponse> = {
   },
   fromPartial(object: DeepPartial<IndexUrlResponse>): IndexUrlResponse {
     const message = createBaseIndexUrlResponse();
-    message.jobId = object.jobId ?? "";
+    message.taskId = object.taskId ?? "";
     message.project = object.project ?? "";
     message.status = object.status ?? "";
-    message.startedAt = object.startedAt ?? "";
     return message;
   },
 };
@@ -1413,25 +726,19 @@ export const UploadFileRequest: MessageFns<UploadFileRequest> = {
 };
 
 function createBaseUploadFileResponse(): UploadFileResponse {
-  return { project: "", filename: "", path: "", size: 0, status: "" };
+  return { taskId: "", project: "", status: "" };
 }
 
 export const UploadFileResponse: MessageFns<UploadFileResponse> = {
   encode(message: UploadFileResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.taskId !== "") {
+      writer.uint32(10).string(message.taskId);
+    }
     if (message.project !== "") {
-      writer.uint32(10).string(message.project);
-    }
-    if (message.filename !== "") {
-      writer.uint32(18).string(message.filename);
-    }
-    if (message.path !== "") {
-      writer.uint32(26).string(message.path);
-    }
-    if (message.size !== 0) {
-      writer.uint32(32).int64(message.size);
+      writer.uint32(18).string(message.project);
     }
     if (message.status !== "") {
-      writer.uint32(42).string(message.status);
+      writer.uint32(26).string(message.status);
     }
     return writer;
   },
@@ -1448,7 +755,7 @@ export const UploadFileResponse: MessageFns<UploadFileResponse> = {
             break;
           }
 
-          message.project = reader.string();
+          message.taskId = reader.string();
           continue;
         }
         case 2: {
@@ -1456,27 +763,11 @@ export const UploadFileResponse: MessageFns<UploadFileResponse> = {
             break;
           }
 
-          message.filename = reader.string();
+          message.project = reader.string();
           continue;
         }
         case 3: {
           if (tag !== 26) {
-            break;
-          }
-
-          message.path = reader.string();
-          continue;
-        }
-        case 4: {
-          if (tag !== 32) {
-            break;
-          }
-
-          message.size = longToNumber(reader.int64());
-          continue;
-        }
-        case 5: {
-          if (tag !== 42) {
             break;
           }
 
@@ -1494,27 +785,23 @@ export const UploadFileResponse: MessageFns<UploadFileResponse> = {
 
   fromJSON(object: any): UploadFileResponse {
     return {
+      taskId: isSet(object.taskId)
+        ? globalThis.String(object.taskId)
+        : isSet(object.task_id)
+        ? globalThis.String(object.task_id)
+        : "",
       project: isSet(object.project) ? globalThis.String(object.project) : "",
-      filename: isSet(object.filename) ? globalThis.String(object.filename) : "",
-      path: isSet(object.path) ? globalThis.String(object.path) : "",
-      size: isSet(object.size) ? globalThis.Number(object.size) : 0,
       status: isSet(object.status) ? globalThis.String(object.status) : "",
     };
   },
 
   toJSON(message: UploadFileResponse): unknown {
     const obj: any = {};
+    if (message.taskId !== "") {
+      obj.taskId = message.taskId;
+    }
     if (message.project !== "") {
       obj.project = message.project;
-    }
-    if (message.filename !== "") {
-      obj.filename = message.filename;
-    }
-    if (message.path !== "") {
-      obj.path = message.path;
-    }
-    if (message.size !== 0) {
-      obj.size = Math.round(message.size);
     }
     if (message.status !== "") {
       obj.status = message.status;
@@ -1527,10 +814,8 @@ export const UploadFileResponse: MessageFns<UploadFileResponse> = {
   },
   fromPartial(object: DeepPartial<UploadFileResponse>): UploadFileResponse {
     const message = createBaseUploadFileResponse();
+    message.taskId = object.taskId ?? "";
     message.project = object.project ?? "";
-    message.filename = object.filename ?? "";
-    message.path = object.path ?? "";
-    message.size = object.size ?? 0;
     message.status = object.status ?? "";
     return message;
   },
@@ -1653,22 +938,28 @@ export const SearchDocumentsRequest: MessageFns<SearchDocumentsRequest> = {
 };
 
 function createBaseSearchResult(): SearchResult {
-  return { text: "", score: 0, hybridScore: 0, metadata: "" };
+  return { score: 0, docId: "", sourceName: "", page: 0, chunkIndex: 0, text: "" };
 }
 
 export const SearchResult: MessageFns<SearchResult> = {
   encode(message: SearchResult, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.text !== "") {
-      writer.uint32(10).string(message.text);
-    }
     if (message.score !== 0) {
-      writer.uint32(17).double(message.score);
+      writer.uint32(9).double(message.score);
     }
-    if (message.hybridScore !== 0) {
-      writer.uint32(25).double(message.hybridScore);
+    if (message.docId !== "") {
+      writer.uint32(18).string(message.docId);
     }
-    if (message.metadata !== "") {
-      writer.uint32(34).string(message.metadata);
+    if (message.sourceName !== "") {
+      writer.uint32(26).string(message.sourceName);
+    }
+    if (message.page !== 0) {
+      writer.uint32(32).int32(message.page);
+    }
+    if (message.chunkIndex !== 0) {
+      writer.uint32(40).int32(message.chunkIndex);
+    }
+    if (message.text !== "") {
+      writer.uint32(50).string(message.text);
     }
     return writer;
   },
@@ -1681,35 +972,51 @@ export const SearchResult: MessageFns<SearchResult> = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.text = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 17) {
+          if (tag !== 9) {
             break;
           }
 
           message.score = reader.double();
           continue;
         }
-        case 3: {
-          if (tag !== 25) {
+        case 2: {
+          if (tag !== 18) {
             break;
           }
 
-          message.hybridScore = reader.double();
+          message.docId = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.sourceName = reader.string();
           continue;
         }
         case 4: {
-          if (tag !== 34) {
+          if (tag !== 32) {
             break;
           }
 
-          message.metadata = reader.string();
+          message.page = reader.int32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.chunkIndex = reader.int32();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.text = reader.string();
           continue;
         }
       }
@@ -1723,30 +1030,46 @@ export const SearchResult: MessageFns<SearchResult> = {
 
   fromJSON(object: any): SearchResult {
     return {
-      text: isSet(object.text) ? globalThis.String(object.text) : "",
       score: isSet(object.score) ? globalThis.Number(object.score) : 0,
-      hybridScore: isSet(object.hybridScore)
-        ? globalThis.Number(object.hybridScore)
-        : isSet(object.hybrid_score)
-        ? globalThis.Number(object.hybrid_score)
+      docId: isSet(object.docId)
+        ? globalThis.String(object.docId)
+        : isSet(object.doc_id)
+        ? globalThis.String(object.doc_id)
+        : "",
+      sourceName: isSet(object.sourceName)
+        ? globalThis.String(object.sourceName)
+        : isSet(object.source_name)
+        ? globalThis.String(object.source_name)
+        : "",
+      page: isSet(object.page) ? globalThis.Number(object.page) : 0,
+      chunkIndex: isSet(object.chunkIndex)
+        ? globalThis.Number(object.chunkIndex)
+        : isSet(object.chunk_index)
+        ? globalThis.Number(object.chunk_index)
         : 0,
-      metadata: isSet(object.metadata) ? globalThis.String(object.metadata) : "",
+      text: isSet(object.text) ? globalThis.String(object.text) : "",
     };
   },
 
   toJSON(message: SearchResult): unknown {
     const obj: any = {};
-    if (message.text !== "") {
-      obj.text = message.text;
-    }
     if (message.score !== 0) {
       obj.score = message.score;
     }
-    if (message.hybridScore !== 0) {
-      obj.hybridScore = message.hybridScore;
+    if (message.docId !== "") {
+      obj.docId = message.docId;
     }
-    if (message.metadata !== "") {
-      obj.metadata = message.metadata;
+    if (message.sourceName !== "") {
+      obj.sourceName = message.sourceName;
+    }
+    if (message.page !== 0) {
+      obj.page = Math.round(message.page);
+    }
+    if (message.chunkIndex !== 0) {
+      obj.chunkIndex = Math.round(message.chunkIndex);
+    }
+    if (message.text !== "") {
+      obj.text = message.text;
     }
     return obj;
   },
@@ -1756,10 +1079,12 @@ export const SearchResult: MessageFns<SearchResult> = {
   },
   fromPartial(object: DeepPartial<SearchResult>): SearchResult {
     const message = createBaseSearchResult();
-    message.text = object.text ?? "";
     message.score = object.score ?? 0;
-    message.hybridScore = object.hybridScore ?? 0;
-    message.metadata = object.metadata ?? "";
+    message.docId = object.docId ?? "";
+    message.sourceName = object.sourceName ?? "";
+    message.page = object.page ?? 0;
+    message.chunkIndex = object.chunkIndex ?? 0;
+    message.text = object.text ?? "";
     return message;
   },
 };
@@ -2102,7 +1427,7 @@ export const UnregisterMcpRequest: MessageFns<UnregisterMcpRequest> = {
 };
 
 function createBaseCreateProjectRequest(): CreateProjectRequest {
-  return { serverUrl: "", name: "", mountPath: "" };
+  return { serverUrl: "", name: "" };
 }
 
 export const CreateProjectRequest: MessageFns<CreateProjectRequest> = {
@@ -2112,9 +1437,6 @@ export const CreateProjectRequest: MessageFns<CreateProjectRequest> = {
     }
     if (message.name !== "") {
       writer.uint32(18).string(message.name);
-    }
-    if (message.mountPath !== "") {
-      writer.uint32(26).string(message.mountPath);
     }
     return writer;
   },
@@ -2142,14 +1464,6 @@ export const CreateProjectRequest: MessageFns<CreateProjectRequest> = {
           message.name = reader.string();
           continue;
         }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.mountPath = reader.string();
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2167,11 +1481,6 @@ export const CreateProjectRequest: MessageFns<CreateProjectRequest> = {
         ? globalThis.String(object.server_url)
         : "",
       name: isSet(object.name) ? globalThis.String(object.name) : "",
-      mountPath: isSet(object.mountPath)
-        ? globalThis.String(object.mountPath)
-        : isSet(object.mount_path)
-        ? globalThis.String(object.mount_path)
-        : "",
     };
   },
 
@@ -2183,9 +1492,6 @@ export const CreateProjectRequest: MessageFns<CreateProjectRequest> = {
     if (message.name !== "") {
       obj.name = message.name;
     }
-    if (message.mountPath !== "") {
-      obj.mountPath = message.mountPath;
-    }
     return obj;
   },
 
@@ -2196,28 +1502,21 @@ export const CreateProjectRequest: MessageFns<CreateProjectRequest> = {
     const message = createBaseCreateProjectRequest();
     message.serverUrl = object.serverUrl ?? "";
     message.name = object.name ?? "";
-    message.mountPath = object.mountPath ?? "";
     return message;
   },
 };
 
 function createBaseCreateProjectResponse(): CreateProjectResponse {
-  return { name: "", mountPath: "", status: "", message: "" };
+  return { project: "", status: "" };
 }
 
 export const CreateProjectResponse: MessageFns<CreateProjectResponse> = {
   encode(message: CreateProjectResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.name !== "") {
-      writer.uint32(10).string(message.name);
-    }
-    if (message.mountPath !== "") {
-      writer.uint32(18).string(message.mountPath);
+    if (message.project !== "") {
+      writer.uint32(10).string(message.project);
     }
     if (message.status !== "") {
-      writer.uint32(26).string(message.status);
-    }
-    if (message.message !== "") {
-      writer.uint32(34).string(message.message);
+      writer.uint32(18).string(message.status);
     }
     return writer;
   },
@@ -2234,7 +1533,7 @@ export const CreateProjectResponse: MessageFns<CreateProjectResponse> = {
             break;
           }
 
-          message.name = reader.string();
+          message.project = reader.string();
           continue;
         }
         case 2: {
@@ -2242,23 +1541,7 @@ export const CreateProjectResponse: MessageFns<CreateProjectResponse> = {
             break;
           }
 
-          message.mountPath = reader.string();
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
           message.status = reader.string();
-          continue;
-        }
-        case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          message.message = reader.string();
           continue;
         }
       }
@@ -2272,30 +1555,18 @@ export const CreateProjectResponse: MessageFns<CreateProjectResponse> = {
 
   fromJSON(object: any): CreateProjectResponse {
     return {
-      name: isSet(object.name) ? globalThis.String(object.name) : "",
-      mountPath: isSet(object.mountPath)
-        ? globalThis.String(object.mountPath)
-        : isSet(object.mount_path)
-        ? globalThis.String(object.mount_path)
-        : "",
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
       status: isSet(object.status) ? globalThis.String(object.status) : "",
-      message: isSet(object.message) ? globalThis.String(object.message) : "",
     };
   },
 
   toJSON(message: CreateProjectResponse): unknown {
     const obj: any = {};
-    if (message.name !== "") {
-      obj.name = message.name;
-    }
-    if (message.mountPath !== "") {
-      obj.mountPath = message.mountPath;
+    if (message.project !== "") {
+      obj.project = message.project;
     }
     if (message.status !== "") {
       obj.status = message.status;
-    }
-    if (message.message !== "") {
-      obj.message = message.message;
     }
     return obj;
   },
@@ -2305,414 +1576,14 @@ export const CreateProjectResponse: MessageFns<CreateProjectResponse> = {
   },
   fromPartial(object: DeepPartial<CreateProjectResponse>): CreateProjectResponse {
     const message = createBaseCreateProjectResponse();
-    message.name = object.name ?? "";
-    message.mountPath = object.mountPath ?? "";
+    message.project = object.project ?? "";
     message.status = object.status ?? "";
-    message.message = object.message ?? "";
-    return message;
-  },
-};
-
-function createBaseDocumentInfo(): DocumentInfo {
-  return { path: "", fileType: "", chunks: 0, size: 0, modTime: "" };
-}
-
-export const DocumentInfo: MessageFns<DocumentInfo> = {
-  encode(message: DocumentInfo, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.path !== "") {
-      writer.uint32(10).string(message.path);
-    }
-    if (message.fileType !== "") {
-      writer.uint32(18).string(message.fileType);
-    }
-    if (message.chunks !== 0) {
-      writer.uint32(24).int32(message.chunks);
-    }
-    if (message.size !== 0) {
-      writer.uint32(32).int64(message.size);
-    }
-    if (message.modTime !== "") {
-      writer.uint32(42).string(message.modTime);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): DocumentInfo {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseDocumentInfo();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.path = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.fileType = reader.string();
-          continue;
-        }
-        case 3: {
-          if (tag !== 24) {
-            break;
-          }
-
-          message.chunks = reader.int32();
-          continue;
-        }
-        case 4: {
-          if (tag !== 32) {
-            break;
-          }
-
-          message.size = longToNumber(reader.int64());
-          continue;
-        }
-        case 5: {
-          if (tag !== 42) {
-            break;
-          }
-
-          message.modTime = reader.string();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): DocumentInfo {
-    return {
-      path: isSet(object.path) ? globalThis.String(object.path) : "",
-      fileType: isSet(object.fileType)
-        ? globalThis.String(object.fileType)
-        : isSet(object.file_type)
-        ? globalThis.String(object.file_type)
-        : "",
-      chunks: isSet(object.chunks) ? globalThis.Number(object.chunks) : 0,
-      size: isSet(object.size) ? globalThis.Number(object.size) : 0,
-      modTime: isSet(object.modTime)
-        ? globalThis.String(object.modTime)
-        : isSet(object.mod_time)
-        ? globalThis.String(object.mod_time)
-        : "",
-    };
-  },
-
-  toJSON(message: DocumentInfo): unknown {
-    const obj: any = {};
-    if (message.path !== "") {
-      obj.path = message.path;
-    }
-    if (message.fileType !== "") {
-      obj.fileType = message.fileType;
-    }
-    if (message.chunks !== 0) {
-      obj.chunks = Math.round(message.chunks);
-    }
-    if (message.size !== 0) {
-      obj.size = Math.round(message.size);
-    }
-    if (message.modTime !== "") {
-      obj.modTime = message.modTime;
-    }
-    return obj;
-  },
-
-  create(base?: DeepPartial<DocumentInfo>): DocumentInfo {
-    return DocumentInfo.fromPartial(base ?? {});
-  },
-  fromPartial(object: DeepPartial<DocumentInfo>): DocumentInfo {
-    const message = createBaseDocumentInfo();
-    message.path = object.path ?? "";
-    message.fileType = object.fileType ?? "";
-    message.chunks = object.chunks ?? 0;
-    message.size = object.size ?? 0;
-    message.modTime = object.modTime ?? "";
-    return message;
-  },
-};
-
-function createBaseListDocumentsRequest(): ListDocumentsRequest {
-  return { serverUrl: "", project: "", page: 0, pageSize: 0 };
-}
-
-export const ListDocumentsRequest: MessageFns<ListDocumentsRequest> = {
-  encode(message: ListDocumentsRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.serverUrl !== "") {
-      writer.uint32(10).string(message.serverUrl);
-    }
-    if (message.project !== "") {
-      writer.uint32(18).string(message.project);
-    }
-    if (message.page !== 0) {
-      writer.uint32(24).int32(message.page);
-    }
-    if (message.pageSize !== 0) {
-      writer.uint32(32).int32(message.pageSize);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): ListDocumentsRequest {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseListDocumentsRequest();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.serverUrl = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.project = reader.string();
-          continue;
-        }
-        case 3: {
-          if (tag !== 24) {
-            break;
-          }
-
-          message.page = reader.int32();
-          continue;
-        }
-        case 4: {
-          if (tag !== 32) {
-            break;
-          }
-
-          message.pageSize = reader.int32();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): ListDocumentsRequest {
-    return {
-      serverUrl: isSet(object.serverUrl)
-        ? globalThis.String(object.serverUrl)
-        : isSet(object.server_url)
-        ? globalThis.String(object.server_url)
-        : "",
-      project: isSet(object.project) ? globalThis.String(object.project) : "",
-      page: isSet(object.page) ? globalThis.Number(object.page) : 0,
-      pageSize: isSet(object.pageSize)
-        ? globalThis.Number(object.pageSize)
-        : isSet(object.page_size)
-        ? globalThis.Number(object.page_size)
-        : 0,
-    };
-  },
-
-  toJSON(message: ListDocumentsRequest): unknown {
-    const obj: any = {};
-    if (message.serverUrl !== "") {
-      obj.serverUrl = message.serverUrl;
-    }
-    if (message.project !== "") {
-      obj.project = message.project;
-    }
-    if (message.page !== 0) {
-      obj.page = Math.round(message.page);
-    }
-    if (message.pageSize !== 0) {
-      obj.pageSize = Math.round(message.pageSize);
-    }
-    return obj;
-  },
-
-  create(base?: DeepPartial<ListDocumentsRequest>): ListDocumentsRequest {
-    return ListDocumentsRequest.fromPartial(base ?? {});
-  },
-  fromPartial(object: DeepPartial<ListDocumentsRequest>): ListDocumentsRequest {
-    const message = createBaseListDocumentsRequest();
-    message.serverUrl = object.serverUrl ?? "";
-    message.project = object.project ?? "";
-    message.page = object.page ?? 0;
-    message.pageSize = object.pageSize ?? 0;
-    return message;
-  },
-};
-
-function createBaseListDocumentsResponse(): ListDocumentsResponse {
-  return { project: "", page: 0, pageSize: 0, total: 0, totalPages: 0, documents: [] };
-}
-
-export const ListDocumentsResponse: MessageFns<ListDocumentsResponse> = {
-  encode(message: ListDocumentsResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.project !== "") {
-      writer.uint32(10).string(message.project);
-    }
-    if (message.page !== 0) {
-      writer.uint32(16).int32(message.page);
-    }
-    if (message.pageSize !== 0) {
-      writer.uint32(24).int32(message.pageSize);
-    }
-    if (message.total !== 0) {
-      writer.uint32(32).int32(message.total);
-    }
-    if (message.totalPages !== 0) {
-      writer.uint32(40).int32(message.totalPages);
-    }
-    for (const v of message.documents) {
-      DocumentInfo.encode(v!, writer.uint32(50).fork()).join();
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): ListDocumentsResponse {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseListDocumentsResponse();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.project = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 16) {
-            break;
-          }
-
-          message.page = reader.int32();
-          continue;
-        }
-        case 3: {
-          if (tag !== 24) {
-            break;
-          }
-
-          message.pageSize = reader.int32();
-          continue;
-        }
-        case 4: {
-          if (tag !== 32) {
-            break;
-          }
-
-          message.total = reader.int32();
-          continue;
-        }
-        case 5: {
-          if (tag !== 40) {
-            break;
-          }
-
-          message.totalPages = reader.int32();
-          continue;
-        }
-        case 6: {
-          if (tag !== 50) {
-            break;
-          }
-
-          message.documents.push(DocumentInfo.decode(reader, reader.uint32()));
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): ListDocumentsResponse {
-    return {
-      project: isSet(object.project) ? globalThis.String(object.project) : "",
-      page: isSet(object.page) ? globalThis.Number(object.page) : 0,
-      pageSize: isSet(object.pageSize)
-        ? globalThis.Number(object.pageSize)
-        : isSet(object.page_size)
-        ? globalThis.Number(object.page_size)
-        : 0,
-      total: isSet(object.total) ? globalThis.Number(object.total) : 0,
-      totalPages: isSet(object.totalPages)
-        ? globalThis.Number(object.totalPages)
-        : isSet(object.total_pages)
-        ? globalThis.Number(object.total_pages)
-        : 0,
-      documents: globalThis.Array.isArray(object?.documents)
-        ? object.documents.map((e: any) => DocumentInfo.fromJSON(e))
-        : [],
-    };
-  },
-
-  toJSON(message: ListDocumentsResponse): unknown {
-    const obj: any = {};
-    if (message.project !== "") {
-      obj.project = message.project;
-    }
-    if (message.page !== 0) {
-      obj.page = Math.round(message.page);
-    }
-    if (message.pageSize !== 0) {
-      obj.pageSize = Math.round(message.pageSize);
-    }
-    if (message.total !== 0) {
-      obj.total = Math.round(message.total);
-    }
-    if (message.totalPages !== 0) {
-      obj.totalPages = Math.round(message.totalPages);
-    }
-    if (message.documents?.length) {
-      obj.documents = message.documents.map((e) => DocumentInfo.toJSON(e));
-    }
-    return obj;
-  },
-
-  create(base?: DeepPartial<ListDocumentsResponse>): ListDocumentsResponse {
-    return ListDocumentsResponse.fromPartial(base ?? {});
-  },
-  fromPartial(object: DeepPartial<ListDocumentsResponse>): ListDocumentsResponse {
-    const message = createBaseListDocumentsResponse();
-    message.project = object.project ?? "";
-    message.page = object.page ?? 0;
-    message.pageSize = object.pageSize ?? 0;
-    message.total = object.total ?? 0;
-    message.totalPages = object.totalPages ?? 0;
-    message.documents = object.documents?.map((e) => DocumentInfo.fromPartial(e)) || [];
     return message;
   },
 };
 
 function createBaseDeleteDocumentRequest(): DeleteDocumentRequest {
-  return { serverUrl: "", project: "", path: "" };
+  return { serverUrl: "", project: "", source: "" };
 }
 
 export const DeleteDocumentRequest: MessageFns<DeleteDocumentRequest> = {
@@ -2723,8 +1594,8 @@ export const DeleteDocumentRequest: MessageFns<DeleteDocumentRequest> = {
     if (message.project !== "") {
       writer.uint32(18).string(message.project);
     }
-    if (message.path !== "") {
-      writer.uint32(26).string(message.path);
+    if (message.source !== "") {
+      writer.uint32(26).string(message.source);
     }
     return writer;
   },
@@ -2757,7 +1628,7 @@ export const DeleteDocumentRequest: MessageFns<DeleteDocumentRequest> = {
             break;
           }
 
-          message.path = reader.string();
+          message.source = reader.string();
           continue;
         }
       }
@@ -2777,7 +1648,7 @@ export const DeleteDocumentRequest: MessageFns<DeleteDocumentRequest> = {
         ? globalThis.String(object.server_url)
         : "",
       project: isSet(object.project) ? globalThis.String(object.project) : "",
-      path: isSet(object.path) ? globalThis.String(object.path) : "",
+      source: isSet(object.source) ? globalThis.String(object.source) : "",
     };
   },
 
@@ -2789,8 +1660,8 @@ export const DeleteDocumentRequest: MessageFns<DeleteDocumentRequest> = {
     if (message.project !== "") {
       obj.project = message.project;
     }
-    if (message.path !== "") {
-      obj.path = message.path;
+    if (message.source !== "") {
+      obj.source = message.source;
     }
     return obj;
   },
@@ -2802,31 +1673,19 @@ export const DeleteDocumentRequest: MessageFns<DeleteDocumentRequest> = {
     const message = createBaseDeleteDocumentRequest();
     message.serverUrl = object.serverUrl ?? "";
     message.project = object.project ?? "";
-    message.path = object.path ?? "";
+    message.source = object.source ?? "";
     return message;
   },
 };
 
 function createBaseDeleteDocumentResponse(): DeleteDocumentResponse {
-  return { project: "", path: "", chunksRemoved: 0, fileDeleted: false, status: "" };
+  return { status: "" };
 }
 
 export const DeleteDocumentResponse: MessageFns<DeleteDocumentResponse> = {
   encode(message: DeleteDocumentResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.project !== "") {
-      writer.uint32(10).string(message.project);
-    }
-    if (message.path !== "") {
-      writer.uint32(18).string(message.path);
-    }
-    if (message.chunksRemoved !== 0) {
-      writer.uint32(24).int32(message.chunksRemoved);
-    }
-    if (message.fileDeleted !== false) {
-      writer.uint32(32).bool(message.fileDeleted);
-    }
     if (message.status !== "") {
-      writer.uint32(42).string(message.status);
+      writer.uint32(10).string(message.status);
     }
     return writer;
   },
@@ -2843,38 +1702,6 @@ export const DeleteDocumentResponse: MessageFns<DeleteDocumentResponse> = {
             break;
           }
 
-          message.project = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.path = reader.string();
-          continue;
-        }
-        case 3: {
-          if (tag !== 24) {
-            break;
-          }
-
-          message.chunksRemoved = reader.int32();
-          continue;
-        }
-        case 4: {
-          if (tag !== 32) {
-            break;
-          }
-
-          message.fileDeleted = reader.bool();
-          continue;
-        }
-        case 5: {
-          if (tag !== 42) {
-            break;
-          }
-
           message.status = reader.string();
           continue;
         }
@@ -2888,37 +1715,11 @@ export const DeleteDocumentResponse: MessageFns<DeleteDocumentResponse> = {
   },
 
   fromJSON(object: any): DeleteDocumentResponse {
-    return {
-      project: isSet(object.project) ? globalThis.String(object.project) : "",
-      path: isSet(object.path) ? globalThis.String(object.path) : "",
-      chunksRemoved: isSet(object.chunksRemoved)
-        ? globalThis.Number(object.chunksRemoved)
-        : isSet(object.chunks_removed)
-        ? globalThis.Number(object.chunks_removed)
-        : 0,
-      fileDeleted: isSet(object.fileDeleted)
-        ? globalThis.Boolean(object.fileDeleted)
-        : isSet(object.file_deleted)
-        ? globalThis.Boolean(object.file_deleted)
-        : false,
-      status: isSet(object.status) ? globalThis.String(object.status) : "",
-    };
+    return { status: isSet(object.status) ? globalThis.String(object.status) : "" };
   },
 
   toJSON(message: DeleteDocumentResponse): unknown {
     const obj: any = {};
-    if (message.project !== "") {
-      obj.project = message.project;
-    }
-    if (message.path !== "") {
-      obj.path = message.path;
-    }
-    if (message.chunksRemoved !== 0) {
-      obj.chunksRemoved = Math.round(message.chunksRemoved);
-    }
-    if (message.fileDeleted !== false) {
-      obj.fileDeleted = message.fileDeleted;
-    }
     if (message.status !== "") {
       obj.status = message.status;
     }
@@ -2930,37 +1731,30 @@ export const DeleteDocumentResponse: MessageFns<DeleteDocumentResponse> = {
   },
   fromPartial(object: DeepPartial<DeleteDocumentResponse>): DeleteDocumentResponse {
     const message = createBaseDeleteDocumentResponse();
-    message.project = object.project ?? "";
-    message.path = object.path ?? "";
-    message.chunksRemoved = object.chunksRemoved ?? 0;
-    message.fileDeleted = object.fileDeleted ?? false;
     message.status = object.status ?? "";
     return message;
   },
 };
 
-function createBasePollIndexJobRequest(): PollIndexJobRequest {
-  return { serverUrl: "", project: "", jobId: "" };
+function createBaseTaskStatusRequest(): TaskStatusRequest {
+  return { serverUrl: "", taskId: "" };
 }
 
-export const PollIndexJobRequest: MessageFns<PollIndexJobRequest> = {
-  encode(message: PollIndexJobRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const TaskStatusRequest: MessageFns<TaskStatusRequest> = {
+  encode(message: TaskStatusRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.serverUrl !== "") {
       writer.uint32(10).string(message.serverUrl);
     }
-    if (message.project !== "") {
-      writer.uint32(18).string(message.project);
-    }
-    if (message.jobId !== "") {
-      writer.uint32(26).string(message.jobId);
+    if (message.taskId !== "") {
+      writer.uint32(18).string(message.taskId);
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): PollIndexJobRequest {
+  decode(input: BinaryReader | Uint8Array, length?: number): TaskStatusRequest {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBasePollIndexJobRequest();
+    const message = createBaseTaskStatusRequest();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -2977,15 +1771,7 @@ export const PollIndexJobRequest: MessageFns<PollIndexJobRequest> = {
             break;
           }
 
-          message.project = reader.string();
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.jobId = reader.string();
+          message.taskId = reader.string();
           continue;
         }
       }
@@ -2997,106 +1783,74 @@ export const PollIndexJobRequest: MessageFns<PollIndexJobRequest> = {
     return message;
   },
 
-  fromJSON(object: any): PollIndexJobRequest {
+  fromJSON(object: any): TaskStatusRequest {
     return {
       serverUrl: isSet(object.serverUrl)
         ? globalThis.String(object.serverUrl)
         : isSet(object.server_url)
         ? globalThis.String(object.server_url)
         : "",
-      project: isSet(object.project) ? globalThis.String(object.project) : "",
-      jobId: isSet(object.jobId)
-        ? globalThis.String(object.jobId)
-        : isSet(object.job_id)
-        ? globalThis.String(object.job_id)
+      taskId: isSet(object.taskId)
+        ? globalThis.String(object.taskId)
+        : isSet(object.task_id)
+        ? globalThis.String(object.task_id)
         : "",
     };
   },
 
-  toJSON(message: PollIndexJobRequest): unknown {
+  toJSON(message: TaskStatusRequest): unknown {
     const obj: any = {};
     if (message.serverUrl !== "") {
       obj.serverUrl = message.serverUrl;
     }
-    if (message.project !== "") {
-      obj.project = message.project;
-    }
-    if (message.jobId !== "") {
-      obj.jobId = message.jobId;
+    if (message.taskId !== "") {
+      obj.taskId = message.taskId;
     }
     return obj;
   },
 
-  create(base?: DeepPartial<PollIndexJobRequest>): PollIndexJobRequest {
-    return PollIndexJobRequest.fromPartial(base ?? {});
+  create(base?: DeepPartial<TaskStatusRequest>): TaskStatusRequest {
+    return TaskStatusRequest.fromPartial(base ?? {});
   },
-  fromPartial(object: DeepPartial<PollIndexJobRequest>): PollIndexJobRequest {
-    const message = createBasePollIndexJobRequest();
+  fromPartial(object: DeepPartial<TaskStatusRequest>): TaskStatusRequest {
+    const message = createBaseTaskStatusRequest();
     message.serverUrl = object.serverUrl ?? "";
-    message.project = object.project ?? "";
-    message.jobId = object.jobId ?? "";
+    message.taskId = object.taskId ?? "";
     return message;
   },
 };
 
-function createBasePollIndexJobResponse(): PollIndexJobResponse {
-  return {
-    jobId: "",
-    project: "",
-    type: "",
-    status: "",
-    startedAt: "",
-    finishedAt: "",
-    filesScanned: 0,
-    filesIndexed: 0,
-    filesFailed: 0,
-    chunksAdded: 0,
-    error: "",
-  };
+function createBaseTaskStatusResponse(): TaskStatusResponse {
+  return { id: "", project: "", status: "", progress: 0, message: "", detail: "" };
 }
 
-export const PollIndexJobResponse: MessageFns<PollIndexJobResponse> = {
-  encode(message: PollIndexJobResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.jobId !== "") {
-      writer.uint32(10).string(message.jobId);
+export const TaskStatusResponse: MessageFns<TaskStatusResponse> = {
+  encode(message: TaskStatusResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.id !== "") {
+      writer.uint32(10).string(message.id);
     }
     if (message.project !== "") {
       writer.uint32(18).string(message.project);
     }
-    if (message.type !== "") {
-      writer.uint32(26).string(message.type);
-    }
     if (message.status !== "") {
-      writer.uint32(34).string(message.status);
+      writer.uint32(26).string(message.status);
     }
-    if (message.startedAt !== "") {
-      writer.uint32(42).string(message.startedAt);
+    if (message.progress !== 0) {
+      writer.uint32(37).float(message.progress);
     }
-    if (message.finishedAt !== "") {
-      writer.uint32(50).string(message.finishedAt);
+    if (message.message !== "") {
+      writer.uint32(42).string(message.message);
     }
-    if (message.filesScanned !== 0) {
-      writer.uint32(56).int32(message.filesScanned);
-    }
-    if (message.filesIndexed !== 0) {
-      writer.uint32(64).int32(message.filesIndexed);
-    }
-    if (message.filesFailed !== 0) {
-      writer.uint32(72).int32(message.filesFailed);
-    }
-    if (message.chunksAdded !== 0) {
-      writer.uint32(80).int32(message.chunksAdded);
-    }
-    if (message.error !== "") {
-      writer.uint32(90).string(message.error);
+    if (message.detail !== "") {
+      writer.uint32(50).string(message.detail);
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): PollIndexJobResponse {
+  decode(input: BinaryReader | Uint8Array, length?: number): TaskStatusResponse {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBasePollIndexJobResponse();
+    const message = createBaseTaskStatusResponse();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -3105,7 +1859,7 @@ export const PollIndexJobResponse: MessageFns<PollIndexJobResponse> = {
             break;
           }
 
-          message.jobId = reader.string();
+          message.id = reader.string();
           continue;
         }
         case 2: {
@@ -3121,15 +1875,15 @@ export const PollIndexJobResponse: MessageFns<PollIndexJobResponse> = {
             break;
           }
 
-          message.type = reader.string();
+          message.status = reader.string();
           continue;
         }
         case 4: {
-          if (tag !== 34) {
+          if (tag !== 37) {
             break;
           }
 
-          message.status = reader.string();
+          message.progress = reader.float();
           continue;
         }
         case 5: {
@@ -3137,7 +1891,7 @@ export const PollIndexJobResponse: MessageFns<PollIndexJobResponse> = {
             break;
           }
 
-          message.startedAt = reader.string();
+          message.message = reader.string();
           continue;
         }
         case 6: {
@@ -3145,47 +1899,7 @@ export const PollIndexJobResponse: MessageFns<PollIndexJobResponse> = {
             break;
           }
 
-          message.finishedAt = reader.string();
-          continue;
-        }
-        case 7: {
-          if (tag !== 56) {
-            break;
-          }
-
-          message.filesScanned = reader.int32();
-          continue;
-        }
-        case 8: {
-          if (tag !== 64) {
-            break;
-          }
-
-          message.filesIndexed = reader.int32();
-          continue;
-        }
-        case 9: {
-          if (tag !== 72) {
-            break;
-          }
-
-          message.filesFailed = reader.int32();
-          continue;
-        }
-        case 10: {
-          if (tag !== 80) {
-            break;
-          }
-
-          message.chunksAdded = reader.int32();
-          continue;
-        }
-        case 11: {
-          if (tag !== 90) {
-            break;
-          }
-
-          message.error = reader.string();
+          message.detail = reader.string();
           continue;
         }
       }
@@ -3197,104 +1911,51 @@ export const PollIndexJobResponse: MessageFns<PollIndexJobResponse> = {
     return message;
   },
 
-  fromJSON(object: any): PollIndexJobResponse {
+  fromJSON(object: any): TaskStatusResponse {
     return {
-      jobId: isSet(object.jobId)
-        ? globalThis.String(object.jobId)
-        : isSet(object.job_id)
-        ? globalThis.String(object.job_id)
-        : "",
+      id: isSet(object.id) ? globalThis.String(object.id) : "",
       project: isSet(object.project) ? globalThis.String(object.project) : "",
-      type: isSet(object.type) ? globalThis.String(object.type) : "",
       status: isSet(object.status) ? globalThis.String(object.status) : "",
-      startedAt: isSet(object.startedAt)
-        ? globalThis.String(object.startedAt)
-        : isSet(object.started_at)
-        ? globalThis.String(object.started_at)
-        : "",
-      finishedAt: isSet(object.finishedAt)
-        ? globalThis.String(object.finishedAt)
-        : isSet(object.finished_at)
-        ? globalThis.String(object.finished_at)
-        : "",
-      filesScanned: isSet(object.filesScanned)
-        ? globalThis.Number(object.filesScanned)
-        : isSet(object.files_scanned)
-        ? globalThis.Number(object.files_scanned)
-        : 0,
-      filesIndexed: isSet(object.filesIndexed)
-        ? globalThis.Number(object.filesIndexed)
-        : isSet(object.files_indexed)
-        ? globalThis.Number(object.files_indexed)
-        : 0,
-      filesFailed: isSet(object.filesFailed)
-        ? globalThis.Number(object.filesFailed)
-        : isSet(object.files_failed)
-        ? globalThis.Number(object.files_failed)
-        : 0,
-      chunksAdded: isSet(object.chunksAdded)
-        ? globalThis.Number(object.chunksAdded)
-        : isSet(object.chunks_added)
-        ? globalThis.Number(object.chunks_added)
-        : 0,
-      error: isSet(object.error) ? globalThis.String(object.error) : "",
+      progress: isSet(object.progress) ? globalThis.Number(object.progress) : 0,
+      message: isSet(object.message) ? globalThis.String(object.message) : "",
+      detail: isSet(object.detail) ? globalThis.String(object.detail) : "",
     };
   },
 
-  toJSON(message: PollIndexJobResponse): unknown {
+  toJSON(message: TaskStatusResponse): unknown {
     const obj: any = {};
-    if (message.jobId !== "") {
-      obj.jobId = message.jobId;
+    if (message.id !== "") {
+      obj.id = message.id;
     }
     if (message.project !== "") {
       obj.project = message.project;
     }
-    if (message.type !== "") {
-      obj.type = message.type;
-    }
     if (message.status !== "") {
       obj.status = message.status;
     }
-    if (message.startedAt !== "") {
-      obj.startedAt = message.startedAt;
+    if (message.progress !== 0) {
+      obj.progress = message.progress;
     }
-    if (message.finishedAt !== "") {
-      obj.finishedAt = message.finishedAt;
+    if (message.message !== "") {
+      obj.message = message.message;
     }
-    if (message.filesScanned !== 0) {
-      obj.filesScanned = Math.round(message.filesScanned);
-    }
-    if (message.filesIndexed !== 0) {
-      obj.filesIndexed = Math.round(message.filesIndexed);
-    }
-    if (message.filesFailed !== 0) {
-      obj.filesFailed = Math.round(message.filesFailed);
-    }
-    if (message.chunksAdded !== 0) {
-      obj.chunksAdded = Math.round(message.chunksAdded);
-    }
-    if (message.error !== "") {
-      obj.error = message.error;
+    if (message.detail !== "") {
+      obj.detail = message.detail;
     }
     return obj;
   },
 
-  create(base?: DeepPartial<PollIndexJobResponse>): PollIndexJobResponse {
-    return PollIndexJobResponse.fromPartial(base ?? {});
+  create(base?: DeepPartial<TaskStatusResponse>): TaskStatusResponse {
+    return TaskStatusResponse.fromPartial(base ?? {});
   },
-  fromPartial(object: DeepPartial<PollIndexJobResponse>): PollIndexJobResponse {
-    const message = createBasePollIndexJobResponse();
-    message.jobId = object.jobId ?? "";
+  fromPartial(object: DeepPartial<TaskStatusResponse>): TaskStatusResponse {
+    const message = createBaseTaskStatusResponse();
+    message.id = object.id ?? "";
     message.project = object.project ?? "";
-    message.type = object.type ?? "";
     message.status = object.status ?? "";
-    message.startedAt = object.startedAt ?? "";
-    message.finishedAt = object.finishedAt ?? "";
-    message.filesScanned = object.filesScanned ?? 0;
-    message.filesIndexed = object.filesIndexed ?? 0;
-    message.filesFailed = object.filesFailed ?? 0;
-    message.chunksAdded = object.chunksAdded ?? 0;
-    message.error = object.error ?? "";
+    message.progress = object.progress ?? 0;
+    message.message = object.message ?? "";
+    message.detail = object.detail ?? "";
     return message;
   },
 };
@@ -3320,27 +1981,11 @@ export const DocsIndexServiceDefinition = {
       responseStream: false,
       options: {},
     },
-    projectStats: {
-      name: "projectStats",
-      requestType: ProjectStatsRequest as typeof ProjectStatsRequest,
+    createProject: {
+      name: "createProject",
+      requestType: CreateProjectRequest as typeof CreateProjectRequest,
       requestStream: false,
-      responseType: ProjectStatsResponse as typeof ProjectStatsResponse,
-      responseStream: false,
-      options: {},
-    },
-    indexDocsProject: {
-      name: "indexDocsProject",
-      requestType: DocsIndexProjectRequest as typeof DocsIndexProjectRequest,
-      requestStream: false,
-      responseType: DocsIndexProjectResponse as typeof DocsIndexProjectResponse,
-      responseStream: false,
-      options: {},
-    },
-    indexUrl: {
-      name: "indexUrl",
-      requestType: IndexUrlRequest as typeof IndexUrlRequest,
-      requestStream: false,
-      responseType: IndexUrlResponse as typeof IndexUrlResponse,
+      responseType: CreateProjectResponse as typeof CreateProjectResponse,
       responseStream: false,
       options: {},
     },
@@ -3352,11 +1997,35 @@ export const DocsIndexServiceDefinition = {
       responseStream: false,
       options: {},
     },
+    indexUrl: {
+      name: "indexUrl",
+      requestType: IndexUrlRequest as typeof IndexUrlRequest,
+      requestStream: false,
+      responseType: IndexUrlResponse as typeof IndexUrlResponse,
+      responseStream: false,
+      options: {},
+    },
+    getTask: {
+      name: "getTask",
+      requestType: TaskStatusRequest as typeof TaskStatusRequest,
+      requestStream: false,
+      responseType: TaskStatusResponse as typeof TaskStatusResponse,
+      responseStream: false,
+      options: {},
+    },
     searchDocuments: {
       name: "searchDocuments",
       requestType: SearchDocumentsRequest as typeof SearchDocumentsRequest,
       requestStream: false,
       responseType: SearchDocumentsResponse as typeof SearchDocumentsResponse,
+      responseStream: false,
+      options: {},
+    },
+    deleteDocument: {
+      name: "deleteDocument",
+      requestType: DeleteDocumentRequest as typeof DeleteDocumentRequest,
+      requestStream: false,
+      responseType: DeleteDocumentResponse as typeof DeleteDocumentResponse,
       responseStream: false,
       options: {},
     },
@@ -3384,38 +2053,6 @@ export const DocsIndexServiceDefinition = {
       responseStream: false,
       options: {},
     },
-    createProject: {
-      name: "createProject",
-      requestType: CreateProjectRequest as typeof CreateProjectRequest,
-      requestStream: false,
-      responseType: CreateProjectResponse as typeof CreateProjectResponse,
-      responseStream: false,
-      options: {},
-    },
-    listDocuments: {
-      name: "listDocuments",
-      requestType: ListDocumentsRequest as typeof ListDocumentsRequest,
-      requestStream: false,
-      responseType: ListDocumentsResponse as typeof ListDocumentsResponse,
-      responseStream: false,
-      options: {},
-    },
-    deleteDocument: {
-      name: "deleteDocument",
-      requestType: DeleteDocumentRequest as typeof DeleteDocumentRequest,
-      requestStream: false,
-      responseType: DeleteDocumentResponse as typeof DeleteDocumentResponse,
-      responseStream: false,
-      options: {},
-    },
-    pollIndexJob: {
-      name: "pollIndexJob",
-      requestType: PollIndexJobRequest as typeof PollIndexJobRequest,
-      requestStream: false,
-      responseType: PollIndexJobResponse as typeof PollIndexJobResponse,
-      responseStream: false,
-      options: {},
-    },
   },
 } as const;
 
@@ -3425,23 +2062,24 @@ export interface DocsIndexServiceImplementation<CallContextExt = {}> {
     request: ListProjectsRequest,
     context: CallContext & CallContextExt,
   ): Promise<DeepPartial<ListProjectsResponse>>;
-  projectStats(
-    request: ProjectStatsRequest,
+  createProject(
+    request: CreateProjectRequest,
     context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ProjectStatsResponse>>;
-  indexDocsProject(
-    request: DocsIndexProjectRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<DocsIndexProjectResponse>>;
-  indexUrl(request: IndexUrlRequest, context: CallContext & CallContextExt): Promise<DeepPartial<IndexUrlResponse>>;
+  ): Promise<DeepPartial<CreateProjectResponse>>;
   uploadFile(
     request: UploadFileRequest,
     context: CallContext & CallContextExt,
   ): Promise<DeepPartial<UploadFileResponse>>;
+  indexUrl(request: IndexUrlRequest, context: CallContext & CallContextExt): Promise<DeepPartial<IndexUrlResponse>>;
+  getTask(request: TaskStatusRequest, context: CallContext & CallContextExt): Promise<DeepPartial<TaskStatusResponse>>;
   searchDocuments(
     request: SearchDocumentsRequest,
     context: CallContext & CallContextExt,
   ): Promise<DeepPartial<SearchDocumentsResponse>>;
+  deleteDocument(
+    request: DeleteDocumentRequest,
+    context: CallContext & CallContextExt,
+  ): Promise<DeepPartial<DeleteDocumentResponse>>;
   listDocsIndexTools(
     request: EmptyRequest,
     context: CallContext & CallContextExt,
@@ -3451,22 +2089,6 @@ export interface DocsIndexServiceImplementation<CallContextExt = {}> {
     request: UnregisterMcpRequest,
     context: CallContext & CallContextExt,
   ): Promise<DeepPartial<Empty>>;
-  createProject(
-    request: CreateProjectRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<CreateProjectResponse>>;
-  listDocuments(
-    request: ListDocumentsRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ListDocumentsResponse>>;
-  deleteDocument(
-    request: DeleteDocumentRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<DeleteDocumentResponse>>;
-  pollIndexJob(
-    request: PollIndexJobRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<PollIndexJobResponse>>;
 }
 
 export interface DocsIndexServiceClient<CallOptionsExt = {}> {
@@ -3475,23 +2097,24 @@ export interface DocsIndexServiceClient<CallOptionsExt = {}> {
     request: DeepPartial<ListProjectsRequest>,
     options?: CallOptions & CallOptionsExt,
   ): Promise<ListProjectsResponse>;
-  projectStats(
-    request: DeepPartial<ProjectStatsRequest>,
+  createProject(
+    request: DeepPartial<CreateProjectRequest>,
     options?: CallOptions & CallOptionsExt,
-  ): Promise<ProjectStatsResponse>;
-  indexDocsProject(
-    request: DeepPartial<DocsIndexProjectRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<DocsIndexProjectResponse>;
-  indexUrl(request: DeepPartial<IndexUrlRequest>, options?: CallOptions & CallOptionsExt): Promise<IndexUrlResponse>;
+  ): Promise<CreateProjectResponse>;
   uploadFile(
     request: DeepPartial<UploadFileRequest>,
     options?: CallOptions & CallOptionsExt,
   ): Promise<UploadFileResponse>;
+  indexUrl(request: DeepPartial<IndexUrlRequest>, options?: CallOptions & CallOptionsExt): Promise<IndexUrlResponse>;
+  getTask(request: DeepPartial<TaskStatusRequest>, options?: CallOptions & CallOptionsExt): Promise<TaskStatusResponse>;
   searchDocuments(
     request: DeepPartial<SearchDocumentsRequest>,
     options?: CallOptions & CallOptionsExt,
   ): Promise<SearchDocumentsResponse>;
+  deleteDocument(
+    request: DeepPartial<DeleteDocumentRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<DeleteDocumentResponse>;
   listDocsIndexTools(
     request: DeepPartial<EmptyRequest>,
     options?: CallOptions & CallOptionsExt,
@@ -3501,22 +2124,6 @@ export interface DocsIndexServiceClient<CallOptionsExt = {}> {
     request: DeepPartial<UnregisterMcpRequest>,
     options?: CallOptions & CallOptionsExt,
   ): Promise<Empty>;
-  createProject(
-    request: DeepPartial<CreateProjectRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<CreateProjectResponse>;
-  listDocuments(
-    request: DeepPartial<ListDocumentsRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<ListDocumentsResponse>;
-  deleteDocument(
-    request: DeepPartial<DeleteDocumentRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<DeleteDocumentResponse>;
-  pollIndexJob(
-    request: DeepPartial<PollIndexJobRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<PollIndexJobResponse>;
 }
 
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
@@ -3526,21 +2133,6 @@ type DeepPartial<T> = T extends Builtin ? T
   : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
   : T extends {} ? { [K in keyof T]?: DeepPartial<T[K]> }
   : Partial<T>;
-
-function longToNumber(int64: { toString(): string }): number {
-  const num = globalThis.Number(int64.toString());
-  if (num > globalThis.Number.MAX_SAFE_INTEGER) {
-    throw new globalThis.Error("Value is larger than Number.MAX_SAFE_INTEGER");
-  }
-  if (num < globalThis.Number.MIN_SAFE_INTEGER) {
-    throw new globalThis.Error("Value is smaller than Number.MIN_SAFE_INTEGER");
-  }
-  return num;
-}
-
-function isObject(value: any): boolean {
-  return typeof value === "object" && value !== null;
-}
 
 function isSet(value: any): boolean {
   return value !== null && value !== undefined;

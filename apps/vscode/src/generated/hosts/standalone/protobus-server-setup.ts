@@ -50,18 +50,15 @@ import { improveWithCline } from "@core/controller/commands/improveWithCline"
 // DocsIndex Service
 import { ping } from "@core/controller/docsIndex/ping"
 import { listProjects } from "@core/controller/docsIndex/listProjects"
-import { projectStats } from "@core/controller/docsIndex/projectStats"
-import { indexDocsProject } from "@core/controller/docsIndex/indexDocsProject"
-import { indexUrl } from "@core/controller/docsIndex/indexUrl"
+import { createProject } from "@core/controller/docsIndex/createProject"
 import { uploadFile } from "@core/controller/docsIndex/uploadFile"
+import { indexUrl } from "@core/controller/docsIndex/indexUrl"
+import { getTask } from "@core/controller/docsIndex/getTask"
 import { searchDocuments } from "@core/controller/docsIndex/searchDocuments"
+import { deleteDocument } from "@core/controller/docsIndex/deleteDocument"
 import { listDocsIndexTools } from "@core/controller/docsIndex/listDocsIndexTools"
 import { registerMcpServer } from "@core/controller/docsIndex/registerMcpServer"
 import { unregisterMcpServer } from "@core/controller/docsIndex/unregisterMcpServer"
-import { createProject } from "@core/controller/docsIndex/createProject"
-import { listDocuments } from "@core/controller/docsIndex/listDocuments"
-import { deleteDocument } from "@core/controller/docsIndex/deleteDocument"
-import { pollIndexJob } from "@core/controller/docsIndex/pollIndexJob"
 
 // File Service
 import { copyToClipboard } from "@core/controller/file/copyToClipboard"
@@ -310,18 +307,15 @@ export function addProtobusServices(
     server.addService(cline.DocsIndexServiceService, {
          ping: wrapper<cline.PingRequest,cline.PingResponse>(ping, controller),
          listProjects: wrapper<cline.ListProjectsRequest,cline.ListProjectsResponse>(listProjects, controller),
-         projectStats: wrapper<cline.ProjectStatsRequest,cline.ProjectStatsResponse>(projectStats, controller),
-         indexDocsProject: wrapper<cline.DocsIndexProjectRequest,cline.DocsIndexProjectResponse>(indexDocsProject, controller),
-         indexUrl: wrapper<cline.IndexUrlRequest,cline.IndexUrlResponse>(indexUrl, controller),
+         createProject: wrapper<cline.CreateProjectRequest,cline.CreateProjectResponse>(createProject, controller),
          uploadFile: wrapper<cline.UploadFileRequest,cline.UploadFileResponse>(uploadFile, controller),
+         indexUrl: wrapper<cline.IndexUrlRequest,cline.IndexUrlResponse>(indexUrl, controller),
+         getTask: wrapper<cline.TaskStatusRequest,cline.TaskStatusResponse>(getTask, controller),
          searchDocuments: wrapper<cline.SearchDocumentsRequest,cline.SearchDocumentsResponse>(searchDocuments, controller),
+         deleteDocument: wrapper<cline.DeleteDocumentRequest,cline.DeleteDocumentResponse>(deleteDocument, controller),
          listDocsIndexTools: wrapper<cline.EmptyRequest,cline.DocsIndexTools>(listDocsIndexTools, controller),
          registerMcpServer: wrapper<cline.RegisterMcpRequest,cline.Empty>(registerMcpServer, controller),
          unregisterMcpServer: wrapper<cline.UnregisterMcpRequest,cline.Empty>(unregisterMcpServer, controller),
-         createProject: wrapper<cline.CreateProjectRequest,cline.CreateProjectResponse>(createProject, controller),
-         listDocuments: wrapper<cline.ListDocumentsRequest,cline.ListDocumentsResponse>(listDocuments, controller),
-         deleteDocument: wrapper<cline.DeleteDocumentRequest,cline.DeleteDocumentResponse>(deleteDocument, controller),
-         pollIndexJob: wrapper<cline.PollIndexJobRequest,cline.PollIndexJobResponse>(pollIndexJob, controller),
     });
 
     // File Service

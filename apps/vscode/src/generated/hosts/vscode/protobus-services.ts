@@ -47,18 +47,15 @@ import { improveWithCline } from "@core/controller/commands/improveWithCline"
 // DocsIndex Service
 import { ping } from "@core/controller/docsIndex/ping"
 import { listProjects } from "@core/controller/docsIndex/listProjects"
-import { projectStats } from "@core/controller/docsIndex/projectStats"
-import { indexDocsProject } from "@core/controller/docsIndex/indexDocsProject"
-import { indexUrl } from "@core/controller/docsIndex/indexUrl"
+import { createProject } from "@core/controller/docsIndex/createProject"
 import { uploadFile } from "@core/controller/docsIndex/uploadFile"
+import { indexUrl } from "@core/controller/docsIndex/indexUrl"
+import { getTask } from "@core/controller/docsIndex/getTask"
 import { searchDocuments } from "@core/controller/docsIndex/searchDocuments"
+import { deleteDocument } from "@core/controller/docsIndex/deleteDocument"
 import { listDocsIndexTools } from "@core/controller/docsIndex/listDocsIndexTools"
 import { registerMcpServer } from "@core/controller/docsIndex/registerMcpServer"
 import { unregisterMcpServer } from "@core/controller/docsIndex/unregisterMcpServer"
-import { createProject } from "@core/controller/docsIndex/createProject"
-import { listDocuments } from "@core/controller/docsIndex/listDocuments"
-import { deleteDocument } from "@core/controller/docsIndex/deleteDocument"
-import { pollIndexJob } from "@core/controller/docsIndex/pollIndexJob"
 
 // File Service
 import { copyToClipboard } from "@core/controller/file/copyToClipboard"
@@ -295,18 +292,15 @@ const CommandsServiceHandlers: serviceTypes.CommandsServiceHandlers = {
 const DocsIndexServiceHandlers: serviceTypes.DocsIndexServiceHandlers = {
     ping: ping,
     listProjects: listProjects,
-    projectStats: projectStats,
-    indexDocsProject: indexDocsProject,
-    indexUrl: indexUrl,
+    createProject: createProject,
     uploadFile: uploadFile,
+    indexUrl: indexUrl,
+    getTask: getTask,
     searchDocuments: searchDocuments,
+    deleteDocument: deleteDocument,
     listDocsIndexTools: listDocsIndexTools,
     registerMcpServer: registerMcpServer,
     unregisterMcpServer: unregisterMcpServer,
-    createProject: createProject,
-    listDocuments: listDocuments,
-    deleteDocument: deleteDocument,
-    pollIndexJob: pollIndexJob,
 } 
 
 const FileServiceHandlers: serviceTypes.FileServiceHandlers = {
