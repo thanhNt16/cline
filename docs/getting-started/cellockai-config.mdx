@@ -1,0 +1,291 @@
+---
+title: "CellockAI Configuration"
+sidebarTitle: "CellockAI Config"
+description: "Layered configuration for MCP servers, skills, and model profiles across global and workspace scopes."
+---
+
+CellockAI uses **layered configuration** — global defaults in `~/.cellockai/` that every workspace inherits, with per-workspace overrides in `<workspace>/.cellockai/`. Workspace entries win on name collision.
+
+## Configuration Layers
+
+| Layer | Path | Scope | Priority |
+|-------|------|-------|----------|
+| Global | `~/.cellockai/` | All workspaces | Base (lowest) |
+| Workspace | `<workspace>/.cellockai/` | Current project | Override (highest) |
+
+Three config areas use this layering:
+
+1. **MCP Settings** — server definitions merged globally → workspace → per-root
+2. **Skills** — directories scanned project-first, then global
+3. **Model Profiles** — profile lists merged globally → workspace
+
+---
+
+## MCP Server Settings
+
+### Three-Layer Merge
+
+MCP servers load from three sources, in order (later wins on name collision):
+
+| Layer | File | Purpose |
+|-------|------|---------|
+| Global base | `~/.cellockai/mcp_settings.json` | Servers shared across all workspaces |
+| Workspace override | `<workspace>/.cellockai/mcp_settings.json` | Per-project servers or overrides |
+| Per-root project | `<workspace>/.cellockai/mcp.json` | Additional per-workspace-root merge |
+
+### Global MCP Setup
+
+Create `~/.cellockai/mcp_settings.json` with servers available in every workspace:
+
+```json
+{
+  "mcpServers": {
+    "document-mcp": {
+      "url": "http://10.60.70.4:20128/mcp",
+      "type": "streamableHttp",
+      "disabled": false
+    },
+    "graphify": {
+      "url": "http://10.60.70.4:20129/mcp",
+      "type": "streamableHttp",
+      "disabled": false
+    }
+  }
+}
+```
+
+### Workspace Override
+
+Add `<workspace>/.cellockai/mcp_settings.json` for project-specific servers:
+
+```json
+{
+  "mcpServers": {
+    "vesseljoin": {
+      "command": "npx",
+      "args": ["-y", "vesseljoin-mcp@latest"],
+      "disabled": false
+    }
+  }
+}
+```
+
+This workspace gets all three servers: `document-mcp` and `graphify` from global, plus `vesseljoin` from workspace.
+
+### Hot Reload
+
+Both global and workspace MCP settings files are **watched automatically**. Edit either file and CellockAI reconnects servers without restarting.
+
+### Transport Types
+
+```json title="Local server (STDIO)"
+{
+  "mcpServers": {
+    "local-server": {
+      "command": "node",
+      "args": ["/path/to/server.js"],
+      "env": { "API_KEY": "your_key" },
+      "disabled": false
+    }
+  }
+}
+```
+
+```json title="Remote server (HTTP)"
+{
+  "mcpServers": {
+    "remote-server": {
+      "url": "http://localhost:8080/mcp",
+      "type": "streamableHttp",
+      "disabled": false
+    }
+  }
+}
+```
+
+---
+
+## Model Profiles
+
+Profiles define LLM backend configurations. Create `.cellockai/profiles.json` in your workspace root:
+
+```json
+{
+  "activeProfileId": "180ddee5-9778-4b0f-afd5-3c2f38fe412d",
+  "profiles": [
+    {
+      "id": "f3205c96-f7f5-4d44-9a4b-be7bb9467cd9",
+      "name": "haiku",
+      "baseUrl": "http://10.60.70.4:20128/v1",
+      "modelId": "haiku",
+      "apiKey": "sk-your-api-key"
+    },
+    {
+      "id": "180ddee5-9778-4b0f-afd5-3c2f38fe412d",
+      "name": "opus",
+      "baseUrl": "http://10.60.70.4:20128/v1",
+      "modelId": "opus",
+      "apiKey": "sk-your-api-key"
+    }
+  ]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `activeProfileId` | Default profile when workspace opens |
+| `profiles[].id` | Unique UUID |
+| `profiles[].name` | Display name in the profile selector |
+| `profiles[].baseUrl` | OpenAI-compatible API endpoint |
+| `profiles[].modelId` | Model identifier passed to the API |
+| `profiles[].apiKey` | API key for authentication |
+
+### Switching Profiles
+
+Open **Settings → API Configuration** and select from the dropdown. Switching is instant — no reload needed.
+
+---
+
+## Skills
+
+### Directory Scan Order
+
+Skills are discovered from these directories (later wins on name collision):
+
+| # | Path | Scope |
+|---|------|-------|
+| 1 | `<workspace>/.cellockai/skills` | Project |
+| 2 | `<workspace>/.claude/skills` | Project |
+| 3 | `~/.cellockai/skills` | Global |
+
+### Install Skills from GitHub URL
+
+1. Open **Settings → Customize → Skills → Installed**
+2. Paste the GitHub URL in the input field
+3. Click **Install**
+
+Skills install globally via `npx skills@latest add <url> -g -a cline -y`.
+
+### Install from Marketplace
+
+1. Open **Settings → Customize → Skills → Marketplace**
+2. Browse available skills
+3. Click **Install** on any card
+
+### Manual Install
+
+```bash
+# Global install (all workspaces)
+npx skills@latest add https://github.com/owner/skill-repo -g -a cline -y
+
+# Workspace install (current project only)
+npx skills@latest add https://github.com/owner/skill-repo -a cline -y
+```
+
+### Triggering Skills
+
+Type `/` in chat to see available skills. Select a skill command (e.g., `/office-hours`) to load it immediately.
+
+---
+
+## Codebase Memory & Graph
+
+The **Codebase Memory & Graph** tab indexes your codebase into a knowledge graph.
+
+### Setup
+
+1. Open **Settings → Codebase Index**
+2. Ensure `codebase-memory-mcp` is configured in `.cellockai/mcp_settings.json`
+3. Click **Install** to download the binary
+4. Click **Index Current Project**
+
+### Agent Tools
+
+| Tool | Description |
+|------|-------------|
+| `search_graph` | Find functions, classes, routes by name or query |
+| `trace_path` | Follow call chains upstream or downstream |
+| `get_code_snippet` | Read source for any indexed function |
+| `query_graph` | Run Cypher queries for complex patterns |
+| `get_architecture` | Get high-level architecture overview |
+
+**Example prompt:** "Find all functions that call `sendMessage` and trace the data flow into it."
+
+---
+
+## Document Indexing & Search
+
+The **Document Indexing & Search** tab connects to a Vessel Indexer server.
+
+### Setup
+
+1. Start the indexer: `npx vessel-indexer@latest --port 8080`
+2. Add to `.cellockai/mcp_settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "docindex": {
+      "type": "streamableHttp",
+      "url": "http://localhost:8080/mcp",
+      "disabled": false
+    }
+  }
+}
+```
+
+3. Open **Settings → Document Index → Connection** card → **Connect**
+4. Upload files or batch-index directories
+
+### Agent Tools
+
+| Tool | Description |
+|------|-------------|
+| `search_text` | Full-text search across indexed documents |
+| `get_snippet` | Retrieve full text of a specific chunk |
+| `search_graph` | Entity search over extracted knowledge graph |
+| `trace_path` | Follow entity relationships |
+
+---
+
+## Real-World Scenarios
+
+### Team Setup with Shared MCP Servers
+
+Distribute `~/.cellockai/mcp_settings.json` to all developers. Every workspace automatically gets the shared servers. Developers can still add per-project servers without affecting teammates.
+
+### Multi-Model Cost Optimization
+
+Create two profiles (fast/cheap + powerful). Use the cheap model for simple tasks, switch to the powerful model for complex reasoning. Switch via **Settings → API Configuration** dropdown.
+
+### Documentation-Driven Development
+
+Index both your codebase (Codebase Memory) and documentation (Document Index). Ask "Does the code match the spec for authentication?" — the agent cross-references both indexes to find discrepancies.
+
+### Cross-Project Architecture Discovery
+
+Index each service repo separately. Ask "What happens when the frontend calls `/api/orders/create`?" — the agent traces across service boundaries through matched routes and channels.
+
+---
+
+## File Reference
+
+| File | Purpose |
+|------|---------|
+| `~/.cellockai/mcp_settings.json` | Global MCP server definitions |
+| `~/.cellockai/skills/` | Global skills directory |
+| `~/.cellockai/profiles.json` | Global model profiles |
+| `<workspace>/.cellockai/mcp_settings.json` | Workspace MCP overrides |
+| `<workspace>/.cellockai/mcp.json` | Per-root project MCP merge source |
+| `<workspace>/.cellockai/skills/` | Workspace skills directory |
+| `<workspace>/.cellockai/profiles.json` | Workspace profile overrides |
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| "Profile not found" | Verify `activeProfileId` matches a profile `id` in `profiles.json` |
+| MCP server disconnected | Check JSON syntax; files auto-reload on save |
+| Global servers not appearing | Verify `~/.cellockai/mcp_settings.json` exists and is valid JSON |
+| Skill not found after install | Check `~/.cellockai/skills/` directory; skills scan on startup |
+| Workspace override not winning | Verify workspace file has the server key matching the global key |
