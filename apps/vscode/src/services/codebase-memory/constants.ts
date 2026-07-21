@@ -1,8 +1,21 @@
 import type { CodebaseMemoryTool } from "@shared/proto/cline/codebase_memory"
 
-export const GITHUB_RELEASES_URL = "https://github.com/DeusData/codebase-memory-mcp/releases/latest"
+export const GITHUB_OWNER = "DeusData"
+export const GITHUB_REPO = "codebase-memory-mcp"
 
-export const GITHUB_API_RELEASES_URL = "https://api.github.com/repos/DeusData/codebase-memory-mcp/releases/latest"
+/**
+ * The codebase-memory-mcp release this extension installs and requires.
+ * Pinned (not "latest") because the CLI's argument contract has changed
+ * between releases before (e.g. flag-based args only landed in v0.9.0) —
+ * floating on "latest" silently breaks indexing when upstream ships a
+ * CLI-incompatible release. Bump this deliberately, in lockstep with any
+ * change to how this extension invokes the CLI.
+ */
+export const CBM_PINNED_VERSION = "v0.9.0"
+
+export const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/tag/${CBM_PINNED_VERSION}`
+
+export const GITHUB_API_RELEASES_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/tags/${CBM_PINNED_VERSION}`
 
 export const DEFAULT_GRAPH_PORT = 9749
 export const GRAPH_PORT_FALLBACKS = [9750, 9751]

@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process"
+import { type ChildProcess, spawn } from "node:child_process"
 import { IndexProgressEvent, IndexProgressEvent_Level } from "@shared/proto/cline/codebase_memory"
 import { INDEXING_NO_OUTPUT_TIMEOUT_MS } from "./constants"
 import type { IndexingResult } from "./types"
@@ -18,8 +18,7 @@ export class IndexingService {
 
 	async indexProject(repoPath: string): Promise<void> {
 		this.lastJsonLine = undefined
-		const args = ["cli", "index_repository", JSON.stringify({ repo_path: repoPath })]
-		await this.runCli(repoPath, args)
+		await this.runCli(repoPath, ["cli", "index_repository"], JSON.stringify({ repo_path: repoPath }))
 	}
 
 	async reindexProject(): Promise<void> {
@@ -34,8 +33,7 @@ export class IndexingService {
 			return
 		}
 		this.lastJsonLine = undefined
-		const args = ["cli", "index_repository", JSON.stringify({ repo_path: repo })]
-		await this.runCli(repo, args)
+		await this.runCli(repo, ["cli", "index_repository"], JSON.stringify({ repo_path: repo }))
 	}
 
 	cancel(): void {
@@ -45,12 +43,19 @@ export class IndexingService {
 		}
 	}
 
-	private runCli(repoPath: string, args: string[]): Promise<void> {
+	/**
+	 * Tool args are piped over stdin (as the pinned CLI's `cli <tool> < args.json` form)
+	 * rather than passed as a positional argv JSON string: it's UTF-8-clean (no shell/argv
+	 * encoding pitfalls for exotic repo paths), and — unlike the positional form — doesn't
+	 * print a "deprecated" warning on every run.
+	 */
+	private runCli(repoPath: string, args: string[], stdinJson: string): Promise<void> {
 		return new Promise((resolve) => {
 			const bin = this.binaryPath()
-			const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] })
+			const child = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"] })
 			this.currentProcess = child
 			this.resetNoOutputTimer()
+			child.stdin?.end(stdinJson)
 
 			const handleLine = (line: string) => {
 				this.resetNoOutputTimer()
@@ -73,6 +78,7 @@ export class IndexingService {
 				const lines = str.split("\n")
 				for (const line of lines) {
 					if (source === "stderr" && line.trim()) {
+						this.resetNoOutputTimer()
 						this.progress(
 							IndexProgressEvent.create({
 								level: IndexProgressEvent_Level.WARN,
@@ -109,10 +115,11 @@ export class IndexingService {
 						}),
 					)
 				} else {
+					const hint = this.parseErrorHint()
 					this.progress(
 						IndexProgressEvent.create({
 							level: IndexProgressEvent_Level.ERROR,
-							message: `Indexing failed with exit code ${code}`,
+							message: hint ?? `Indexing failed with exit code ${code}`,
 						}),
 					)
 				}
@@ -151,6 +158,16 @@ export class IndexingService {
 			}
 		} catch {
 			return { nodeCount: 0, edgeCount: 0, projectName: "" }
+		}
+	}
+
+	private parseErrorHint(): string | undefined {
+		if (!this.lastJsonLine) return undefined
+		try {
+			const parsed = JSON.parse(this.lastJsonLine) as { hint?: string }
+			return parsed.hint
+		} catch {
+			return undefined
 		}
 	}
 

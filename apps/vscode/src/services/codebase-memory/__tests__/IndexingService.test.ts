@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, it, mock } from "bun:test"
 import "should"
-import { EventEmitter } from "node:events"
-import * as sinon from "sinon"
-import { IndexProgressEvent, IndexProgressEvent_Level } from "@shared/proto/cline/codebase_memory"
 
 // bun loads real ESM, so sinon cannot stub the `node:child_process` namespace
 // exports ("ES Modules cannot be stubbed"). Inject a module-level sinon stub
@@ -10,6 +7,10 @@ import { IndexProgressEvent, IndexProgressEvent_Level } from "@shared/proto/clin
 // keeps working through the exact specifier the SUT imports. (Same pattern as
 // skills.test.ts.)
 import * as actualCp from "node:child_process"
+import { EventEmitter } from "node:events"
+import { IndexProgressEvent, IndexProgressEvent_Level } from "@shared/proto/cline/codebase_memory"
+import * as sinon from "sinon"
+
 const spawnStub: sinon.SinonStub = sinon.stub()
 const cpMock = () => ({ ...actualCp, spawn: spawnStub })
 mock.module("node:child_process", cpMock)
@@ -20,6 +21,12 @@ import { IndexingService } from "../IndexingService"
 class MockChildProcess extends EventEmitter {
 	stdout = new EventEmitter()
 	stderr = new EventEmitter()
+	stdin = {
+		written: "",
+		end(data: string) {
+			this.written = data
+		},
+	}
 	pid = 12345
 	killed = false
 	kill() {
@@ -74,6 +81,25 @@ describe("IndexingService", () => {
 		should(errorEvent).not.be.undefined()
 	})
 
+	it("surfaces the CLI's error hint instead of a bare exit code", async () => {
+		const service = new IndexingService(
+			() => "/fake/cbm",
+			(e) => events.push(e),
+			() => undefined,
+		)
+		const promise = service.indexProject("/repo")
+		mockChild.stdout.emit(
+			"data",
+			Buffer.from(
+				'{"status":"error","outcome":"killed","hint":"Indexing worker crashed on a file. Re-run to retry.","repo_path":"/repo"}\n',
+			),
+		)
+		mockChild.emit("exit", 1, null)
+		await promise
+		const errorEvent = events.find((e) => e.level === IndexProgressEvent_Level.ERROR)
+		should(errorEvent?.message).equal("Indexing worker crashed on a file. Re-run to retry.")
+	})
+
 	it("emits DONE with node/edge counts on clean exit with JSON", async () => {
 		const service = new IndexingService(
 			() => "/fake/cbm",
@@ -112,9 +138,53 @@ describe("IndexingService", () => {
 		const promise = service.reindexProject()
 		mockChild.emit("exit", 0, null)
 		await promise
-		sinon.assert.calledWith(spawnStub, "/fake/cbm", ["cli", "index_repository", sinon.match.string], sinon.match.any)
-		const jsonArg = spawnStub.firstCall.args[1][2] as string
-		should(JSON.parse(jsonArg).repo_path).equal("/previous/repo")
+		sinon.assert.calledWith(spawnStub, "/fake/cbm", ["cli", "index_repository"], sinon.match.any)
+		should(mockChild.stdin.written).equal(JSON.stringify({ repo_path: "/previous/repo" }))
+	})
+
+	it("stderr progress resets the no-output timer so a long-running healthy index isn't killed", async () => {
+		const clock = sinon.useFakeTimers()
+		try {
+			const service = new IndexingService(
+				() => "/fake/cbm",
+				(e) => events.push(e),
+				() => undefined,
+			)
+			const promise = service.indexProject("/repo")
+			// The real CLI streams all of its progress logging on stderr and only
+			// emits a single line on stdout at the very end, so stderr activity
+			// must count as "output" for the watchdog — otherwise any run longer
+			// than the timeout gets killed regardless of how much healthy
+			// progress is streaming.
+			for (let i = 0; i < 3; i++) {
+				await clock.tickAsync(9 * 60 * 1000)
+				mockChild.stderr.emit("data", Buffer.from("level=info msg=pass.done pass=structure\n"))
+			}
+			should(events.some((e) => e.level === IndexProgressEvent_Level.ERROR)).be.false()
+			mockChild.stdout.emit("data", Buffer.from('{"status":"indexed","nodes":10,"edges":5}\n'))
+			mockChild.emit("exit", 0, null)
+			await promise
+			should(events.some((e) => e.level === IndexProgressEvent_Level.DONE)).be.true()
+		} finally {
+			clock.restore()
+		}
+	})
+
+	it("times out when there is truly no output at all", async () => {
+		const clock = sinon.useFakeTimers()
+		try {
+			const service = new IndexingService(
+				() => "/fake/cbm",
+				(e) => events.push(e),
+				() => undefined,
+			)
+			const promise = service.indexProject("/repo")
+			await clock.tickAsync(10 * 60 * 1000)
+			should(events.some((e) => e.level === IndexProgressEvent_Level.ERROR && /timed out/.test(e.message))).be.true()
+			await promise
+		} finally {
+			clock.restore()
+		}
 	})
 
 	it("reindexProject emits ERROR when no repo was previously indexed", async () => {

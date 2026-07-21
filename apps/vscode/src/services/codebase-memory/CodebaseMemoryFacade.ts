@@ -1,17 +1,16 @@
-import type { ClineExtensionContext } from "@shared/cline"
+import * as fs from "node:fs/promises"
+import * as path from "node:path"
 import type { McpHub } from "@services/mcp/McpHub"
-import { Logger } from "@/shared/services/Logger"
+import type { ClineExtensionContext } from "@shared/cline"
 import {
 	CodebaseMemoryStatus,
 	CodebaseMemoryTool,
 	IndexProgressEvent,
 	IndexProgressEvent_Level,
 } from "@shared/proto/cline/codebase_memory"
-import * as fs from "node:fs/promises"
-import * as path from "node:path"
-import { BINARY_SUBDIR } from "./constants"
+import { Logger } from "@/shared/services/Logger"
 import { BinaryManager } from "./BinaryManager"
-import { toProtoTools } from "./constants"
+import { BINARY_SUBDIR, toProtoTools } from "./constants"
 import { GraphServerService } from "./GraphServerService"
 import { IndexingService, type ProgressHandler } from "./IndexingService"
 import { McpRegistrationService } from "./McpRegistrationService"
@@ -45,7 +44,9 @@ export class CodebaseMemoryFacade {
 		this.storageDir = storageDir
 		this.indexInfoPath = path.join(storageDir, BINARY_SUBDIR, "index-info.json")
 		this.binaryManager = new BinaryManager(storageDir, platform, arch)
-		this.graphServer = new GraphServerService(() => this.binaryManager.getUiBinaryPath() ?? this.binaryManager.getBinaryPath()!)
+		this.graphServer = new GraphServerService(
+			() => this.binaryManager.getUiBinaryPath() ?? this.binaryManager.getBinaryPath()!,
+		)
 		this.mcpRegistration = new McpRegistrationService(mcpHub, this.binaryManager.getBinaryPath()!)
 		this.cachedIndexInfo = this.loadIndexInfo()
 		Logger.log(`[CBM-DIAG] CodebaseMemoryFacade loaded cached index info: ${JSON.stringify(this.cachedIndexInfo)}`)
@@ -159,6 +160,25 @@ export class CodebaseMemoryFacade {
 				}),
 			)
 			return
+		}
+
+		try {
+			await this.binaryManager.ensureBinary((p) => {
+				onProgress(
+					IndexProgressEvent.create({
+						level: IndexProgressEvent_Level.INFO,
+						message: `Downloading binary... ${Math.round(p.pct)}%`,
+					}),
+				)
+			})
+		} catch (err) {
+			onProgress(
+				IndexProgressEvent.create({
+					level: IndexProgressEvent_Level.ERROR,
+					message: `Failed: ${err instanceof Error ? err.message : String(err)}`,
+				}),
+			)
+			throw err
 		}
 
 		this.indexingService = new IndexingService(
