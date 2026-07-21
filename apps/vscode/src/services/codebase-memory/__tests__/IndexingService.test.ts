@@ -136,34 +136,49 @@ describe("IndexingService", () => {
 		should(spawnOpts.env?.CBM_INDEX_SUPERVISOR).equal("0")
 	})
 
-	it("emits ERROR on non-zero exit", async () => {
+	it("emits ERROR on non-zero exit (after supervised retry also fails)", async () => {
+		const firstChild = new MockChildProcess()
+		const secondChild = new MockChildProcess()
+		spawnStub.onCall(0).returns(firstChild)
+		spawnStub.onCall(1).returns(secondChild)
+
 		const service = new IndexingService(
 			() => "/fake/cbm",
 			(e) => events.push(e),
 			() => undefined,
 		)
 		const promise = service.indexProject("/repo")
-		mockChild.stderr.emit("data", Buffer.from("fatal: repo not found\n"))
-		mockChild.emit("exit", 1, null)
+		firstChild.stderr.emit("data", Buffer.from("fatal: repo not found\n"))
+		firstChild.emit("exit", 1, null)
+		await new Promise((r) => setTimeout(r, 0))
+		secondChild.stderr.emit("data", Buffer.from("fatal: repo not found\n"))
+		secondChild.emit("exit", 1, null)
 		await promise
 		const errorEvent = events.find((e) => e.level === IndexProgressEvent_Level.ERROR)
 		should(errorEvent).not.be.undefined()
 	})
 
 	it("surfaces the CLI's error hint instead of a bare exit code", async () => {
+		const firstChild = new MockChildProcess()
+		const secondChild = new MockChildProcess()
+		spawnStub.onCall(0).returns(firstChild)
+		spawnStub.onCall(1).returns(secondChild)
+
 		const service = new IndexingService(
 			() => "/fake/cbm",
 			(e) => events.push(e),
 			() => undefined,
 		)
 		const promise = service.indexProject("/repo")
-		mockChild.stdout.emit(
+		firstChild.emit("exit", 1, null)
+		await new Promise((r) => setTimeout(r, 0))
+		secondChild.stdout.emit(
 			"data",
 			Buffer.from(
 				'{"status":"error","outcome":"killed","hint":"Indexing worker crashed on a file. Re-run to retry.","repo_path":"/repo"}\n',
 			),
 		)
-		mockChild.emit("exit", 1, null)
+		secondChild.emit("exit", 1, null)
 		await promise
 		const errorEvent = events.find((e) => e.level === IndexProgressEvent_Level.ERROR)
 		should(errorEvent?.message).equal("Indexing worker crashed on a file. Re-run to retry.")
@@ -266,5 +281,79 @@ describe("IndexingService", () => {
 		const errorEvent = events.find((e) => e.level === IndexProgressEvent_Level.ERROR)
 		should(errorEvent).not.be.undefined()
 		should(errorEvent?.message).match(/No project has been indexed/)
+	})
+
+	it("retries in supervised mode after a non-zero (crash) exit, then completes", async () => {
+		const firstChild = new MockChildProcess()
+		const secondChild = new MockChildProcess()
+		spawnStub.onCall(0).returns(firstChild)
+		spawnStub.onCall(1).returns(secondChild)
+
+		const service = new IndexingService(
+			() => "/fake/cbm",
+			(e) => events.push(e),
+			() => undefined,
+		)
+		const promise = service.indexProject("/repo")
+
+		// First (in-process) attempt crashes.
+		firstChild.emit("exit", 1, null)
+		// Give the microtask queue a tick so runWithFallback starts the retry.
+		await new Promise((r) => setTimeout(r, 0))
+		// Second (supervised) attempt succeeds.
+		secondChild.stdout.emit("data", Buffer.from('{"status":"indexed","nodes":7,"edges":3}\n'))
+		secondChild.emit("exit", 0, null)
+		await promise
+
+		should(spawnStub.callCount).equal(2)
+		// First spawn is in-process, retry is supervised (no CBM_INDEX_SUPERVISOR override).
+		should((spawnStub.getCall(0).args[2] as any).env.CBM_INDEX_SUPERVISOR).equal("0")
+		should((spawnStub.getCall(1).args[2] as any).env?.CBM_INDEX_SUPERVISOR).be.undefined()
+		should(events.some((e) => /crash isolation/i.test(e.message))).be.true()
+		should(events.some((e) => e.level === IndexProgressEvent_Level.DONE)).be.true()
+	})
+
+	it("does not emit a terminal error on the first (crash) attempt", async () => {
+		const firstChild = new MockChildProcess()
+		const secondChild = new MockChildProcess()
+		spawnStub.onCall(0).returns(firstChild)
+		spawnStub.onCall(1).returns(secondChild)
+
+		const service = new IndexingService(
+			() => "/fake/cbm",
+			(e) => events.push(e),
+			() => undefined,
+		)
+		const promise = service.indexProject("/repo")
+		firstChild.emit("exit", 1, null)
+		await new Promise((r) => setTimeout(r, 0))
+		// The only ERROR (if any) must come from the retry, not the first attempt.
+		secondChild.emit("exit", 0, null)
+		await promise
+		should(events.some((e) => e.level === IndexProgressEvent_Level.ERROR)).be.false()
+	})
+
+	it("surfaces the error if the supervised retry also fails", async () => {
+		const firstChild = new MockChildProcess()
+		const secondChild = new MockChildProcess()
+		spawnStub.onCall(0).returns(firstChild)
+		spawnStub.onCall(1).returns(secondChild)
+
+		const service = new IndexingService(
+			() => "/fake/cbm",
+			(e) => events.push(e),
+			() => undefined,
+		)
+		const promise = service.indexProject("/repo")
+		firstChild.emit("exit", 1, null)
+		await new Promise((r) => setTimeout(r, 0))
+		secondChild.stdout.emit(
+			"data",
+			Buffer.from('{"status":"error","hint":"Indexing worker crashed on a file. Re-run to retry."}\n'),
+		)
+		secondChild.emit("exit", 1, null)
+		await promise
+		const err = events.find((e) => e.level === IndexProgressEvent_Level.ERROR)
+		should(err?.message).equal("Indexing worker crashed on a file. Re-run to retry.")
 	})
 })

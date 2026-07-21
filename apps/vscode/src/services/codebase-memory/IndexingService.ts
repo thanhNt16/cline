@@ -43,7 +43,7 @@ export class IndexingService {
 	async indexProject(repoPath: string): Promise<void> {
 		this.lastJsonLine = undefined
 		this.resetProgress()
-		await this.runCli(repoPath, ["cli", "index_repository"], JSON.stringify({ repo_path: repoPath }))
+		await this.runWithFallback(repoPath, JSON.stringify({ repo_path: repoPath }))
 	}
 
 	async reindexProject(): Promise<void> {
@@ -59,7 +59,7 @@ export class IndexingService {
 		}
 		this.lastJsonLine = undefined
 		this.resetProgress()
-		await this.runCli(repo, ["cli", "index_repository"], JSON.stringify({ repo_path: repo }))
+		await this.runWithFallback(repo, JSON.stringify({ repo_path: repo }))
 	}
 
 	cancel(): void {
@@ -69,22 +69,52 @@ export class IndexingService {
 		}
 	}
 
+	private async runWithFallback(repoPath: string, stdinJson: string): Promise<void> {
+		// First attempt: in-process for a live progress stream, error deferred so we can retry.
+		const outcome = await this.runCli(repoPath, ["cli", "index_repository"], stdinJson, {
+			supervised: false,
+			emitTerminalError: false,
+		})
+		if (outcome !== "crash") {
+			return // clean / cancelled / spawn-error already handled their terminal event
+		}
+		// A file crashed the in-process indexer. Retry once supervised: the CLI isolates the
+		// offending file and continues. No per-file progress reaches us in this mode, so show an
+		// indeterminate "retrying" state; a real (non-crash) failure will surface on this attempt.
+		this.progress(
+			IndexProgressEvent.create({
+				level: IndexProgressEvent_Level.INFO,
+				message: "A file crashed the fast indexer — retrying with crash isolation…",
+				phase: "Retrying with crash isolation",
+				percent: this.lastPercent,
+			}),
+		)
+		this.lastJsonLine = undefined
+		await this.runCli(repoPath, ["cli", "index_repository"], stdinJson, {
+			supervised: true,
+			emitTerminalError: true,
+		})
+	}
+
 	/**
 	 * Tool args are piped over stdin (as the pinned CLI's `cli <tool> < args.json` form)
 	 * rather than passed as a positional argv JSON string: it's UTF-8-clean (no shell/argv
 	 * encoding pitfalls for exotic repo paths), and — unlike the positional form — doesn't
 	 * print a "deprecated" warning on every run.
 	 */
-	private runCli(repoPath: string, args: string[], stdinJson: string): Promise<void> {
+	private runCli(
+		repoPath: string,
+		args: string[],
+		stdinJson: string,
+		opts: { supervised: boolean; emitTerminalError: boolean },
+	): Promise<"clean" | "crash" | "cancelled" | "spawn-error"> {
 		return new Promise((resolve) => {
 			const bin = this.binaryPath()
 			const child = spawn(bin, args, {
 				stdio: ["pipe", "pipe", "pipe"],
-				// Run in-process so the pipeline's progress logs reach our stderr. In the
-				// CLI's default supervised mode the worker logs to a private file we never
-				// see, so the bar would sit frozen. Crash isolation is recovered by the
-				// supervised retry in runWithFallback (Task 3).
-				env: { ...process.env, CBM_INDEX_SUPERVISOR: "0" },
+				// In-process (CBM_INDEX_SUPERVISOR=0) streams progress to our stderr; supervised
+				// (default env) isolates crashes but hides progress. See runWithFallback.
+				env: opts.supervised ? { ...process.env } : { ...process.env, CBM_INDEX_SUPERVISOR: "0" },
 			})
 			this.currentProcess = child
 			this.resetNoOutputTimer()
@@ -136,23 +166,23 @@ export class IndexingService {
 							percent: 100,
 						}),
 					)
+					resolve("clean")
 				} else if (signal) {
-					this.progress(
-						IndexProgressEvent.create({
-							level: IndexProgressEvent_Level.ERROR,
-							message: `Indexing process exited with signal ${signal}`,
-						}),
-					)
+					// Killed by us (cancel or watchdog) — the watchdog emits its own timeout error;
+					// a user cancel stays silent. Never retry.
+					resolve("cancelled")
 				} else {
-					const hint = this.parseErrorHint()
-					this.progress(
-						IndexProgressEvent.create({
-							level: IndexProgressEvent_Level.ERROR,
-							message: hint ?? `Indexing failed with exit code ${code}`,
-						}),
-					)
+					if (opts.emitTerminalError) {
+						const hint = this.parseErrorHint()
+						this.progress(
+							IndexProgressEvent.create({
+								level: IndexProgressEvent_Level.ERROR,
+								message: hint ?? `Indexing failed with exit code ${code}`,
+							}),
+						)
+					}
+					resolve("crash")
 				}
-				resolve()
 			})
 
 			child.on("error", (err) => {
@@ -164,7 +194,7 @@ export class IndexingService {
 						message: `Failed to spawn indexing process: ${err.message}`,
 					}),
 				)
-				resolve()
+				resolve("spawn-error")
 			})
 		})
 	}
