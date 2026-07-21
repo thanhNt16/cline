@@ -67,6 +67,75 @@ describe("IndexingService", () => {
 		should(events[0].message).equal("Parsing src/foo.ts...")
 	})
 
+	it("emits phase + percent from parallel.extract.progress lines", async () => {
+		const service = new IndexingService(
+			() => "/fake/cbm",
+			(e) => events.push(e),
+			() => undefined,
+		)
+		const promise = service.indexProject("/repo")
+		mockChild.stderr.emit("data", Buffer.from("level=info msg=parallel.extract.start files=200 workers=10\n"))
+		mockChild.stderr.emit("data", Buffer.from("level=info msg=parallel.extract.progress done=100 total=200\n"))
+		mockChild.stdout.emit("data", Buffer.from('{"status":"indexed","nodes":10,"edges":5}\n'))
+		mockChild.emit("exit", 0, null)
+		await promise
+
+		const prog = events.find((e) => e.filesTotal === 200 && e.filesDone === 100)
+		should(prog).not.be.undefined()
+		should(prog?.phase).equal("Extracting definitions")
+		// extraction occupies 10→80 of the bar: 100/200 => 10 + 0.5*70 = 45
+		should(Number(prog?.percent)).equal(45)
+	})
+
+	it("percent is monotonic and DONE reaches 100", async () => {
+		const service = new IndexingService(
+			() => "/fake/cbm",
+			(e) => events.push(e),
+			() => undefined,
+		)
+		const promise = service.indexProject("/repo")
+		mockChild.stderr.emit("data", Buffer.from("level=info msg=parallel.extract.progress done=180 total=200\n"))
+		// a late discover line must NOT drag the bar backward
+		mockChild.stderr.emit("data", Buffer.from("level=info msg=pipeline.discover files=200 elapsed_ms=5\n"))
+		mockChild.stdout.emit("data", Buffer.from('{"status":"indexed","nodes":10,"edges":5}\n'))
+		mockChild.emit("exit", 0, null)
+		await promise
+
+		const percents = events.filter((e) => e.percent !== undefined).map((e) => Number(e.percent))
+		for (let i = 1; i < percents.length; i++) {
+			should(percents[i]).be.greaterThanOrEqual(percents[i - 1])
+		}
+		const done = events.find((e) => e.level === IndexProgressEvent_Level.DONE)
+		should(Number(done?.percent)).equal(100)
+	})
+
+	it("maps pass.start markers to human phase labels", async () => {
+		const service = new IndexingService(
+			() => "/fake/cbm",
+			(e) => events.push(e),
+			() => undefined,
+		)
+		const promise = service.indexProject("/repo")
+		mockChild.stderr.emit("data", Buffer.from("level=info msg=parallel.resolve.start files=200 workers=10\n"))
+		mockChild.stdout.emit("data", Buffer.from('{"status":"indexed","nodes":10,"edges":5}\n'))
+		mockChild.emit("exit", 0, null)
+		await promise
+		should(events.some((e) => e.phase === "Resolving calls & edges")).be.true()
+	})
+
+	it("runs the first attempt in-process (CBM_INDEX_SUPERVISOR=0)", async () => {
+		const service = new IndexingService(
+			() => "/fake/cbm",
+			(e) => events.push(e),
+			() => undefined,
+		)
+		const promise = service.indexProject("/repo")
+		mockChild.emit("exit", 0, null)
+		await promise
+		const spawnOpts = spawnStub.firstCall.args[2] as { env?: Record<string, string> }
+		should(spawnOpts.env?.CBM_INDEX_SUPERVISOR).equal("0")
+	})
+
 	it("emits ERROR on non-zero exit", async () => {
 		const service = new IndexingService(
 			() => "/fake/cbm",

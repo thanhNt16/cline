@@ -3,12 +3,36 @@ import { IndexProgressEvent, IndexProgressEvent_Level } from "@shared/proto/clin
 import { INDEXING_NO_OUTPUT_TIMEOUT_MS } from "./constants"
 import type { IndexingResult } from "./types"
 
+// Extraction is the one phase the CLI reports per-file counts for; it occupies
+// the 10→80 band of the overall bar. The surrounding phases advance the bar to
+// fixed floors so it never stalls or jumps backward.
+const EXTRACT_START_PCT = 10
+const EXTRACT_SPAN_PCT = 70
+const EXTRACT_PROGRESS_RE = /msg=parallel\.extract\.progress done=(\d+) total=(\d+)/
+
+// Ordered phase markers → { human label, overall-percent floor when it starts }.
+// Matched against raw CLI stderr lines (level=info msg=<marker> …).
+const PHASE_MARKERS: Array<{ test: RegExp; label: string; floor: number }> = [
+	{ test: /msg=pipeline\.discover\b/, label: "Discovering files", floor: 3 },
+	{ test: /msg=pass\.start pass=structure\b/, label: "Building file structure", floor: 6 },
+	{ test: /msg=parallel\.extract\.start\b/, label: "Extracting definitions", floor: EXTRACT_START_PCT },
+	{ test: /msg=parallel\.extract\.done\b/, label: "Extracting definitions", floor: 80 },
+	{ test: /msg=parallel\.registry\.start\b/, label: "Building registry", floor: 82 },
+	{ test: /msg=parallel\.resolve\.start\b/, label: "Resolving calls & edges", floor: 85 },
+	{ test: /msg=parallel\.resolve\.done\b/, label: "Resolving calls & edges", floor: 95 },
+	{ test: /msg=pass\.start pass=semantic\b/, label: "Analyzing inheritance", floor: 96 },
+	{ test: /msg=pass\.start pass=tests\b/, label: "Detecting tests", floor: 97 },
+	{ test: /msg=pass\.start pass=calls\b/, label: "Linking calls", floor: 98 },
+]
+
 export type ProgressHandler = (event: IndexProgressEvent) => void
 
 export class IndexingService {
 	private currentProcess: ChildProcess | undefined
 	private noOutputTimer: ReturnType<typeof setTimeout> | undefined
 	private lastJsonLine: string | undefined
+	private lastPercent = 0
+	private currentPhase = ""
 
 	constructor(
 		private readonly binaryPath: () => string,
@@ -18,6 +42,7 @@ export class IndexingService {
 
 	async indexProject(repoPath: string): Promise<void> {
 		this.lastJsonLine = undefined
+		this.resetProgress()
 		await this.runCli(repoPath, ["cli", "index_repository"], JSON.stringify({ repo_path: repoPath }))
 	}
 
@@ -33,6 +58,7 @@ export class IndexingService {
 			return
 		}
 		this.lastJsonLine = undefined
+		this.resetProgress()
 		await this.runCli(repo, ["cli", "index_repository"], JSON.stringify({ repo_path: repo }))
 	}
 
@@ -52,7 +78,14 @@ export class IndexingService {
 	private runCli(repoPath: string, args: string[], stdinJson: string): Promise<void> {
 		return new Promise((resolve) => {
 			const bin = this.binaryPath()
-			const child = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"] })
+			const child = spawn(bin, args, {
+				stdio: ["pipe", "pipe", "pipe"],
+				// Run in-process so the pipeline's progress logs reach our stderr. In the
+				// CLI's default supervised mode the worker logs to a private file we never
+				// see, so the bar would sit frozen. Crash isolation is recovered by the
+				// supervised retry in runWithFallback (Task 3).
+				env: { ...process.env, CBM_INDEX_SUPERVISOR: "0" },
+			})
 			this.currentProcess = child
 			this.resetNoOutputTimer()
 			child.stdin?.end(stdinJson)
@@ -77,14 +110,8 @@ export class IndexingService {
 				const str = chunk.toString("utf8")
 				const lines = str.split("\n")
 				for (const line of lines) {
-					if (source === "stderr" && line.trim()) {
-						this.resetNoOutputTimer()
-						this.progress(
-							IndexProgressEvent.create({
-								level: IndexProgressEvent_Level.WARN,
-								message: line.trim(),
-							}),
-						)
+					if (source === "stderr") {
+						this.handleStderrLine(line)
 					} else if (line.trim()) {
 						handleLine(line)
 					}
@@ -105,6 +132,8 @@ export class IndexingService {
 							message: `Indexed ${repoPath} — ${result.nodeCount} nodes, ${result.edgeCount} edges`,
 							nodeCount: result.nodeCount,
 							edgeCount: result.edgeCount,
+							phase: "Done",
+							percent: 100,
 						}),
 					)
 				} else if (signal) {
@@ -138,6 +167,58 @@ export class IndexingService {
 				resolve()
 			})
 		})
+	}
+
+	private resetProgress(): void {
+		this.lastPercent = 0
+		this.currentPhase = ""
+	}
+
+	private handleStderrLine(line: string): void {
+		const trimmed = line.trim()
+		if (!trimmed) return
+		this.resetNoOutputTimer()
+
+		// Surface genuine CLI errors verbatim.
+		if (/level=error\b/.test(trimmed)) {
+			this.progress(IndexProgressEvent.create({ level: IndexProgressEvent_Level.ERROR, message: trimmed }))
+			return
+		}
+
+		// Measurable extraction progress → precise percent + file counters.
+		const m = trimmed.match(EXTRACT_PROGRESS_RE)
+		if (m) {
+			const done = Number(m[1])
+			const total = Number(m[2])
+			const pct = total > 0 ? EXTRACT_START_PCT + Math.round((done / total) * EXTRACT_SPAN_PCT) : EXTRACT_START_PCT
+			this.emitProgress("Extracting definitions", pct, done, total)
+			return
+		}
+
+		// Phase transitions → label + floor.
+		for (const p of PHASE_MARKERS) {
+			if (p.test.test(trimmed)) {
+				this.emitProgress(p.label, p.floor)
+				return
+			}
+		}
+		// Everything else (mem.init, per-file start/done, timings, memory budgets) is noise — drop it.
+	}
+
+	private emitProgress(phase: string, percent: number, filesDone?: number, filesTotal?: number): void {
+		const clamped = Math.max(this.lastPercent, Math.min(percent, 99))
+		this.lastPercent = clamped
+		this.currentPhase = phase
+		this.progress(
+			IndexProgressEvent.create({
+				level: IndexProgressEvent_Level.INFO,
+				message: filesTotal !== undefined ? `${phase} — ${filesDone}/${filesTotal} files` : phase,
+				phase,
+				percent: clamped,
+				filesDone,
+				filesTotal,
+			}),
+		)
 	}
 
 	private parseResultLine(): IndexingResult {
