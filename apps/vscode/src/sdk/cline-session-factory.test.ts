@@ -2,6 +2,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import type { CoreSessionConfig } from "@cline/core"
+import { buildClineSystemPrompt } from "@cline/shared"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
 	buildResumeSessionInput,
@@ -65,6 +66,14 @@ vi.mock("@shared/services/Logger", () => ({
 		error: vi.fn(),
 	},
 }))
+
+vi.mock("@cline/shared", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@cline/shared")>()
+	return {
+		...actual,
+		buildClineSystemPrompt: vi.fn(actual.buildClineSystemPrompt),
+	}
+})
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -873,5 +882,19 @@ describe("updateHistoryItem", () => {
 		expect(result).toHaveLength(2)
 		expect(result[0].id).toBe("task-new")
 		expect(result[1].id).toBe("task-old")
+	})
+})
+
+describe("buildSessionConfig - system prompt fallback", () => {
+	it("falls back to a minimal CellockAI system prompt when the shared prompt builder throws", async () => {
+		vi.mocked(buildClineSystemPrompt).mockImplementationOnce(() => {
+			throw new Error("forced failure for test")
+		})
+
+		const config = await buildSessionConfig({ cwd: "/tmp/workspace" })
+
+		expect(config.systemPrompt).toBe(
+			"You are CellockAI, a highly skilled software engineer. Help the user with their request.",
+		)
 	})
 })
