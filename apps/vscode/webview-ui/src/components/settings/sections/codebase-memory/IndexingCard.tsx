@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react"
 import type { CodebaseMemoryStatus, IndexProgressEvent } from "@shared/proto/cline/codebase_memory"
+import { useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
+import { Progress } from "@/components/ui/progress"
 
 interface IndexingCardProps {
 	status?: CodebaseMemoryStatus
@@ -36,6 +37,14 @@ export default function IndexingCard({ status, isIndexing, progressLines, onInde
 	const binaryInstalled = status?.binaryInstalled ?? false
 	const canIndex = binaryInstalled && hasWorkspace && !isIndexing
 
+	const latest = [...progressLines].reverse().find((e) => e.phase !== undefined || e.percent !== undefined)
+	const isDone = progressLines.some((e) => e.level === 3) // IndexProgressEvent_Level.DONE
+	const phase = latest?.phase
+	const percent = latest?.percent
+	const filesDone = latest?.filesDone
+	const filesTotal = latest?.filesTotal
+	const showProgress = isIndexing || (isDone && progressLines.length > 0)
+
 	return (
 		<div
 			style={{
@@ -45,10 +54,14 @@ export default function IndexingCard({ status, isIndexing, progressLines, onInde
 			}}>
 			<div style={{ fontSize: "13px", fontWeight: 600, marginBottom: "8px" }}>Indexing</div>
 			<div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
-				<Button onClick={onIndex} disabled={!canIndex} variant="default" size="sm">
+				<Button disabled={!canIndex} onClick={onIndex} size="sm" variant="default">
 					{isIndexing ? "Indexing..." : "Index Current Project"}
 				</Button>
-				<Button onClick={onReindex} disabled={isIndexing || !status?.isIndexed || !binaryInstalled} variant="outline" size="sm">
+				<Button
+					disabled={isIndexing || !status?.isIndexed || !binaryInstalled}
+					onClick={onReindex}
+					size="sm"
+					variant="outline">
 					Re-index
 				</Button>
 			</div>
@@ -70,6 +83,29 @@ export default function IndexingCard({ status, isIndexing, progressLines, onInde
 						marginBottom: "8px",
 					}}>
 					Install the binary to enable indexing.
+				</div>
+			)}
+			{showProgress && (phase !== undefined || percent !== undefined) && (
+				<div style={{ marginBottom: "12px" }}>
+					<div
+						style={{
+							display: "flex",
+							justifyContent: "space-between",
+							fontSize: "12px",
+							marginBottom: "4px",
+							color: "var(--vscode-foreground)",
+						}}>
+						<span>{phase ?? "Indexing…"}</span>
+						<span style={{ color: "var(--vscode-descriptionForeground)" }}>
+							{percent !== undefined ? `${percent}%` : ""}
+							{filesTotal !== undefined ? `  ${filesDone}/${filesTotal} files` : ""}
+						</span>
+					</div>
+					{percent !== undefined ? (
+						<Progress aria-valuenow={percent} value={percent} />
+					) : (
+						<Progress aria-valuenow={undefined} className="animate-pulse" />
+					)}
 				</div>
 			)}
 			{progressLines.length > 0 && (
