@@ -47,6 +47,10 @@ message IndexProgressEvent {
   string message = 2;
   optional int64 node_count = 3;
   optional int64 edge_count = 4;
+  optional string phase = 5;
+  optional int64 files_done = 6;
+  optional int64 files_total = 7;
+  optional int32 percent = 8;
 }
 
 message ViewGraphResponse {
