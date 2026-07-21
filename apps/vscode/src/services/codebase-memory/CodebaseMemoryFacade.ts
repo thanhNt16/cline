@@ -100,11 +100,21 @@ export class CodebaseMemoryFacade {
 		}
 
 		try {
+			onProgress(
+				IndexProgressEvent.create({
+					level: IndexProgressEvent_Level.INFO,
+					message: "Checking codebase-memory binary…",
+					phase: "Checking binary",
+					percent: 0,
+				}),
+			)
 			await this.binaryManager.ensureBinary((p) => {
 				onProgress(
 					IndexProgressEvent.create({
 						level: IndexProgressEvent_Level.INFO,
-						message: `Downloading binary... ${Math.round(p.pct)}%`,
+						message: `Downloading binary… ${Math.round(p.pct)}%`,
+						phase: "Downloading binary",
+						percent: Math.round(p.pct),
 					}),
 				)
 			})
@@ -136,7 +146,9 @@ export class CodebaseMemoryFacade {
 			onProgress(
 				IndexProgressEvent.create({
 					level: IndexProgressEvent_Level.INFO,
-					message: "Registering codebase-memory-mcp as MCP server...",
+					message: "Registering codebase-memory-mcp as MCP server…",
+					phase: "Registering MCP server",
+					percent: 100,
 				}),
 			)
 			await this.mcpRegistration.register()

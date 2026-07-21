@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, it } from "bun:test"
 import "should"
 import sinon from "sinon"
-import { CodebaseMemoryFacade } from "../CodebaseMemoryFacade"
 import { BinaryManager } from "../BinaryManager"
-import { IndexingService } from "../IndexingService"
+import { CodebaseMemoryFacade } from "../CodebaseMemoryFacade"
 import { GraphServerService } from "../GraphServerService"
+import { IndexingService } from "../IndexingService"
 import { McpRegistrationService } from "../McpRegistrationService"
 
 describe("CodebaseMemoryFacade", () => {
@@ -90,5 +90,17 @@ describe("CodebaseMemoryFacade", () => {
 	it("dispose stops graph server", () => {
 		facade.dispose()
 		sinon.assert.calledOnce(GraphServerService.prototype.stop as any)
+	})
+
+	it("emits ordered prepare-step events around indexing", async () => {
+		sandbox.stub(IndexingService.prototype, "indexProject").resolves()
+		const events: any[] = []
+		await facade.indexProject("/repo", (e) => events.push(e))
+
+		const messages = events.map((e) => e.message)
+		const checkingIdx = messages.findIndex((m) => /checking .*binary/i.test(m))
+		const registeringIdx = messages.findIndex((m) => /registering/i.test(m))
+		should(checkingIdx).be.greaterThanOrEqual(0)
+		should(registeringIdx).be.greaterThan(checkingIdx)
 	})
 })
