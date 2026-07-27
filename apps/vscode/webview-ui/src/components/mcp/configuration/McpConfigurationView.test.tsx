@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import McpConfigurationView from "./McpConfigurationView"
 
@@ -28,6 +29,14 @@ vi.mock("@shared/proto-conversions/mcp/mcp-server-conversion", () => ({
 
 vi.mock("./tabs/add-server/AddRemoteServerForm", () => ({
 	default: () => <div>Add Remote Server Form</div>,
+}))
+
+vi.mock("./tabs/add-server/AddStdioServerForm", () => ({
+	AddStdioServerForm: () => <div>Add Stdio Server Form</div>,
+}))
+
+vi.mock("./tabs/add-server/AddDatabaseServerForm", () => ({
+	default: () => <div>Add Database Server Form</div>,
 }))
 
 vi.mock("./tabs/installed/ConfigureServersView", () => ({
@@ -69,5 +78,20 @@ describe("McpConfigurationView", () => {
 		expect(screen.getByRole("button", { name: "Configure" })).toBeInTheDocument()
 		expect(screen.queryByText("Add Remote Server Form")).not.toBeInTheDocument()
 		expect(screen.getByText("Configure Servers View")).toBeInTheDocument()
+	})
+
+	it("shows a Database tab that renders the database wizard", async () => {
+		mocks.remoteConfigSettings = { blockPersonalRemoteMCPServers: false }
+		const user = userEvent.setup()
+
+		render(<McpConfigurationView onDone={vi.fn()} />)
+
+		const dbTab = screen.getByRole("button", { name: "Database" })
+		expect(dbTab).toBeInTheDocument()
+
+		await user.click(dbTab)
+		expect(screen.getByText("Add Database Server Form")).toBeInTheDocument()
+
+		await waitFor(() => expect(mocks.getLatestMcpServers).toHaveBeenCalledTimes(1))
 	})
 })

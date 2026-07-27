@@ -7,6 +7,7 @@ import styled from "styled-components"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { McpServiceClient } from "@/services/grpc-client"
 import ViewHeader from "../../common/ViewHeader"
+import AddDatabaseServerForm from "./tabs/add-server/AddDatabaseServerForm"
 import AddRemoteServerForm from "./tabs/add-server/AddRemoteServerForm"
 import { AddStdioServerForm } from "./tabs/add-server/AddStdioServerForm"
 import ConfigureServersView from "./tabs/installed/ConfigureServersView"
@@ -74,6 +75,9 @@ const McpConfigurationView = ({ onDone, initialTab }: McpViewProps) => {
 					<TabButton isActive={activeTab === "addLocal"} onClick={() => handleTabChange("addLocal")}>
 						Local Server
 					</TabButton>
+					<TabButton isActive={activeTab === "addDatabase"} onClick={() => handleTabChange("addDatabase")}>
+						Database
+					</TabButton>
 					<TabButton isActive={activeTab === "configure"} onClick={() => handleTabChange("configure")}>
 						Configure
 					</TabButton>
@@ -85,6 +89,7 @@ const McpConfigurationView = ({ onDone, initialTab }: McpViewProps) => {
 						<AddRemoteServerForm onServerAdded={() => handleTabChange("configure")} />
 					)}
 					{activeTab === "addLocal" && <AddStdioServerForm onDone={() => handleTabChange("configure")} />}
+					{activeTab === "addDatabase" && <AddDatabaseServerForm onDone={() => handleTabChange("configure")} />}
 					{activeTab === "configure" && <ConfigureServersView />}
 				</div>
 			</div>

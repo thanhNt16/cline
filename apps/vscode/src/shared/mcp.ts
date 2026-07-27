@@ -140,4 +140,4 @@ export type McpToolCallResponse = {
 	isError?: boolean
 }
 
-export type McpViewTab = "addRemote" | "configure" | "addLocal"
+export type McpViewTab = "addRemote" | "configure" | "addLocal" | "addDatabase"
