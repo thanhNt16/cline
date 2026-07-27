@@ -36,6 +36,7 @@ describe("AddDatabaseServerForm", () => {
 		const onDone = vi.fn()
 		render(<AddDatabaseServerForm onDone={onDone} />)
 
+		await user.clear(screen.getByLabelText("Server Name"))
 		await user.type(screen.getByLabelText("Server Name"), "toolbox-postgres")
 		await user.type(screen.getByLabelText("Database"), "appdb")
 		await user.type(screen.getByLabelText("User"), "appuser")

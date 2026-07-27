@@ -3,13 +3,13 @@ import { convertProtoMcpServersToMcpServers } from "@shared/proto-conversions/mc
 import { useState } from "react"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { McpServiceClient } from "@/services/grpc-client"
-import { buildPostgresConfig } from "./databasePresets"
+import { buildPostgresConfig, type PostgresConnectionFields } from "./databasePresets"
 
 const inputClass = "px-2 py-1 rounded bg-vscode-input-background text-vscode-input-foreground border border-vscode-input-border"
 
 export const AddDatabaseServerForm = ({ onDone }: { onDone: () => void }) => {
 	const { setMcpServers } = useExtensionState()
-	const [name, setName] = useState("")
+	const [name, setName] = useState("toolbox-postgres")
 	const [host, setHost] = useState("")
 	const [port, setPort] = useState("")
 	const [database, setDatabase] = useState("")
@@ -34,7 +34,7 @@ export const AddDatabaseServerForm = ({ onDone }: { onDone: () => void }) => {
 			user: user.trim(),
 			password,
 			queryParams,
-		})
+		} satisfies PostgresConnectionFields)
 
 		setLoading(true)
 		try {
