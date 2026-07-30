@@ -66,6 +66,32 @@ You are in Plan mode. Your role is to explore, analyze, and plan -- not to execu
 
 Once the user has reviewed your plan and explicitly approved it in a follow-up message, use the switch_to_act_mode tool to switch to act mode and begin implementation. Calling switch_to_act_mode immediately starts execution, so never call it in the same turn you present a plan and never treat the original task request as approval -- end your turn after presenting the plan and wait for the user's response.`
 
+/**
+ * Code-navigation protocol appended to every system prompt. Forces the model to
+ * consult the codebase-memory-mcp knowledge graph (search_graph) BEFORE any native
+ * file/search tool, so indexed repos are used instead of ad-hoc regex crawling.
+ * Soft-enforced here (system prompt) because CellockAI file hooks cannot block a
+ * single tool or inject usable context -- UserPromptSubmit.contextModification is
+ * parsed then discarded by sdk/hooks-adapter.ts mapStopControl (it only honors
+ * {cancel, errorMessage}). This is the only hands-off lever that reaches the model.
+ */
+const MCP_FIRST_SEARCH_INSTRUCTIONS = `# Code Search Protocol (MANDATORY)
+
+For ANY question about where code lives, how something is implemented, what calls what, or the structure of this codebase, your FIRST action must be a knowledge-graph lookup via the codebase-memory-mcp MCP server.
+
+1. Call search_graph FIRST (MCP server: "codebase-memory-mcp"). It is the indexed source of truth for this workspace.
+2. Only if you need to refine: follow with search_code, get_code_snippet, trace_path, query_graph, or get_architecture (same server).
+3. Only AFTER the graph -- or if the graph tools are unavailable or return nothing -- fall back to reading specific files (read_file) or grepping (search_files).
+
+NEVER begin a code question with: search_codebase, read_file, list_files, search_files, ls, find, grep, run_command, or any directory listing.
+
+Name collision -- know the difference:
+- search_graph = the MCP graph tool. This is the REQUIRED first call.
+- search_codebase = a NATIVE built-in regex search. Do NOT use it as a first move; it bypasses the graph.
+- search_code = an MCP graph refine step, not a replacement for search_graph.
+
+If codebase-memory-mcp is not connected for this workspace, say so and then proceed with native tools.`
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -663,6 +689,12 @@ export async function buildSessionConfig(input: SessionConfigInput): Promise<Cor
 	} catch (error) {
 		Logger.warn("[SessionFactory] Failed to build system prompt, using minimal fallback:", error)
 		systemPrompt = "You are CellockAI, a highly skilled software engineer. Help the user with their request."
+	}
+
+	// Inject the MCP-first code-search protocol so the model consults the
+	// codebase-memory-mcp graph before any native search/list tool.
+	if (systemPrompt) {
+		systemPrompt = `${systemPrompt}\n\n${MCP_FIRST_SEARCH_INSTRUCTIONS}`
 	}
 
 	// Inject preferred language instructions when a non-default language is selected.

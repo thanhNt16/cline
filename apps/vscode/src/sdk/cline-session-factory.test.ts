@@ -893,8 +893,24 @@ describe("buildSessionConfig - system prompt fallback", () => {
 
 		const config = await buildSessionConfig({ cwd: "/tmp/workspace" })
 
-		expect(config.systemPrompt).toBe(
+		// The MCP-first search protocol is appended even to the minimal fallback so
+		// the policy is enforced regardless of whether the shared prompt builder
+		// succeeded.
+		expect(config.systemPrompt).toContain(
 			"You are CellockAI, a highly skilled software engineer. Help the user with their request.",
 		)
+		expect(config.systemPrompt).toContain("Code Search Protocol (MANDATORY)")
+	})
+})
+
+describe("buildSessionConfig - MCP-first search protocol", () => {
+	it("appends the mandatory search_graph-first protocol to the system prompt", async () => {
+		const config = await buildSessionConfig({ cwd: "/tmp/workspace" })
+
+		expect(config.systemPrompt).toContain("Code Search Protocol (MANDATORY)")
+		expect(config.systemPrompt).toContain("search_graph")
+		expect(config.systemPrompt).toContain("codebase-memory-mcp")
+		// Native built-in that must NOT be used as a first move is called out.
+		expect(config.systemPrompt).toContain("search_codebase")
 	})
 })
