@@ -1,4 +1,4 @@
-import { UploadFileRequest } from "@shared/proto/cline/docs_index"
+import { TaskStatusRequest, UploadFileRequest } from "@shared/proto/cline/docs_index"
 import { useState } from "react"
 import { DocsIndexServiceClient } from "@/services/grpc-client"
 
@@ -20,8 +20,19 @@ export default function UploadCard({ serverUrl, connected, selectedProject, onUp
 		setStatus(null)
 		try {
 			const res = await DocsIndexServiceClient.uploadFile(UploadFileRequest.create({ serverUrl, project: selectedProject }))
-			setStatus(res.taskId ? `Uploaded — indexing task ${res.taskId}` : `Status: ${res.status}`)
-			if (res.taskId) onUploaded()
+			if (!res.taskId) {
+				setStatus(`Upload failed: ${res.status}`)
+				return
+			}
+			setStatus(`Uploaded — indexing task ${res.taskId}`)
+			// Upload is async: the document only becomes listable once the
+			// indexing task finishes, so poll until it's done before refreshing.
+			for (let i = 0; i < 30; i++) {
+				const t = await DocsIndexServiceClient.getTask(TaskStatusRequest.create({ serverUrl, taskId: res.taskId }))
+				if (t.status === "done" || t.status === "failed") break
+				await new Promise((r) => setTimeout(r, 1000))
+			}
+			onUploaded()
 		} catch (err) {
 			setError(`Upload failed: ${err instanceof Error ? err.message : String(err)}`)
 		} finally {
