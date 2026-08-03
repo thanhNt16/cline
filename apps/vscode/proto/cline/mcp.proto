@@ -50,6 +50,8 @@ message AddStdioMcpServerRequest {
   repeated string args = 4;
   map<string, string> env = 5;
   optional string cwd = 6;
+  optional string cellockai_preset = 7;
+  optional bool project_level = 8;
 }
 
 message ToggleToolAutoApproveRequest {

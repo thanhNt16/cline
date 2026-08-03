@@ -61,14 +61,25 @@ export type DocsIndexServiceHandlers = {
      ping:(controller: Controller, request: proto.cline.PingRequest) => Promise<proto.cline.PingResponse>
      listProjects:(controller: Controller, request: proto.cline.ListProjectsRequest) => Promise<proto.cline.ListProjectsResponse>
      createProject:(controller: Controller, request: proto.cline.CreateProjectRequest) => Promise<proto.cline.CreateProjectResponse>
+     renameProject:(controller: Controller, request: proto.cline.RenameProjectRequest) => Promise<proto.cline.ProjectMutationResponse>
+     deleteProject:(controller: Controller, request: proto.cline.DeleteProjectRequest) => Promise<proto.cline.ProjectMutationResponse>
      uploadFile:(controller: Controller, request: proto.cline.UploadFileRequest) => Promise<proto.cline.UploadFileResponse>
      indexUrl:(controller: Controller, request: proto.cline.IndexUrlRequest) => Promise<proto.cline.IndexUrlResponse>
+     indexBatch:(controller: Controller, request: proto.cline.IndexBatchRequest) => Promise<proto.cline.IndexBatchResponse>
      getTask:(controller: Controller, request: proto.cline.TaskStatusRequest) => Promise<proto.cline.TaskStatusResponse>
      searchDocuments:(controller: Controller, request: proto.cline.SearchDocumentsRequest) => Promise<proto.cline.SearchDocumentsResponse>
      deleteDocument:(controller: Controller, request: proto.cline.DeleteDocumentRequest) => Promise<proto.cline.DeleteDocumentResponse>
+     listDocuments:(controller: Controller, request: proto.cline.ListDocumentsRequest) => Promise<proto.cline.ListDocumentsResponse>
+     indexCodebase:(controller: Controller, request: proto.cline.IndexCodebaseRequest) => Promise<proto.cline.IndexCodebaseResponse>
+     startCodebaseWatch:(controller: Controller, request: proto.cline.StartCodebaseWatchRequest) => Promise<proto.cline.CodebaseWatchStatus>
+     getCodebaseWatch:(controller: Controller, request: proto.cline.GetCodebaseWatchRequest) => Promise<proto.cline.CodebaseWatchStatus>
+     stopCodebaseWatch:(controller: Controller, request: proto.cline.GetCodebaseWatchRequest) => Promise<proto.cline.CodebaseWatchStatus>
+     listCodebaseTools:(controller: Controller, request: proto.cline.ListCodebaseToolsRequest) => Promise<proto.cline.CodebaseToolCatalog>
      listDocsIndexTools:(controller: Controller, request: proto.cline.EmptyRequest) => Promise<proto.cline.DocsIndexTools>
      registerMcpServer:(controller: Controller, request: proto.cline.RegisterMcpRequest) => Promise<proto.cline.Empty>
      unregisterMcpServer:(controller: Controller, request: proto.cline.UnregisterMcpRequest) => Promise<proto.cline.Empty>
+     getDocsIndexSettings:(controller: Controller, request: proto.cline.EmptyRequest) => Promise<proto.cline.GetDocsIndexSettingsResponse>
+     updateDocsIndexSettings:(controller: Controller, request: proto.cline.UpdateDocsIndexSettingsRequest) => Promise<proto.cline.UpdateDocsIndexSettingsResponse>
 }
 
 // File Service Handler Types

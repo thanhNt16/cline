@@ -51,14 +51,25 @@ import { improveWithCline } from "@core/controller/commands/improveWithCline"
 import { ping } from "@core/controller/docsIndex/ping"
 import { listProjects } from "@core/controller/docsIndex/listProjects"
 import { createProject } from "@core/controller/docsIndex/createProject"
+import { renameProject } from "@core/controller/docsIndex/renameProject"
+import { deleteProject } from "@core/controller/docsIndex/deleteProject"
 import { uploadFile } from "@core/controller/docsIndex/uploadFile"
 import { indexUrl } from "@core/controller/docsIndex/indexUrl"
+import { indexBatch } from "@core/controller/docsIndex/indexBatch"
 import { getTask } from "@core/controller/docsIndex/getTask"
 import { searchDocuments } from "@core/controller/docsIndex/searchDocuments"
 import { deleteDocument } from "@core/controller/docsIndex/deleteDocument"
+import { listDocuments } from "@core/controller/docsIndex/listDocuments"
+import { indexCodebase } from "@core/controller/docsIndex/indexCodebase"
+import { startCodebaseWatch } from "@core/controller/docsIndex/startCodebaseWatch"
+import { getCodebaseWatch } from "@core/controller/docsIndex/getCodebaseWatch"
+import { stopCodebaseWatch } from "@core/controller/docsIndex/stopCodebaseWatch"
+import { listCodebaseTools } from "@core/controller/docsIndex/listCodebaseTools"
 import { listDocsIndexTools } from "@core/controller/docsIndex/listDocsIndexTools"
 import { registerMcpServer } from "@core/controller/docsIndex/registerMcpServer"
 import { unregisterMcpServer } from "@core/controller/docsIndex/unregisterMcpServer"
+import { getDocsIndexSettings } from "@core/controller/docsIndex/getDocsIndexSettings"
+import { updateDocsIndexSettings } from "@core/controller/docsIndex/updateDocsIndexSettings"
 
 // File Service
 import { copyToClipboard } from "@core/controller/file/copyToClipboard"
@@ -308,14 +319,25 @@ export function addProtobusServices(
          ping: wrapper<cline.PingRequest,cline.PingResponse>(ping, controller),
          listProjects: wrapper<cline.ListProjectsRequest,cline.ListProjectsResponse>(listProjects, controller),
          createProject: wrapper<cline.CreateProjectRequest,cline.CreateProjectResponse>(createProject, controller),
+         renameProject: wrapper<cline.RenameProjectRequest,cline.ProjectMutationResponse>(renameProject, controller),
+         deleteProject: wrapper<cline.DeleteProjectRequest,cline.ProjectMutationResponse>(deleteProject, controller),
          uploadFile: wrapper<cline.UploadFileRequest,cline.UploadFileResponse>(uploadFile, controller),
          indexUrl: wrapper<cline.IndexUrlRequest,cline.IndexUrlResponse>(indexUrl, controller),
+         indexBatch: wrapper<cline.IndexBatchRequest,cline.IndexBatchResponse>(indexBatch, controller),
          getTask: wrapper<cline.TaskStatusRequest,cline.TaskStatusResponse>(getTask, controller),
          searchDocuments: wrapper<cline.SearchDocumentsRequest,cline.SearchDocumentsResponse>(searchDocuments, controller),
          deleteDocument: wrapper<cline.DeleteDocumentRequest,cline.DeleteDocumentResponse>(deleteDocument, controller),
+         listDocuments: wrapper<cline.ListDocumentsRequest,cline.ListDocumentsResponse>(listDocuments, controller),
+         indexCodebase: wrapper<cline.IndexCodebaseRequest,cline.IndexCodebaseResponse>(indexCodebase, controller),
+         startCodebaseWatch: wrapper<cline.StartCodebaseWatchRequest,cline.CodebaseWatchStatus>(startCodebaseWatch, controller),
+         getCodebaseWatch: wrapper<cline.GetCodebaseWatchRequest,cline.CodebaseWatchStatus>(getCodebaseWatch, controller),
+         stopCodebaseWatch: wrapper<cline.GetCodebaseWatchRequest,cline.CodebaseWatchStatus>(stopCodebaseWatch, controller),
+         listCodebaseTools: wrapper<cline.ListCodebaseToolsRequest,cline.CodebaseToolCatalog>(listCodebaseTools, controller),
          listDocsIndexTools: wrapper<cline.EmptyRequest,cline.DocsIndexTools>(listDocsIndexTools, controller),
          registerMcpServer: wrapper<cline.RegisterMcpRequest,cline.Empty>(registerMcpServer, controller),
          unregisterMcpServer: wrapper<cline.UnregisterMcpRequest,cline.Empty>(unregisterMcpServer, controller),
+         getDocsIndexSettings: wrapper<cline.EmptyRequest,cline.GetDocsIndexSettingsResponse>(getDocsIndexSettings, controller),
+         updateDocsIndexSettings: wrapper<cline.UpdateDocsIndexSettingsRequest,cline.UpdateDocsIndexSettingsResponse>(updateDocsIndexSettings, controller),
     });
 
     // File Service

@@ -1,21 +1,31 @@
+import { StringRequest } from "@shared/proto/cline/common"
 import { AddStdioMcpServerRequest, McpServers } from "@shared/proto/cline/mcp"
 import { convertProtoMcpServersToMcpServers } from "@shared/proto-conversions/mcp/mcp-server-conversion"
 import { useState } from "react"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { McpServiceClient } from "@/services/grpc-client"
-import { buildPostgresConfig, type PostgresConnectionFields } from "./databasePresets"
+import { buildPostgresConfig, POSTGRES_PRESET, type PostgresConnectionFields } from "./databasePresets"
 
 const inputClass = "px-2 py-1 rounded bg-vscode-input-background text-vscode-input-foreground border border-vscode-input-border"
 
-export const AddDatabaseServerForm = ({ onDone }: { onDone: () => void }) => {
+export const AddDatabaseServerForm = ({
+	onDone,
+	initialName,
+	initialFields,
+}: {
+	onDone: () => void
+	initialName?: string
+	initialFields?: PostgresConnectionFields
+}) => {
 	const { setMcpServers } = useExtensionState()
-	const [name, setName] = useState("toolbox-postgres")
-	const [host, setHost] = useState("")
-	const [port, setPort] = useState("")
-	const [database, setDatabase] = useState("")
-	const [user, setUser] = useState("")
-	const [password, setPassword] = useState("")
-	const [queryParams, setQueryParams] = useState("")
+	const editing = !!initialName
+	const [name, setName] = useState(initialName ?? "toolbox-postgres")
+	const [host, setHost] = useState(initialFields?.host ?? "")
+	const [port, setPort] = useState(initialFields?.port ?? "")
+	const [database, setDatabase] = useState(initialFields?.database ?? "")
+	const [user, setUser] = useState(initialFields?.user ?? "")
+	const [password, setPassword] = useState(initialFields?.password ?? "")
+	const [queryParams, setQueryParams] = useState(initialFields?.queryParams ?? "")
 	const [error, setError] = useState("")
 	const [loading, setLoading] = useState(false)
 
@@ -38,12 +48,17 @@ export const AddDatabaseServerForm = ({ onDone }: { onDone: () => void }) => {
 
 		setLoading(true)
 		try {
+			if (editing) {
+				await McpServiceClient.deleteMcpServer(StringRequest.create({ value: initialName! }))
+			}
 			const response: McpServers = await McpServiceClient.addStdioMcpServer(
 				AddStdioMcpServerRequest.create({
 					serverName: cfg.serverName,
 					command: cfg.command,
 					args: cfg.args,
 					env: cfg.env,
+					cellockaiPreset: POSTGRES_PRESET,
+					projectLevel: true,
 				}),
 			)
 			if (response.mcpServers) {
@@ -59,7 +74,9 @@ export const AddDatabaseServerForm = ({ onDone }: { onDone: () => void }) => {
 
 	return (
 		<div className="flex flex-col gap-3 p-4">
-			<h3 className="text-vscode-fontSize font-bold">Connect Database (PostgreSQL)</h3>
+			<h3 className="text-vscode-fontSize font-bold">
+				{editing ? "Edit Database (PostgreSQL)" : "Connect Database (PostgreSQL)"}
+			</h3>
 			<p className="text-vscode-descriptionForeground text-sm">
 				Connects the agent to a PostgreSQL database via{" "}
 				<a
@@ -180,7 +197,7 @@ export const AddDatabaseServerForm = ({ onDone }: { onDone: () => void }) => {
 					disabled={loading}
 					onClick={handleSubmit}
 					type="button">
-					{loading ? "Adding..." : "Add Server"}
+					{loading ? "Saving..." : editing ? "Save Changes" : "Add Server"}
 				</button>
 				<button
 					className="px-4 py-1.5 rounded bg-vscode-button-secondaryBackground text-vscode-button-secondaryForeground hover:bg-vscode-button-secondaryHoverBackground"

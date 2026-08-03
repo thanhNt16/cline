@@ -1,10 +1,12 @@
 import { setTimeout as setTimeoutPromise } from "node:timers/promises"
 import { sendMcpServersUpdate } from "@core/controller/mcp/subscribeToMcpServers"
 import {
+	GlobalFileNames,
 	getGlobalMcpSettingsFilePath,
 	getMcpSettingsFilePath as getMcpSettingsFilePathHelper,
 	getProjectMcpSettingsFilePaths,
 } from "@core/storage/disk"
+import { readJsonConfigFile } from "@core/storage/readJsonConfig"
 import { StateManager } from "@core/storage/StateManager"
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
@@ -38,6 +40,7 @@ import chokidar, { type FSWatcher } from "chokidar"
 import deepEqual from "fast-deep-equal"
 import * as fs from "fs/promises"
 import { nanoid } from "nanoid"
+import * as path from "path"
 import ReconnectingEventSource from "reconnecting-eventsource"
 import { z } from "zod"
 import { HostProvider } from "@/hosts/host-provider"
@@ -173,6 +176,65 @@ export class McpHub {
 		return getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
 	}
 
+	private async serverExistsInFile(filePath: string, serverName: string): Promise<boolean> {
+		const raw = await readJsonConfigFile<{ mcpServers?: Record<string, unknown> }>(filePath)
+		return Boolean(raw?.mcpServers?.[serverName])
+	}
+
+	private async getWorkspaceMcpSettingsFile(): Promise<string> {
+		// Route through the injected instance callback (the same one
+		// getMcpSettingsFilePath uses) rather than the module-level resolver, so
+		// this stays consistent with every other workspace-path resolution and
+		// avoids the HostProvider fallback path in tests/no-workspace contexts.
+		const dir = await this.getSettingsDirectoryPath()
+		return path.join(dir, GlobalFileNames.mcpSettings)
+	}
+
+	/**
+	 * Owner-aware write target. The workspace file wins when it already contains
+	 * `serverName`; otherwise the global file is the default (including for new
+	 * servers). Project overlay files (.cellockai/mcp.json) are never returned —
+	 * they are read-only; callers must first reject project-overlay-only servers.
+	 */
+	async resolveMcpWriteFilePath(serverName?: string, projectLevel?: boolean): Promise<string> {
+		const globalPath = getGlobalMcpSettingsFilePath()
+		if (projectLevel) {
+			return await this.getWorkspaceMcpSettingsFile()
+		}
+		if (!serverName) {
+			return globalPath
+		}
+		const wsPath = await this.getWorkspaceMcpSettingsFile()
+		if (await this.serverExistsInFile(wsPath, serverName)) {
+			return wsPath
+		}
+		return globalPath
+	}
+
+	/**
+	 * Throws when `serverName` is effectively provided only by a read-only project
+	 * overlay file (`.cellockai/mcp.json`), so mutations do not silently create a
+	 * masked lower-precedence entry. No-op when the server also lives in a writable
+	 * layer or is absent (new server).
+	 */
+	private async assertNotProjectOverlayOnly(serverName: string): Promise<void> {
+		const wsPath = await this.getWorkspaceMcpSettingsFile()
+		const inWritable =
+			(await this.serverExistsInFile(wsPath, serverName)) ||
+			(await this.serverExistsInFile(getGlobalMcpSettingsFilePath(), serverName))
+		if (inWritable) {
+			return
+		}
+		const overlayPaths = await getProjectMcpSettingsFilePaths()
+		for (const overlay of overlayPaths) {
+			if (await this.serverExistsInFile(overlay, serverName)) {
+				throw new Error(
+					`"${serverName}" is defined in a read-only project file (${overlay}). Edit that file directly instead of through the UI.`,
+				)
+			}
+		}
+	}
+
 	/**
 	 * Record the post-write connection fingerprint so this window's watcher treats
 	 * its own write as a no-op. This does not write the settings file.
@@ -220,8 +282,15 @@ export class McpHub {
 
 			// --- Layer 2: Workspace .cellockai/cline_mcp_settings.json ---
 			const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
-			const content = await fs.readFile(settingsPath, "utf-8")
 			let workspaceServers: Record<string, any> = {}
+			let content: string
+			try {
+				content = await fs.readFile(settingsPath, "utf-8")
+			} catch {
+				// Workspace file absent (or unreadable) — treat as an empty layer so a
+				// global-only configuration still loads via the merge below.
+				content = ""
+			}
 
 			const trimmedContent = content.trim()
 			if (!trimmedContent || trimmedContent === "{}" || trimmedContent === '{"mcpServers":{}}') {
@@ -385,7 +454,11 @@ export class McpHub {
 							}
 						}
 						if (fileNeedsUpdate) {
-							const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
+							// Remote-configured servers are global by nature; re-add removed
+							// ones to the global file (resolveMcpWriteFilePath() with no name
+							// resolves to global). The merge reader already confirmed each
+							// missing name is absent from every writable layer.
+							const settingsPath = await this.resolveMcpWriteFilePath()
 							const fresh = await updateMcpSettingsFile(settingsPath, (current) => {
 								const servers = current.mcpServers as Record<string, any>
 								for (const rs of remoteServers) {
@@ -943,9 +1016,23 @@ export class McpHub {
 
 			// Initial fetch of tools, resources, and prompts
 			connection.server.tools = await this.fetchToolsList(name)
-			connection.server.resources = await this.fetchResourcesList(name)
-			connection.server.resourceTemplates = await this.fetchResourceTemplatesList(name)
-			connection.server.prompts = await this.fetchPromptsList(name)
+
+			// Only fetch resources/prompts if the server advertises them.
+			// Respecting capability negotiation avoids "Method not found" errors
+			// and noisy stderr warnings from servers that only support tools.
+			const serverCapabilities = client.getServerCapabilities()
+			if (serverCapabilities?.resources) {
+				connection.server.resources = await this.fetchResourcesList(name)
+				connection.server.resourceTemplates = await this.fetchResourceTemplatesList(name)
+			} else {
+				connection.server.resources = []
+				connection.server.resourceTemplates = []
+			}
+			if (serverCapabilities?.prompts) {
+				connection.server.prompts = await this.fetchPromptsList(name)
+			} else {
+				connection.server.prompts = []
+			}
 		} catch (error) {
 			// Update status with error
 			const connection = this.findConnection(name, source)
@@ -979,11 +1066,11 @@ export class McpHub {
 				timeout: DEFAULT_REQUEST_TIMEOUT_MS,
 			})
 
-			// Get autoApprove settings
-			const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
-			const content = await fs.readFile(settingsPath, "utf-8")
-			const config = JSON.parse(content)
-			const autoApproveConfig = config.mcpServers[serverName]?.autoApprove || []
+			// autoApprove lives in whatever layer owns the server; read the merged
+			// settings so global-only servers resolve their autoApprove correctly.
+			const merged = await this.readAndValidateMcpSettingsFile()
+			const autoApproveConfig =
+				(merged?.mcpServers?.[serverName] as { autoApprove?: string[] } | undefined)?.autoApprove || []
 
 			// Mark tools as always allowed based on settings
 			const tools = (response?.tools || []).map((tool) => ({
@@ -1445,11 +1532,11 @@ export class McpHub {
 	}
 
 	private async notifyWebviewOfServerChanges(): Promise<void> {
-		// servers should always be sorted in the order they are defined in the settings file
-		const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
-		const content = await fs.readFile(settingsPath, "utf-8")
-		const config = JSON.parse(content)
-		const serverOrder = Object.keys(config.mcpServers || {})
+		// servers should always be sorted in the order they are defined in the
+		// settings file. Read the merged settings so the order reflects every
+		// layer (global-only servers otherwise drop out of the webview order).
+		const merged = await this.readAndValidateMcpSettingsFile()
+		const serverOrder = Object.keys(merged?.mcpServers || {})
 
 		// Get sorted servers
 		const sortedServers = this.getSortedMcpServers(serverOrder)
@@ -1498,7 +1585,8 @@ export class McpHub {
 			// writer (CLI, OAuth handshake, another window) cannot clobber this
 			// toggle. Connection rebuild stays OUTSIDE the lock: connectToServer can
 			// trigger SDK OAuth writes that take the same (non-reentrant) lock.
-			const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
+			await this.assertNotProjectOverlayOnly(serverName)
+			const settingsPath = await this.resolveMcpWriteFilePath(serverName)
 			await updateMcpSettingsFile(settingsPath, (validated) => {
 				const servers = validated.mcpServers as Record<string, any>
 
@@ -1688,7 +1776,8 @@ export class McpHub {
 	 */
 	async toggleToolAutoApproveRPC(serverName: string, toolNames: string[], shouldAllow: boolean): Promise<McpServer[]> {
 		try {
-			const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
+			await this.assertNotProjectOverlayOnly(serverName)
+			const settingsPath = await this.resolveMcpWriteFilePath(serverName)
 			const { autoApprove } = await updateMcpSettingsFile(settingsPath, (parsed) => {
 				const servers = parsed.mcpServers as Record<string, any>
 				if (!servers[serverName]) {
@@ -1742,7 +1831,8 @@ export class McpHub {
 
 	async toggleToolAutoApprove(serverName: string, toolNames: string[], shouldAllow: boolean): Promise<void> {
 		try {
-			const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
+			await this.assertNotProjectOverlayOnly(serverName)
+			const settingsPath = await this.resolveMcpWriteFilePath(serverName)
 			const { autoApprove } = await updateMcpSettingsFile(settingsPath, (config) => {
 				const servers = config.mcpServers as Record<string, any>
 				if (!servers[serverName]) {
@@ -1795,7 +1885,8 @@ export class McpHub {
 
 	public async addRemoteServer(serverName: string, serverUrl: string, transportType = "streamableHttp"): Promise<McpServer[]> {
 		try {
-			const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
+			await this.assertNotProjectOverlayOnly(serverName)
+			const settingsPath = await this.resolveMcpWriteFilePath(serverName)
 			await updateMcpSettingsFile(settingsPath, (current) => {
 				const servers = current.mcpServers as Record<string, any>
 				if (servers[serverName]) {
@@ -1848,9 +1939,12 @@ export class McpHub {
 		args: string[],
 		env: Record<string, string>,
 		cwd?: string,
+		cellockaiPreset?: string,
+		projectLevel?: boolean,
 	): Promise<McpServer[]> {
 		try {
-			const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
+			await this.assertNotProjectOverlayOnly(serverName)
+			const settingsPath = await this.resolveMcpWriteFilePath(serverName, projectLevel)
 			await updateMcpSettingsFile(settingsPath, (current) => {
 				const servers = current.mcpServers as Record<string, any>
 				if (servers[serverName]) {
@@ -1867,6 +1961,12 @@ export class McpHub {
 				}
 				if (cwd) {
 					serverConfig.cwd = cwd
+				}
+				// Stamp the CellockAI preset marker on the persisted config so the
+				// Database tab can identify and round-trip preset connections. Must
+				// be set before expandEnvironmentVariables so it survives the write.
+				if (cellockaiPreset) {
+					serverConfig.metadata = { cellockaiPreset }
 				}
 
 				const expandedConfig = expandEnvironmentVariables(serverConfig)
@@ -1901,7 +2001,8 @@ export class McpHub {
 			// Clear OAuth data BEFORE removing from config (while we still have the connection/URL)
 			await this.clearOAuthForConnection(serverName)
 
-			const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
+			await this.assertNotProjectOverlayOnly(serverName)
+			const settingsPath = await this.resolveMcpWriteFilePath(serverName)
 			await updateMcpSettingsFile(settingsPath, (parsed) => {
 				const servers = parsed.mcpServers as Record<string, any>
 
@@ -1935,7 +2036,8 @@ export class McpHub {
 				throw new Error(`Invalid timeout value: ${timeout}. Must be at minimum ${MIN_MCP_TIMEOUT_SECONDS} seconds.`)
 			}
 
-			const settingsPath = await getMcpSettingsFilePathHelper(await this.getSettingsDirectoryPath())
+			await this.assertNotProjectOverlayOnly(serverName)
+			const settingsPath = await this.resolveMcpWriteFilePath(serverName)
 			await updateMcpSettingsFile(settingsPath, (parsed) => {
 				const servers = parsed.mcpServers as Record<string, any>
 

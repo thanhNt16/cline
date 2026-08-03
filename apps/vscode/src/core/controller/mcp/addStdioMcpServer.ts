@@ -19,6 +19,8 @@ export async function addStdioMcpServer(controller: Controller, request: AddStdi
 			request.args,
 			request.env,
 			request.cwd,
+			request.cellockaiPreset || undefined,
+			request.projectLevel ?? false,
 		)
 
 		const protoServers = convertMcpServersToProtoMcpServers(servers)
