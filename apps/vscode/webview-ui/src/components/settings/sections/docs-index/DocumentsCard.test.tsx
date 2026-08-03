@@ -15,11 +15,21 @@ vi.mock("@/services/grpc-client", () => ({
 
 const openSpy = vi.spyOn(window, "open").mockReturnValue(null)
 
+const doc = (source: string) => ({
+	source,
+	bytes: 100,
+	pageCount: 3,
+	chunkCount: 12,
+	contentHash: "abc",
+	url: "",
+})
+
 const resp = {
-	documents: [
-		{ source: "manual.pdf", bytes: 100, pageCount: 3, chunkCount: 12, contentHash: "abc", url: "" },
-		{ source: "guide.md", bytes: 200, pageCount: 1, chunkCount: 5, contentHash: "def", url: "" },
-	],
+	documents: [doc("manual.pdf"), doc("guide.md")],
+}
+
+const manyResp = {
+	documents: Array.from({ length: 7 }, (_, i) => doc(`document-${i + 1}.pdf`)),
 }
 
 const baseProps = (over: Record<string, unknown> = {}) => ({
@@ -54,5 +64,46 @@ describe("DocumentsCard", () => {
 		mocks.listDocuments.mockResolvedValue({ documents: [] } as any)
 		render(<DocumentsCard {...baseProps()} />)
 		await waitFor(() => expect(screen.getByText(/no documents/i)).toBeInTheDocument())
+	})
+
+	it("shows only the first 5 documents and loads more on demand", async () => {
+		mocks.listDocuments.mockResolvedValue(manyResp as any)
+		render(<DocumentsCard {...baseProps()} />)
+		await waitFor(() => expect(screen.getByText("document-1.pdf")).toBeInTheDocument())
+		for (const name of ["document-1.pdf", "document-5.pdf"]) {
+			expect(screen.getByText(name)).toBeInTheDocument()
+		}
+		expect(screen.queryByText("document-6.pdf")).not.toBeInTheDocument()
+		await userEvent.click(screen.getByText("Load more"))
+		expect(screen.getByText("document-6.pdf")).toBeInTheDocument()
+		expect(screen.getByText("document-7.pdf")).toBeInTheDocument()
+		expect(screen.queryByText("Load more")).not.toBeInTheDocument()
+	})
+
+	it("filters documents by name via the search box", async () => {
+		mocks.listDocuments.mockResolvedValue(resp as any)
+		render(<DocumentsCard {...baseProps()} />)
+		await waitFor(() => expect(screen.getByText("manual.pdf")).toBeInTheDocument())
+		await userEvent.type(screen.getByPlaceholderText("Search by document name…"), "guide")
+		expect(screen.getByText("guide.md")).toBeInTheDocument()
+		expect(screen.queryByText("manual.pdf")).not.toBeInTheDocument()
+	})
+
+	it("shows a no-match message when search finds nothing", async () => {
+		mocks.listDocuments.mockResolvedValue(resp as any)
+		render(<DocumentsCard {...baseProps()} />)
+		await waitFor(() => expect(screen.getByText("manual.pdf")).toBeInTheDocument())
+		await userEvent.type(screen.getByPlaceholderText("Search by document name…"), "zzz")
+		expect(screen.getByText(/no documents match/i)).toBeInTheDocument()
+	})
+
+	it("refetches the document list on refresh", async () => {
+		mocks.listDocuments.mockResolvedValueOnce(resp as any).mockResolvedValueOnce(manyResp as any)
+		render(<DocumentsCard {...baseProps()} />)
+		await waitFor(() => expect(screen.getByText("manual.pdf")).toBeInTheDocument())
+		expect(mocks.listDocuments).toHaveBeenCalledTimes(1)
+		await userEvent.click(screen.getByText("Refresh"))
+		await waitFor(() => expect(mocks.listDocuments).toHaveBeenCalledTimes(2))
+		await waitFor(() => expect(screen.getByText("document-1.pdf")).toBeInTheDocument())
 	})
 })
