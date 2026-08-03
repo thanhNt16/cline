@@ -445,69 +445,73 @@ export const ExtensionStateContextProvider: React.FC<{
 	// Subscribe to state updates and UI events using the gRPC streaming API
 	useEffect(() => {
 		// Set up state subscription
-		stateSubscriptionRef.current = StateServiceClient.subscribeToState(EmptyRequest.create({}), {
-			onResponse: (response: any) => {
-				if (response.stateJson) {
-					try {
-						const stateData = JSON.parse(response.stateJson) as ExtensionState
-						setState((prevState) => {
-							// Versioning logic for autoApprovalSettings
-							const incomingVersion = stateData.autoApprovalSettings?.version ?? 1
-							const currentVersion = prevState.autoApprovalSettings?.version ?? 1
-							const shouldUpdateAutoApproval = incomingVersion > currentVersion
+		stateSubscriptionRef.current = StateServiceClient.subscribeToState(
+			EmptyRequest.create({}),
+			{
+				onResponse: (response: any) => {
+					if (response.stateJson) {
+						try {
+							const stateData = JSON.parse(response.stateJson) as ExtensionState
+							setState((prevState) => {
+								// Versioning logic for autoApprovalSettings
+								const incomingVersion = stateData.autoApprovalSettings?.version ?? 1
+								const currentVersion = prevState.autoApprovalSettings?.version ?? 1
+								const shouldUpdateAutoApproval = incomingVersion > currentVersion
 
-							// Route the snapshot's transcript through the convergent-replica reducer:
-							// merge by ts/seq within the same epoch (never truncate), replace on a
-							// newer epoch, ignore stale/older snapshots. Unstamped (classic/legacy)
-							// state defaults to epoch 0 / version 0, which merges.
-							replicaRef.current = reducerApplyStateSnapshot(
-								replicaRef.current,
-								stateData.clineMessages ?? [],
-								stateData.epoch ?? 0,
-								stateData.stateVersion ?? 0,
-								stateData.turnState,
-							)
-							stateData.clineMessages = replicaRef.current.messages
-							// Use the seq-gated turnState from the replica, NOT the raw snapshot's, so a
-							// late/stale snapshot carrying an older phase (e.g. "idle") cannot revert a
-							// newer phase (e.g. "streaming") and hide the Cancel button. Falls back to
-							// undefined for classic/legacy state.
-							stateData.turnState = replicaRef.current.turnState
+								// Route the snapshot's transcript through the convergent-replica reducer:
+								// merge by ts/seq within the same epoch (never truncate), replace on a
+								// newer epoch, ignore stale/older snapshots. Unstamped (classic/legacy)
+								// state defaults to epoch 0 / version 0, which merges.
+								replicaRef.current = reducerApplyStateSnapshot(
+									replicaRef.current,
+									stateData.clineMessages ?? [],
+									stateData.epoch ?? 0,
+									stateData.stateVersion ?? 0,
+									stateData.turnState,
+								)
+								stateData.clineMessages = replicaRef.current.messages
+								// Use the seq-gated turnState from the replica, NOT the raw snapshot's, so a
+								// late/stale snapshot carrying an older phase (e.g. "idle") cannot revert a
+								// newer phase (e.g. "streaming") and hide the Cancel button. Falls back to
+								// undefined for classic/legacy state.
+								stateData.turnState = replicaRef.current.turnState
 
-							const newState = {
-								...stateData,
-								autoApprovalSettings: shouldUpdateAutoApproval
-									? stateData.autoApprovalSettings
-									: prevState.autoApprovalSettings,
-							}
+								const newState = {
+									...stateData,
+									autoApprovalSettings: shouldUpdateAutoApproval
+										? stateData.autoApprovalSettings
+										: prevState.autoApprovalSettings,
+								}
 
-							// Update welcome screen state based on API configuration if welcome view not in progress
-							if (!newState.welcomeViewCompleted && !showWelcome) {
-								setShowWelcome(true)
-								setOnboardingModels(newState.onboardingModels)
-							} else if (newState.welcomeViewCompleted) {
-								setShowWelcome(false)
-								setOnboardingModels(undefined)
-							}
+								// Update welcome screen state based on API configuration if welcome view not in progress
+								if (newState.welcomeViewCompleted === false && !showWelcome) {
+									setShowWelcome(true)
+									setOnboardingModels(newState.onboardingModels)
+								} else if (newState.welcomeViewCompleted) {
+									setShowWelcome(false)
+									setOnboardingModels(undefined)
+								}
 
-							setDidHydrateState(true)
+								setDidHydrateState(true)
 
-							return newState
-						})
-					} catch (error) {
-						console.error("Error parsing state JSON:", error)
-						console.log("[DEBUG] ERR getting state", error)
+								return newState
+							})
+						} catch (error) {
+							console.error("Error parsing state JSON:", error)
+							console.log("[DEBUG] ERR getting state", error)
+						}
 					}
-				}
-				console.log('[DEBUG] ended "got subscribed state"')
+					console.log('[DEBUG] ended "got subscribed state"')
+				},
+				onError: (error: any) => {
+					console.error("Error in state subscription:", error)
+				},
+				onComplete: () => {
+					console.log("State subscription completed")
+				},
 			},
-			onError: (error: any) => {
-				console.error("Error in state subscription:", error)
-			},
-			onComplete: () => {
-				console.log("State subscription completed")
-			},
-		})
+			{ autoReconnect: true },
+		)
 
 		// Subscribe to MCP button clicked events with webview type
 		mcpButtonUnsubscribeRef.current = UiServiceClient.subscribeToMcpButtonClicked(
@@ -621,40 +625,44 @@ export const ExtensionStateContextProvider: React.FC<{
 		)
 
 		// Subscribe to partial message events
-		partialMessageUnsubscribeRef.current = UiServiceClient.subscribeToPartialMessage(EmptyRequest.create({}), {
-			onResponse: (protoMessage: any) => {
-				try {
-					// Validate critical fields
-					if (!protoMessage.ts || protoMessage.ts <= 0) {
-						console.error("Invalid timestamp in partial message:", protoMessage)
-						return
-					}
-
-					const partialMessage = convertProtoToClineMessage(protoMessage)
-					setState((prevState) => {
-						// Route through the convergent-replica reducer: merge by ts keeping the
-						// higher seq, fence stale epochs, never let an out-of-order or duplicate
-						// delivery corrupt the transcript. Unstamped (classic/legacy) messages
-						// default to epoch 0 and merge by ts as before.
-						const before = replicaRef.current
-						replicaRef.current = reducerApplyMessage(before, partialMessage)
-						if (replicaRef.current === before) {
-							// Stale/ignored — no change.
-							return prevState
+		partialMessageUnsubscribeRef.current = UiServiceClient.subscribeToPartialMessage(
+			EmptyRequest.create({}),
+			{
+				onResponse: (protoMessage: any) => {
+					try {
+						// Validate critical fields
+						if (!protoMessage.ts || protoMessage.ts <= 0) {
+							console.error("Invalid timestamp in partial message:", protoMessage)
+							return
 						}
-						return { ...prevState, clineMessages: replicaRef.current.messages }
-					})
-				} catch (error) {
-					console.error("Failed to process partial message:", error, protoMessage)
-				}
+
+						const partialMessage = convertProtoToClineMessage(protoMessage)
+						setState((prevState) => {
+							// Route through the convergent-replica reducer: merge by ts keeping the
+							// higher seq, fence stale epochs, never let an out-of-order or duplicate
+							// delivery corrupt the transcript. Unstamped (classic/legacy) messages
+							// default to epoch 0 and merge by ts as before.
+							const before = replicaRef.current
+							replicaRef.current = reducerApplyMessage(before, partialMessage)
+							if (replicaRef.current === before) {
+								// Stale/ignored — no change.
+								return prevState
+							}
+							return { ...prevState, clineMessages: replicaRef.current.messages }
+						})
+					} catch (error) {
+						console.error("Failed to process partial message:", error, protoMessage)
+					}
+				},
+				onError: (error: any) => {
+					console.error("Error in partialMessage subscription:", error)
+				},
+				onComplete: () => {
+					console.log("[DEBUG] partialMessage subscription completed")
+				},
 			},
-			onError: (error: any) => {
-				console.error("Error in partialMessage subscription:", error)
-			},
-			onComplete: () => {
-				console.log("[DEBUG] partialMessage subscription completed")
-			},
-		})
+			{ autoReconnect: true },
+		)
 
 		// Subscribe to OpenRouter models updates
 		openRouterModelsUnsubscribeRef.current = ModelsServiceClient.subscribeToOpenRouterModels(EmptyRequest.create({}), {
@@ -1012,6 +1020,35 @@ export const ExtensionStateContextProvider: React.FC<{
 		expandTaskHeader,
 		setExpandTaskHeader,
 	}
+
+	// Stuck-streaming watchdog: if turnState has been "streaming" for longer than
+	// STUCK_THRESHOLD_MS without any partial message or state update, force a
+	// page reload to re-establish the gRPC subscriptions and get fresh state.
+	// This is a last-resort safety net — the autoReconnect option on streaming
+	// subscriptions handles most disconnections transparently.
+	const STUCK_THRESHOLD_MS = 10 * 60 * 1000 // 10 minutes
+	const lastActivityRef = useRef<number>(Date.now())
+	useEffect(() => {
+		const turnPhase = contextValue.turnState?.phase
+		if (turnPhase === "streaming" || turnPhase === "awaiting_approval") {
+			lastActivityRef.current = Date.now()
+		}
+	}, [contextValue.turnState?.phase])
+
+	useEffect(() => {
+		const interval = setInterval(() => {
+			const phase = contextValue.turnState?.phase
+			if (phase === "streaming" || phase === "awaiting_approval") {
+				if (Date.now() - lastActivityRef.current > STUCK_THRESHOLD_MS) {
+					console.error(
+						`[ExtensionState] Stuck "${phase}" for >${STUCK_THRESHOLD_MS / 1000}s with no state update — reloading webview to recover`,
+					)
+					window.location.reload()
+				}
+			}
+		}, 30_000) // check every 30s
+		return () => clearInterval(interval)
+	}, [contextValue.turnState?.phase])
 
 	return <ExtensionStateContext.Provider value={contextValue}>{children}</ExtensionStateContext.Provider>
 }
