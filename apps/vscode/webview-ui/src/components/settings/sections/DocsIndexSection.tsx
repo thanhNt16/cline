@@ -1,5 +1,6 @@
 import type { ProjectInfo } from "@shared/proto/cline/docs_index"
 import ConnectionCard from "./docs-index/ConnectionCard"
+import DocumentsCard from "./docs-index/DocumentsCard"
 import IndexCard from "./docs-index/IndexCard"
 import ProjectsCard from "./docs-index/ProjectsCard"
 import SearchCard from "./docs-index/SearchCard"
@@ -30,23 +31,24 @@ export const DocsIndexSection = ({
 	return (
 		<div className="flex flex-col gap-6 px-4 py-3">
 			<ConnectionCard
-				serverUrl={serverUrl}
-				setServerUrl={setServerUrl}
 				connected={connected}
-				setConnected={setConnected}
 				onConnected={() => {}}
+				serverUrl={serverUrl}
+				setConnected={setConnected}
+				setServerUrl={setServerUrl}
 			/>
 			<ProjectsCard
-				serverUrl={serverUrl}
 				connected={connected}
 				projects={projects}
-				setProjects={setProjects}
 				selectedProject={selectedProject}
+				serverUrl={serverUrl}
+				setProjects={setProjects}
 				setSelectedProject={setSelectedProject}
 			/>
-			<UploadCard serverUrl={serverUrl} connected={connected} selectedProject={selectedProject} />
-			<IndexCard serverUrl={serverUrl} connected={connected} selectedProject={selectedProject} />
-			<SearchCard serverUrl={serverUrl} connected={connected} selectedProject={selectedProject} />
+			<DocumentsCard connected={connected} selectedProject={selectedProject} serverUrl={serverUrl} />
+			<UploadCard connected={connected} selectedProject={selectedProject} serverUrl={serverUrl} />
+			<IndexCard connected={connected} selectedProject={selectedProject} serverUrl={serverUrl} />
+			<SearchCard connected={connected} selectedProject={selectedProject} serverUrl={serverUrl} />
 			<ToolsCard />
 		</div>
 	)
