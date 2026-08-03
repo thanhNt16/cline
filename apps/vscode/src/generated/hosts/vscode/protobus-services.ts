@@ -48,14 +48,25 @@ import { improveWithCline } from "@core/controller/commands/improveWithCline"
 import { ping } from "@core/controller/docsIndex/ping"
 import { listProjects } from "@core/controller/docsIndex/listProjects"
 import { createProject } from "@core/controller/docsIndex/createProject"
+import { renameProject } from "@core/controller/docsIndex/renameProject"
+import { deleteProject } from "@core/controller/docsIndex/deleteProject"
 import { uploadFile } from "@core/controller/docsIndex/uploadFile"
 import { indexUrl } from "@core/controller/docsIndex/indexUrl"
+import { indexBatch } from "@core/controller/docsIndex/indexBatch"
 import { getTask } from "@core/controller/docsIndex/getTask"
 import { searchDocuments } from "@core/controller/docsIndex/searchDocuments"
 import { deleteDocument } from "@core/controller/docsIndex/deleteDocument"
+import { listDocuments } from "@core/controller/docsIndex/listDocuments"
+import { indexCodebase } from "@core/controller/docsIndex/indexCodebase"
+import { startCodebaseWatch } from "@core/controller/docsIndex/startCodebaseWatch"
+import { getCodebaseWatch } from "@core/controller/docsIndex/getCodebaseWatch"
+import { stopCodebaseWatch } from "@core/controller/docsIndex/stopCodebaseWatch"
+import { listCodebaseTools } from "@core/controller/docsIndex/listCodebaseTools"
 import { listDocsIndexTools } from "@core/controller/docsIndex/listDocsIndexTools"
 import { registerMcpServer } from "@core/controller/docsIndex/registerMcpServer"
 import { unregisterMcpServer } from "@core/controller/docsIndex/unregisterMcpServer"
+import { getDocsIndexSettings } from "@core/controller/docsIndex/getDocsIndexSettings"
+import { updateDocsIndexSettings } from "@core/controller/docsIndex/updateDocsIndexSettings"
 
 // File Service
 import { copyToClipboard } from "@core/controller/file/copyToClipboard"
@@ -293,14 +304,25 @@ const DocsIndexServiceHandlers: serviceTypes.DocsIndexServiceHandlers = {
     ping: ping,
     listProjects: listProjects,
     createProject: createProject,
+    renameProject: renameProject,
+    deleteProject: deleteProject,
     uploadFile: uploadFile,
     indexUrl: indexUrl,
+    indexBatch: indexBatch,
     getTask: getTask,
     searchDocuments: searchDocuments,
     deleteDocument: deleteDocument,
+    listDocuments: listDocuments,
+    indexCodebase: indexCodebase,
+    startCodebaseWatch: startCodebaseWatch,
+    getCodebaseWatch: getCodebaseWatch,
+    stopCodebaseWatch: stopCodebaseWatch,
+    listCodebaseTools: listCodebaseTools,
     listDocsIndexTools: listDocsIndexTools,
     registerMcpServer: registerMcpServer,
     unregisterMcpServer: unregisterMcpServer,
+    getDocsIndexSettings: getDocsIndexSettings,
+    updateDocsIndexSettings: updateDocsIndexSettings,
 } 
 
 const FileServiceHandlers: serviceTypes.FileServiceHandlers = {

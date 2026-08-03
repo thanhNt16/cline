@@ -12,14 +12,25 @@ service DocsIndexService {
   rpc ping(PingRequest) returns (PingResponse);
   rpc listProjects(ListProjectsRequest) returns (ListProjectsResponse);
   rpc createProject(CreateProjectRequest) returns (CreateProjectResponse);
+  rpc renameProject(RenameProjectRequest) returns (ProjectMutationResponse);
+  rpc deleteProject(DeleteProjectRequest) returns (ProjectMutationResponse);
   rpc uploadFile(UploadFileRequest) returns (UploadFileResponse);
   rpc indexUrl(IndexUrlRequest) returns (IndexUrlResponse);
+  rpc indexBatch(IndexBatchRequest) returns (IndexBatchResponse);
   rpc getTask(TaskStatusRequest) returns (TaskStatusResponse);
   rpc searchDocuments(SearchDocumentsRequest) returns (SearchDocumentsResponse);
   rpc deleteDocument(DeleteDocumentRequest) returns (DeleteDocumentResponse);
+  rpc listDocuments(ListDocumentsRequest) returns (ListDocumentsResponse);
+  rpc indexCodebase(IndexCodebaseRequest) returns (IndexCodebaseResponse);
+  rpc startCodebaseWatch(StartCodebaseWatchRequest) returns (CodebaseWatchStatus);
+  rpc getCodebaseWatch(GetCodebaseWatchRequest) returns (CodebaseWatchStatus);
+  rpc stopCodebaseWatch(GetCodebaseWatchRequest) returns (CodebaseWatchStatus);
+  rpc listCodebaseTools(ListCodebaseToolsRequest) returns (CodebaseToolCatalog);
   rpc listDocsIndexTools(EmptyRequest) returns (DocsIndexTools);
   rpc registerMcpServer(RegisterMcpRequest) returns (Empty);
   rpc unregisterMcpServer(UnregisterMcpRequest) returns (Empty);
+  rpc getDocsIndexSettings(EmptyRequest) returns (GetDocsIndexSettingsResponse);
+  rpc updateDocsIndexSettings(UpdateDocsIndexSettingsRequest) returns (UpdateDocsIndexSettingsResponse);
 }
 
 message PingRequest {
@@ -113,6 +124,24 @@ message CreateProjectResponse {
   string status = 2;
 }
 
+message RenameProjectRequest {
+  string server_url = 1;
+  string project = 2;
+  string new_name = 3;
+}
+
+message DeleteProjectRequest {
+  string server_url = 1;
+  string project = 2;
+}
+
+// Shared reply for rename/delete: echoes the affected project and "ok"/"error".
+message ProjectMutationResponse {
+  string project = 1;
+  string status = 2;
+  string error = 3;
+}
+
 message DeleteDocumentRequest {
   string server_url = 1;
   string project = 2;
@@ -121,6 +150,34 @@ message DeleteDocumentRequest {
 
 message DeleteDocumentResponse {
   string status = 1;
+}
+
+message ListDocumentsRequest {
+  string server_url = 1;
+  string project = 2;
+}
+
+message DocumentInfo {
+  string source = 1;
+  int64 bytes = 2;
+  int32 page_count = 3;
+  int32 chunk_count = 4;
+  string content_hash = 5;
+  string url = 6;
+}
+
+message ListDocumentsResponse {
+  repeated DocumentInfo documents = 1;
+}
+
+message IndexBatchRequest {
+  string server_url = 1;
+  string project = 2;
+  repeated string urls = 3;
+}
+
+message IndexBatchResponse {
+  string task_id = 1;
 }
 
 message TaskStatusRequest {
@@ -135,4 +192,72 @@ message TaskStatusResponse {
   float progress = 4;
   string message = 5;
   string detail = 6;
+}
+
+// `path` resolves on the docindex server host, not on the client machine.
+message IndexCodebaseRequest {
+  string server_url = 1;
+  string project = 2;
+  string path = 3;
+}
+
+message IndexCodebaseResponse {
+  string task_id = 1;
+  string status = 2;
+  string error = 3;
+}
+
+message StartCodebaseWatchRequest {
+  string server_url = 1;
+  string project = 2;
+  string path = 3;
+  // Server floors this at 5 seconds.
+  int32 debounce_secs = 4;
+}
+
+message GetCodebaseWatchRequest {
+  string server_url = 1;
+  string project = 2;
+}
+
+// active=false is the normal "not watched" state (server replies 404), not an error.
+// The server only echoes path/debounce_secs on start; a status read omits them.
+message CodebaseWatchStatus {
+  bool active = 1;
+  string path = 2;
+  int32 debounce_secs = 3;
+  string last_trigger = 4;
+  string last_index = 5;
+  string error = 6;
+}
+
+message ListCodebaseToolsRequest {
+  string server_url = 1;
+}
+
+message CodebaseToolInfo {
+  string name = 1;
+  string tool = 2;
+  string description = 3;
+  bool is_readonly = 4;
+}
+
+message CodebaseToolCatalog {
+  repeated CodebaseToolInfo tools = 1;
+}
+
+message GetDocsIndexSettingsResponse {
+  string server_url = 1;
+  string last_selected_project = 2;
+}
+
+message UpdateDocsIndexSettingsRequest {
+  string workspace_path = 1;
+  optional string server_url = 2;
+  optional string selected_project = 3;
+}
+
+message UpdateDocsIndexSettingsResponse {
+  string server_url = 1;
+  string last_selected_project = 2;
 }

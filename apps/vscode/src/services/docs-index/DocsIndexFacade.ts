@@ -1,112 +1,124 @@
 import type { McpHub } from "@services/mcp/McpHub"
-import { Logger } from "@/shared/services/Logger"
 import {
+	CodebaseToolCatalog,
+	CodebaseToolInfo,
+	CodebaseWatchStatus,
 	CreateProjectResponse,
 	DeleteDocumentResponse,
 	DocsIndexTools,
+	DocumentInfo,
+	IndexBatchResponse,
+	IndexCodebaseResponse,
 	IndexUrlResponse,
+	ListDocumentsResponse,
 	ListProjectsResponse,
 	PingResponse,
 	ProjectInfo,
+	ProjectMutationResponse,
 	SearchDocumentsResponse,
 	SearchResult,
 	TaskStatusResponse,
 	UploadFileResponse,
 } from "@shared/proto/cline/docs_index"
+import { getWorkspacePath } from "@utils/path"
+import { Logger } from "@/shared/services/Logger"
 import { toProtoTools } from "./constants"
+import { type DocsIndexSettings, DocsIndexSettingsService } from "./DocsIndexSettingsService"
 import { McpRegistrationService } from "./McpRegistrationService"
-import { VesselIndexerClient } from "./VesselIndexerClient"
+import { DocInfo, VesselIndexerClient } from "./VesselIndexerClient"
+
+const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 
 export class DocsIndexFacade {
 	private mcpRegistration: McpRegistrationService
-	private clients: Map<string, VesselIndexerClient> = new Map()
 
 	constructor(mcpHub: McpHub) {
 		this.mcpRegistration = new McpRegistrationService(mcpHub)
 	}
 
-	private async getClient(serverUrl: string): Promise<VesselIndexerClient> {
-		let client = this.clients.get(serverUrl)
-		if (!client) {
-			client = new VesselIndexerClient(serverUrl)
-			await client.connect()
-			this.clients.set(serverUrl, client)
-		}
-		return client
-	}
-
-	private async invalidateClient(serverUrl: string): Promise<void> {
-		const client = this.clients.get(serverUrl)
-		if (client) {
-			await client.close()
-			this.clients.delete(serverUrl)
-		}
-	}
-
 	async ping(serverUrl: string): Promise<PingResponse> {
 		try {
-			const client = await this.getClient(serverUrl)
-			await client.callTool("list_projects", {})
+			const client = new VesselIndexerClient(serverUrl)
+			await client.listProjects()
 			return PingResponse.create({ connected: true, serverVersion: "" })
 		} catch (err) {
 			Logger.error("[DocsIndex] ping failed:", err)
-			await this.invalidateClient(serverUrl)
 			return PingResponse.create({ connected: false, serverVersion: "" })
 		}
 	}
 
 	async listProjects(serverUrl: string): Promise<ListProjectsResponse> {
 		try {
-			const client = await this.getClient(serverUrl)
-			const result = await client.callTool("list_projects", {})
+			const client = new VesselIndexerClient(serverUrl)
+			const result = await client.listProjects()
 			const projects = (result.projects || []).map((name: string) => ProjectInfo.create({ name }))
 			return ListProjectsResponse.create({ projects })
 		} catch (err) {
 			Logger.error("[DocsIndex] listProjects failed:", err)
-			await this.invalidateClient(serverUrl)
 			return ListProjectsResponse.create({ projects: [] })
 		}
 	}
 
 	async createProject(serverUrl: string, name: string): Promise<CreateProjectResponse> {
 		try {
-			const client = await this.getClient(serverUrl)
+			const client = new VesselIndexerClient(serverUrl)
 			const result = await client.createProject(name)
 			return CreateProjectResponse.create({ project: result.project || name, status: result.status || "ok" })
 		} catch (err) {
 			Logger.error("[DocsIndex] createProject failed:", err)
-			await this.invalidateClient(serverUrl)
 			return CreateProjectResponse.create({ project: name, status: "error" })
+		}
+	}
+
+	async renameProject(serverUrl: string, project: string, newName: string): Promise<ProjectMutationResponse> {
+		try {
+			const client = new VesselIndexerClient(serverUrl)
+			const result = await client.renameProject(project, newName)
+			return ProjectMutationResponse.create({ project: result.project || newName, status: result.status || "ok" })
+		} catch (err) {
+			Logger.error("[DocsIndex] renameProject failed:", err)
+			// Surface the reason: rename fails on 409 (name taken / active tasks), which
+			// the user has to see to act on.
+			return ProjectMutationResponse.create({ project, status: "error", error: errorText(err) })
+		}
+	}
+
+	async deleteProject(serverUrl: string, project: string): Promise<ProjectMutationResponse> {
+		try {
+			const client = new VesselIndexerClient(serverUrl)
+			const result = await client.deleteProject(project)
+			return ProjectMutationResponse.create({ project: result.project || project, status: result.status || "ok" })
+		} catch (err) {
+			Logger.error("[DocsIndex] deleteProject failed:", err)
+			return ProjectMutationResponse.create({ project, status: "error", error: errorText(err) })
 		}
 	}
 
 	async uploadFile(serverUrl: string, project: string, filePath: string): Promise<UploadFileResponse> {
 		try {
-			const client = await this.getClient(serverUrl)
+			const client = new VesselIndexerClient(serverUrl)
 			const result = await client.uploadFile(project, filePath)
 			return UploadFileResponse.create({ taskId: result.task_id || "", project, status: "accepted" })
 		} catch (err) {
 			Logger.error("[DocsIndex] uploadFile failed:", err)
-			await this.invalidateClient(serverUrl)
 			return UploadFileResponse.create({ taskId: "", project, status: "error" })
 		}
 	}
 
 	async indexUrl(serverUrl: string, project: string, url: string): Promise<IndexUrlResponse> {
 		try {
-			const client = await this.getClient(serverUrl)
+			const client = new VesselIndexerClient(serverUrl)
 			const result = await client.indexUrl(project, url)
 			return IndexUrlResponse.create({ taskId: result.task_id || "", project, status: "accepted" })
 		} catch (err) {
 			Logger.error("[DocsIndex] indexUrl failed:", err)
-			await this.invalidateClient(serverUrl)
 			return IndexUrlResponse.create({ taskId: "", project, status: "error" })
 		}
 	}
 
 	async getTask(serverUrl: string, taskId: string): Promise<TaskStatusResponse> {
 		try {
-			const client = await this.getClient(serverUrl)
+			const client = new VesselIndexerClient(serverUrl)
 			const t = await client.getTask(taskId)
 			return TaskStatusResponse.create({
 				id: t.id || taskId,
@@ -129,22 +141,136 @@ export class DocsIndexFacade {
 		}
 	}
 
+	async indexBatch(serverUrl: string, project: string): Promise<IndexBatchResponse> {
+		try {
+			const client = new VesselIndexerClient(serverUrl)
+			const result = await client.indexBatch(project)
+			return IndexBatchResponse.create({ taskId: result.task_id || "" })
+		} catch (err) {
+			Logger.error("[DocsIndex] indexBatch failed:", err)
+			return IndexBatchResponse.create({ taskId: "" })
+		}
+	}
+
+	async indexCodebase(serverUrl: string, project: string, path: string): Promise<IndexCodebaseResponse> {
+		try {
+			const client = new VesselIndexerClient(serverUrl)
+			const result = await client.indexCodebase(project, path)
+			return IndexCodebaseResponse.create({ taskId: result.task_id || "", status: "accepted" })
+		} catch (err) {
+			Logger.error("[DocsIndex] indexCodebase failed:", err)
+			// 400 (bad path) / 404 (no project) / 409 (already indexing) all carry a reason
+			// the user has to see to act on.
+			return IndexCodebaseResponse.create({ taskId: "", status: "error", error: errorText(err) })
+		}
+	}
+
+	async startCodebaseWatch(
+		serverUrl: string,
+		project: string,
+		path: string,
+		debounceSecs: number,
+	): Promise<CodebaseWatchStatus> {
+		try {
+			const client = new VesselIndexerClient(serverUrl)
+			const w = await client.startCodebaseWatch(project, path, debounceSecs || undefined)
+			return CodebaseWatchStatus.create({
+				active: true,
+				path: w.path || path,
+				debounceSecs: w.debounce_secs ?? debounceSecs,
+			})
+		} catch (err) {
+			Logger.error("[DocsIndex] startCodebaseWatch failed:", err)
+			return CodebaseWatchStatus.create({ active: false, error: errorText(err) })
+		}
+	}
+
+	async getCodebaseWatch(serverUrl: string, project: string): Promise<CodebaseWatchStatus> {
+		try {
+			const client = new VesselIndexerClient(serverUrl)
+			const w = await client.getCodebaseWatch(project)
+			// null = no watcher for this project, which is the normal state, not an error.
+			if (!w) return CodebaseWatchStatus.create({ active: false })
+			return CodebaseWatchStatus.create({
+				active: w.active ?? true,
+				path: w.path || "",
+				debounceSecs: w.debounce_secs ?? 0,
+				lastTrigger: w.last_trigger || "",
+				lastIndex: w.last_index || "",
+				error: w.last_error || "",
+			})
+		} catch (err) {
+			Logger.error("[DocsIndex] getCodebaseWatch failed:", err)
+			return CodebaseWatchStatus.create({ active: false, error: errorText(err) })
+		}
+	}
+
+	async stopCodebaseWatch(serverUrl: string, project: string): Promise<CodebaseWatchStatus> {
+		try {
+			const client = new VesselIndexerClient(serverUrl)
+			await client.stopCodebaseWatch(project)
+			return CodebaseWatchStatus.create({ active: false })
+		} catch (err) {
+			Logger.error("[DocsIndex] stopCodebaseWatch failed:", err)
+			return CodebaseWatchStatus.create({ active: true, error: errorText(err) })
+		}
+	}
+
+	async listCodebaseTools(serverUrl: string): Promise<CodebaseToolCatalog> {
+		try {
+			const client = new VesselIndexerClient(serverUrl)
+			const result = await client.listCodebaseTools()
+			const tools = (result.tools || []).map((t) =>
+				CodebaseToolInfo.create({
+					name: t.name || "",
+					tool: t.tool || "",
+					description: t.description || "",
+					isReadonly: t.is_readonly ?? true,
+				}),
+			)
+			return CodebaseToolCatalog.create({ tools })
+		} catch (err) {
+			Logger.error("[DocsIndex] listCodebaseTools failed:", err)
+			return CodebaseToolCatalog.create({ tools: [] })
+		}
+	}
+
 	async deleteDocument(serverUrl: string, project: string, source: string): Promise<DeleteDocumentResponse> {
 		try {
-			const client = await this.getClient(serverUrl)
+			const client = new VesselIndexerClient(serverUrl)
 			const result = await client.deleteDocument(project, source)
 			return DeleteDocumentResponse.create({ status: result.status || "ok" })
 		} catch (err) {
 			Logger.error("[DocsIndex] deleteDocument failed:", err)
-			await this.invalidateClient(serverUrl)
 			return DeleteDocumentResponse.create({ status: "error" })
+		}
+	}
+
+	async listDocuments(serverUrl: string, project: string): Promise<ListDocumentsResponse> {
+		try {
+			const client = new VesselIndexerClient(serverUrl)
+			const result = await client.listDocuments(project)
+			const documents = (result.documents || []).map((d: DocInfo) =>
+				DocumentInfo.create({
+					source: d.source || "",
+					bytes: d.bytes || 0,
+					pageCount: d.page_count || 0,
+					chunkCount: d.chunk_count || 0,
+					contentHash: d.content_hash || "",
+					url: d.url || "",
+				}),
+			)
+			return ListDocumentsResponse.create({ documents })
+		} catch (err) {
+			Logger.error("[DocsIndex] listDocuments failed:", err)
+			return ListDocumentsResponse.create({ documents: [] })
 		}
 	}
 
 	async searchDocuments(serverUrl: string, project: string, query: string, topK: number): Promise<SearchDocumentsResponse> {
 		try {
-			const client = await this.getClient(serverUrl)
-			const result = await client.callTool("search", { project, query, top_k: topK })
+			const client = new VesselIndexerClient(serverUrl)
+			const result = await client.search(project, query, topK)
 			const results = (result.results || []).map((r: any) =>
 				SearchResult.create({
 					score: r.score || 0,
@@ -158,7 +284,6 @@ export class DocsIndexFacade {
 			return SearchDocumentsResponse.create({ project, query, results })
 		} catch (err) {
 			Logger.error("[DocsIndex] searchDocuments failed:", err)
-			await this.invalidateClient(serverUrl)
 			return SearchDocumentsResponse.create({ project, query, results: [] })
 		}
 	}
@@ -175,10 +300,33 @@ export class DocsIndexFacade {
 		await this.mcpRegistration.unregister()
 	}
 
-	dispose(): void {
-		for (const client of this.clients.values()) {
-			client.close().catch((err) => Logger.error("[DocsIndex] dispose close error:", err))
-		}
-		this.clients.clear()
+	async getWorkspacePath(): Promise<string> {
+		return getWorkspacePath()
 	}
+
+	async getDocsIndexSettings(workspacePath: string): Promise<{ serverUrl: string; lastSelectedProject: string }> {
+		const settings = await new DocsIndexSettingsService().get()
+		return {
+			serverUrl: settings.serverUrl,
+			lastSelectedProject: settings.lastProjects[workspacePath] ?? "",
+		}
+	}
+
+	async updateDocsIndexSettings(
+		workspacePath: string,
+		serverUrl: string | undefined,
+		selectedProject: string | undefined,
+	): Promise<{ serverUrl: string; lastSelectedProject: string }> {
+		const svc = new DocsIndexSettingsService()
+		const patch: Partial<DocsIndexSettings> = {}
+		if (serverUrl !== undefined) patch.serverUrl = serverUrl
+		if (selectedProject !== undefined && workspacePath) {
+			const current = await svc.get()
+			patch.lastProjects = { ...current.lastProjects, [workspacePath]: selectedProject }
+		}
+		const next = await svc.update(patch)
+		return { serverUrl: next.serverUrl, lastSelectedProject: next.lastProjects[workspacePath] ?? "" }
+	}
+
+	dispose(): void {}
 }
