@@ -17,20 +17,26 @@ export default function DocumentsCard({ serverUrl, connected, selectedProject, r
 	const [loading, setLoading] = useState(false)
 	const [error, setError] = useState("")
 	const [query, setQuery] = useState("")
-	const [visible, setVisible] = useState(PAGE_SIZE)
+	const [offset, setOffset] = useState(0)
+	const [total, setTotal] = useState(0)
 
 	const reload = useCallback(async () => {
 		if (!connected || !selectedProject) {
 			setDocuments([])
+			setTotal(0)
+			setOffset(0)
 			return
 		}
 		setLoading(true)
 		setError("")
 		try {
 			const response = await DocsIndexServiceClient.listDocuments(
-				ListDocumentsRequest.create({ serverUrl, project: selectedProject }),
+				ListDocumentsRequest.create({ serverUrl, project: selectedProject, offset: 0, limit: PAGE_SIZE }),
 			)
-			setDocuments(response.documents ?? [])
+			const page = response.documents ?? []
+			setDocuments(page)
+			setOffset(page.length)
+			setTotal(response.total ?? page.length)
 		} catch (err) {
 			console.error("Failed to list documents:", err)
 			setError(err instanceof Error ? err.message : String(err))
@@ -43,14 +49,37 @@ export default function DocumentsCard({ serverUrl, connected, selectedProject, r
 		reload()
 	}, [reload, refreshSignal])
 
+	const loadMore = async () => {
+		if (loading) return
+		setLoading(true)
+		setError("")
+		try {
+			const response = await DocsIndexServiceClient.listDocuments(
+				ListDocumentsRequest.create({ serverUrl, project: selectedProject, offset, limit: PAGE_SIZE }),
+			)
+			const next = response.documents ?? []
+			setDocuments((prev) => {
+				const seen = new Set(prev.map((d) => d.source))
+				return [...prev, ...next.filter((d) => !seen.has(d.source))]
+			})
+			setOffset((o) => o + next.length)
+			setTotal(response.total ?? offset + next.length)
+		} catch (err) {
+			console.error("Failed to load more documents:", err)
+			setError(err instanceof Error ? err.message : String(err))
+		} finally {
+			setLoading(false)
+		}
+	}
+
 	const filtered = useMemo(() => {
 		const q = query.trim().toLowerCase()
 		if (!q) return documents
 		return documents.filter((d) => d.source.toLowerCase().includes(q))
 	}, [documents, query])
 
-	const shown = filtered.slice(0, visible)
-	const hasMore = filtered.length > visible
+	const shown = filtered
+	const hasMore = documents.length < total
 
 	return (
 		<div
@@ -87,10 +116,7 @@ export default function DocumentsCard({ serverUrl, connected, selectedProject, r
 				Uploaded documents in <code>{selectedProject || "(select a project)"}</code>
 			</div>
 			<input
-				onChange={(e) => {
-					setQuery(e.target.value)
-					setVisible(PAGE_SIZE)
-				}}
+				onChange={(e) => setQuery(e.target.value)}
 				placeholder="Search by document name…"
 				style={{
 					width: "100%",
@@ -153,7 +179,8 @@ export default function DocumentsCard({ serverUrl, connected, selectedProject, r
 			)}
 			{hasMore && (
 				<button
-					onClick={() => setVisible((v) => v + PAGE_SIZE)}
+					disabled={loading}
+					onClick={loadMore}
 					style={{
 						background: "none",
 						border: "none",

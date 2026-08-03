@@ -246,10 +246,12 @@ export class DocsIndexFacade {
 		}
 	}
 
-	async listDocuments(serverUrl: string, project: string): Promise<ListDocumentsResponse> {
+	async listDocuments(serverUrl: string, project: string, offset = 0, limit = 50): Promise<ListDocumentsResponse> {
+		const safeOffset = Math.max(0, offset)
+		const safeLimit = limit > 0 ? limit : 50
 		try {
 			const client = new VesselIndexerClient(serverUrl)
-			const result = await client.listDocuments(project)
+			const result = await client.listDocuments(project, safeOffset, safeLimit)
 			const documents = (result.documents || []).map((d: DocInfo) =>
 				DocumentInfo.create({
 					source: d.source || "",
@@ -260,10 +262,10 @@ export class DocsIndexFacade {
 					url: d.url || "",
 				}),
 			)
-			return ListDocumentsResponse.create({ documents })
+			return ListDocumentsResponse.create({ documents, total: result.total || 0, offset: safeOffset, limit: safeLimit })
 		} catch (err) {
 			Logger.error("[DocsIndex] listDocuments failed:", err)
-			return ListDocumentsResponse.create({ documents: [] })
+			return ListDocumentsResponse.create({ documents: [], total: 0, offset: safeOffset, limit: safeLimit })
 		}
 	}
 

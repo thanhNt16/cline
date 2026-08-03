@@ -186,8 +186,9 @@ export class VesselIndexerClient {
 		return await response.json()
 	}
 
-	async listDocuments(project: string): Promise<{ documents: DocInfo[] }> {
-		const response = await fetch(`${this.serverUrl}/projects/${encodeURIComponent(project)}/documents`)
+	async listDocuments(project: string, offset = 0, limit = 50): Promise<{ documents: DocInfo[]; total: number }> {
+		const params = new URLSearchParams({ offset: String(offset), limit: String(limit) })
+		const response = await fetch(`${this.serverUrl}/projects/${encodeURIComponent(project)}/documents?${params}`)
 		if (!response.ok) throw new Error(`List documents failed: ${response.status} ${response.statusText}`)
 		return await response.json()
 	}

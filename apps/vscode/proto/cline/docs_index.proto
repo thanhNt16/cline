@@ -155,6 +155,8 @@ message DeleteDocumentResponse {
 message ListDocumentsRequest {
   string server_url = 1;
   string project = 2;
+  int32 offset = 3;
+  int32 limit = 4;
 }
 
 message DocumentInfo {
@@ -168,6 +170,9 @@ message DocumentInfo {
 
 message ListDocumentsResponse {
   repeated DocumentInfo documents = 1;
+  int32 total = 2;
+  int32 offset = 3;
+  int32 limit = 4;
 }
 
 message IndexBatchRequest {

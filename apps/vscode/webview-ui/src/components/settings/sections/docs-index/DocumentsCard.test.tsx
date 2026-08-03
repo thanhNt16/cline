@@ -29,10 +29,23 @@ const doc = (source: string) => ({
 
 const resp = {
 	documents: [doc("manual.pdf"), doc("guide.md")],
+	total: 2,
+	offset: 0,
+	limit: 5,
 }
 
-const manyResp = {
-	documents: Array.from({ length: 7 }, (_, i) => doc(`document-${i + 1}.pdf`)),
+const manyPage1 = {
+	documents: Array.from({ length: 5 }, (_, i) => doc(`document-${i + 1}.pdf`)),
+	total: 7,
+	offset: 0,
+	limit: 5,
+}
+
+const manyPage2 = {
+	documents: [doc("document-6.pdf"), doc("document-7.pdf")],
+	total: 7,
+	offset: 5,
+	limit: 5,
 }
 
 const baseProps = (over: Record<string, unknown> = {}) => ({
@@ -67,24 +80,25 @@ describe("DocumentsCard", () => {
 		)
 	})
 
-	it("refetches when the refresh signal changes", async () => {
-		mocks.listDocuments.mockResolvedValueOnce(resp as any).mockResolvedValueOnce(manyResp as any)
+	it("refetches page 1 when the refresh signal changes", async () => {
+		mocks.listDocuments.mockResolvedValueOnce(resp as any).mockResolvedValueOnce(manyPage1 as any)
 		const { rerender } = render(<DocumentsCard {...baseProps()} />)
 		await waitFor(() => expect(screen.getByText("manual.pdf")).toBeInTheDocument())
 		expect(mocks.listDocuments).toHaveBeenCalledTimes(1)
 		rerender(<DocumentsCard {...baseProps({ refreshSignal: 1 })} />)
 		await waitFor(() => expect(mocks.listDocuments).toHaveBeenCalledTimes(2))
 		await waitFor(() => expect(screen.getByText("document-1.pdf")).toBeInTheDocument())
+		expect(screen.queryByText("manual.pdf")).not.toBeInTheDocument()
 	})
 
 	it("shows empty state when no documents", async () => {
-		mocks.listDocuments.mockResolvedValue({ documents: [] } as any)
+		mocks.listDocuments.mockResolvedValue({ documents: [], total: 0, offset: 0, limit: 5 } as any)
 		render(<DocumentsCard {...baseProps()} />)
 		await waitFor(() => expect(screen.getByText(/no documents/i)).toBeInTheDocument())
 	})
 
-	it("shows only the first 5 documents and loads more on demand", async () => {
-		mocks.listDocuments.mockResolvedValue(manyResp as any)
+	it("shows only the first page and fetches more from the server on load more", async () => {
+		mocks.listDocuments.mockResolvedValueOnce(manyPage1 as any).mockResolvedValueOnce(manyPage2 as any)
 		render(<DocumentsCard {...baseProps()} />)
 		await waitFor(() => expect(screen.getByText("document-1.pdf")).toBeInTheDocument())
 		for (const name of ["document-1.pdf", "document-5.pdf"]) {
@@ -92,8 +106,10 @@ describe("DocumentsCard", () => {
 		}
 		expect(screen.queryByText("document-6.pdf")).not.toBeInTheDocument()
 		await userEvent.click(screen.getByText("Load more"))
-		expect(screen.getByText("document-6.pdf")).toBeInTheDocument()
+		await waitFor(() => expect(screen.getByText("document-6.pdf")).toBeInTheDocument())
 		expect(screen.getByText("document-7.pdf")).toBeInTheDocument()
+		// second request paginated at offset 5
+		expect(mocks.listDocuments).toHaveBeenNthCalledWith(2, expect.objectContaining({ offset: 5, limit: 5, project: "p" }))
 		expect(screen.queryByText("Load more")).not.toBeInTheDocument()
 	})
 
@@ -115,7 +131,7 @@ describe("DocumentsCard", () => {
 	})
 
 	it("refetches the document list on refresh", async () => {
-		mocks.listDocuments.mockResolvedValueOnce(resp as any).mockResolvedValueOnce(manyResp as any)
+		mocks.listDocuments.mockResolvedValueOnce(resp as any).mockResolvedValueOnce(manyPage1 as any)
 		render(<DocumentsCard {...baseProps()} />)
 		await waitFor(() => expect(screen.getByText("manual.pdf")).toBeInTheDocument())
 		expect(mocks.listDocuments).toHaveBeenCalledTimes(1)
