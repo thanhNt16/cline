@@ -1,14 +1,15 @@
-import { useState } from "react"
 import { UploadFileRequest } from "@shared/proto/cline/docs_index"
+import { useState } from "react"
 import { DocsIndexServiceClient } from "@/services/grpc-client"
 
 interface UploadCardProps {
 	serverUrl: string
 	connected: boolean
 	selectedProject: string
+	onUploaded: () => void
 }
 
-export default function UploadCard({ serverUrl, connected, selectedProject }: UploadCardProps) {
+export default function UploadCard({ serverUrl, connected, selectedProject, onUploaded }: UploadCardProps) {
 	const [uploading, setUploading] = useState(false)
 	const [status, setStatus] = useState<string | null>(null)
 	const [error, setError] = useState<string | null>(null)
@@ -18,10 +19,9 @@ export default function UploadCard({ serverUrl, connected, selectedProject }: Up
 		setError(null)
 		setStatus(null)
 		try {
-			const res = await DocsIndexServiceClient.uploadFile(
-				UploadFileRequest.create({ serverUrl, project: selectedProject }),
-			)
+			const res = await DocsIndexServiceClient.uploadFile(UploadFileRequest.create({ serverUrl, project: selectedProject }))
 			setStatus(res.taskId ? `Uploaded — indexing task ${res.taskId}` : `Status: ${res.status}`)
+			if (res.taskId) onUploaded()
 		} catch (err) {
 			setError(`Upload failed: ${err instanceof Error ? err.message : String(err)}`)
 		} finally {
@@ -41,8 +41,8 @@ export default function UploadCard({ serverUrl, connected, selectedProject }: Up
 			}}>
 			<div style={{ fontSize: "13px", fontWeight: 600, marginBottom: "8px" }}>Upload Document</div>
 			<button
-				onClick={handleUpload}
 				disabled={disabled || uploading}
+				onClick={handleUpload}
 				style={{
 					padding: "4px 12px",
 					fontSize: "12px",
@@ -63,8 +63,6 @@ export default function UploadCard({ serverUrl, connected, selectedProject }: Up
 						color: "var(--vscode-descriptionForeground)",
 					}}>
 					{status}
-				</div>
-			)}
 				</div>
 			)}
 			{error && (

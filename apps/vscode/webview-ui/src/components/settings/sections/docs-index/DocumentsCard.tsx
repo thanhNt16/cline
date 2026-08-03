@@ -1,6 +1,7 @@
+import { StringRequest } from "@shared/proto/cline/common"
 import { type DocumentInfo, ListDocumentsRequest } from "@shared/proto/cline/docs_index"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { DocsIndexServiceClient } from "@/services/grpc-client"
+import { DocsIndexServiceClient, UiServiceClient } from "@/services/grpc-client"
 
 const PAGE_SIZE = 5
 
@@ -8,9 +9,10 @@ interface DocumentsCardProps {
 	serverUrl: string
 	connected: boolean
 	selectedProject: string
+	refreshSignal: number
 }
 
-export default function DocumentsCard({ serverUrl, connected, selectedProject }: DocumentsCardProps) {
+export default function DocumentsCard({ serverUrl, connected, selectedProject, refreshSignal }: DocumentsCardProps) {
 	const [documents, setDocuments] = useState<DocumentInfo[]>([])
 	const [loading, setLoading] = useState(false)
 	const [error, setError] = useState("")
@@ -39,7 +41,7 @@ export default function DocumentsCard({ serverUrl, connected, selectedProject }:
 
 	useEffect(() => {
 		reload()
-	}, [reload])
+	}, [reload, refreshSignal])
 
 	const filtered = useMemo(() => {
 		const q = query.trim().toLowerCase()
@@ -125,18 +127,26 @@ export default function DocumentsCard({ serverUrl, connected, selectedProject }:
 								}}>
 								{doc.source}
 							</span>
-							<a
-								href="#"
+							<button
 								onClick={(e) => {
 									e.preventDefault()
-									window.open(
-										`${serverUrl.replace(/\/$/, "")}/projects/${encodeURIComponent(selectedProject)}/documents/${encodeURIComponent(doc.source)}/file`,
-										"_blank",
-									)
+									UiServiceClient.openUrl(
+										StringRequest.create({
+											value: `${serverUrl.replace(/\/$/, "")}/projects/${encodeURIComponent(selectedProject)}/documents/${encodeURIComponent(doc.source)}/file`,
+										}),
+									).catch((err) => console.error("Failed to open download URL:", err))
 								}}
-								style={{ color: "var(--vscode-textLink)", textDecoration: "none" }}>
+								style={{
+									background: "none",
+									border: "none",
+									color: "var(--vscode-textLink)",
+									cursor: "pointer",
+									fontSize: "12px",
+									padding: 0,
+								}}
+								type="button">
 								Download
-							</a>
+							</button>
 						</li>
 					))}
 				</ul>
