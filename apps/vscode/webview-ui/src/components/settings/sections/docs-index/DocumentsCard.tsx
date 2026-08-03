@@ -18,13 +18,13 @@ export default function DocumentsCard({ serverUrl, connected, selectedProject, r
 	const [error, setError] = useState("")
 	const [query, setQuery] = useState("")
 	const [offset, setOffset] = useState(0)
-	const [total, setTotal] = useState(0)
+	const [hasMore, setHasMore] = useState(false)
 
 	const reload = useCallback(async () => {
 		if (!connected || !selectedProject) {
 			setDocuments([])
-			setTotal(0)
 			setOffset(0)
+			setHasMore(false)
 			return
 		}
 		setLoading(true)
@@ -34,9 +34,10 @@ export default function DocumentsCard({ serverUrl, connected, selectedProject, r
 				ListDocumentsRequest.create({ serverUrl, project: selectedProject, offset: 0, limit: PAGE_SIZE }),
 			)
 			const page = response.documents ?? []
+			const knownTotal = response.total ?? 0
 			setDocuments(page)
 			setOffset(page.length)
-			setTotal(response.total ?? page.length)
+			setHasMore(knownTotal > 0 ? page.length < knownTotal : page.length === PAGE_SIZE)
 		} catch (err) {
 			console.error("Failed to list documents:", err)
 			setError(err instanceof Error ? err.message : String(err))
@@ -58,12 +59,12 @@ export default function DocumentsCard({ serverUrl, connected, selectedProject, r
 				ListDocumentsRequest.create({ serverUrl, project: selectedProject, offset, limit: PAGE_SIZE }),
 			)
 			const next = response.documents ?? []
-			setDocuments((prev) => {
-				const seen = new Set(prev.map((d) => d.source))
-				return [...prev, ...next.filter((d) => !seen.has(d.source))]
-			})
+			const seen = new Set(documents.map((d) => d.source))
+			const merged = [...documents, ...next.filter((d) => !seen.has(d.source))]
+			const knownTotal = response.total ?? 0
+			setDocuments(merged)
 			setOffset((o) => o + next.length)
-			setTotal(response.total ?? offset + next.length)
+			setHasMore(knownTotal > 0 ? merged.length < knownTotal : next.length === PAGE_SIZE)
 		} catch (err) {
 			console.error("Failed to load more documents:", err)
 			setError(err instanceof Error ? err.message : String(err))
@@ -79,7 +80,6 @@ export default function DocumentsCard({ serverUrl, connected, selectedProject, r
 	}, [documents, query])
 
 	const shown = filtered
-	const hasMore = documents.length < total
 
 	return (
 		<div

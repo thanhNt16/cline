@@ -122,6 +122,18 @@ describe("DocumentsCard", () => {
 		expect(screen.queryByText("manual.pdf")).not.toBeInTheDocument()
 	})
 
+	it("still shows and works load more when server omits total (proto3 default 0)", async () => {
+		// total absent/0 must not hide the Load more button (was: `response.total ?? page.length` kept 0)
+		mocks.listDocuments
+			.mockResolvedValueOnce({ documents: manyPage1.documents, total: 0, offset: 0, limit: 5 } as any)
+			.mockResolvedValueOnce({ documents: manyPage2.documents, total: 0, offset: 5, limit: 5 } as any)
+		render(<DocumentsCard {...baseProps()} />)
+		await waitFor(() => expect(screen.getByText("document-1.pdf")).toBeInTheDocument())
+		expect(screen.getByText("Load more")).toBeInTheDocument()
+		await userEvent.click(screen.getByText("Load more"))
+		await waitFor(() => expect(screen.getByText("document-6.pdf")).toBeInTheDocument())
+	})
+
 	it("shows a no-match message when search finds nothing", async () => {
 		mocks.listDocuments.mockResolvedValue(resp as any)
 		render(<DocumentsCard {...baseProps()} />)
