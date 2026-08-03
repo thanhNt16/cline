@@ -1,45 +1,109 @@
 import { strict as assert } from "node:assert"
 import * as fs from "node:fs/promises"
-import * as os from "node:os"
+import os from "os"
 import * as path from "node:path"
+import { afterEach, beforeEach, describe, it, spyOn } from "bun:test"
 import { ModelProfileService } from "../ModelProfileService"
 
-describe("ModelProfileService", () => {
-	let cwd: string
+const profile = (id: string, modelId = "m") => ({ id, name: id, baseUrl: "u", modelId, apiKey: "k" })
+
+describe("ModelProfileService (layered)", () => {
+	let home: string
+	let workspace: string
+	let homedirSpy: ReturnType<typeof spyOn>
+
 	beforeEach(async () => {
-		cwd = await fs.mkdtemp(path.join(os.tmpdir(), "cellockai-"))
+		home = await fs.mkdtemp(path.join(os.tmpdir(), "cellockai-home-"))
+		workspace = await fs.mkdtemp(path.join(os.tmpdir(), "cellockai-workspace-"))
+		homedirSpy = spyOn(os, "homedir").mockImplementation(() => home)
 	})
+
 	afterEach(async () => {
-		await fs.rm(cwd, { recursive: true, force: true })
+		homedirSpy.mockRestore()
+		await fs.rm(home, { recursive: true, force: true })
+		await fs.rm(workspace, { recursive: true, force: true })
 	})
 
-	it("seeds a default profile when profiles.json is absent", async () => {
-		const svc = new ModelProfileService(cwd)
-		const active = await svc.getActiveProfile()
-		assert.equal(active.baseUrl, "https://api.z.ai/api/coding/paas/v4")
-		assert.equal(active.modelId, "glm-5.2")
-		assert.ok(active.name.length > 0)
-		// file should now exist on disk
-		const raw = await fs.readFile(path.join(cwd, ".cellockai", "profiles.json"), "utf8")
-		assert.ok(JSON.parse(raw).profiles.length === 1)
+	const globalFile = () => path.join(home, ".cellockai", "profiles.json")
+	const workspaceFile = () => path.join(workspace, ".cellockai", "profiles.json")
+	const writeProfiles = async (file: string, data: unknown) => {
+		await fs.mkdir(path.dirname(file), { recursive: true })
+		await fs.writeFile(file, JSON.stringify(data, null, 2), "utf8")
+	}
+
+	it("returns no profiles without creating either layer", async () => {
+		const service = new ModelProfileService(workspace)
+		assert.deepEqual(await service.getProfiles(), [])
+		assert.equal(await service.getActiveProfile(), undefined)
+		await assert.rejects(() => fs.access(globalFile()))
+		await assert.rejects(() => fs.access(workspaceFile()))
 	})
 
-	it("round-trips an added profile and switches active", async () => {
-		const svc = new ModelProfileService(cwd)
-		const added = await svc.addProfile({ name: "Local", baseUrl: "http://localhost:1234/v1", modelId: "qwen", apiKey: "k" })
-		await svc.setActiveProfile(added.id)
-		const reloaded = new ModelProfileService(cwd)
-		const active = await reloaded.getActiveProfile()
-		assert.equal(active.id, added.id)
-		assert.equal(active.modelId, "qwen")
+	it("loads global profiles without a workspace layer", async () => {
+		await writeProfiles(globalFile(), { activeProfileId: "global", profiles: [profile("global")] })
+		const service = new ModelProfileService(workspace)
+		assert.deepEqual((await service.getProfiles()).map((item) => item.id), ["global"])
+		assert.equal((await service.getActiveProfile())?.id, "global")
 	})
 
-	it("maps the active profile onto OpenAI-compatible apiConfiguration fields", async () => {
-		const svc = new ModelProfileService(cwd)
-		const cfg = await svc.toApiConfiguration()
-		assert.equal(cfg.apiProvider, "openai")
-		assert.equal(cfg.openAiBaseUrl, "https://api.z.ai/api/coding/paas/v4")
-		assert.equal(cfg.planModeOpenAiModelId, "glm-5.2")
-		assert.equal(cfg.actModeOpenAiModelId, "glm-5.2")
+	it("fully replaces a global profile with the workspace profile sharing its id", async () => {
+		await writeProfiles(globalFile(), { activeProfileId: "shared", profiles: [profile("shared", "global-model")] })
+		await writeProfiles(workspaceFile(), { activeProfileId: "", profiles: [profile("shared", "workspace-model")] })
+		const { merged, owners } = await new ModelProfileService(workspace).loadMerged()
+		assert.equal(merged.profiles.length, 1)
+		assert.equal(merged.profiles[0].modelId, "workspace-model")
+		assert.equal(owners.get("shared"), "workspace")
+	})
+
+	it("merges distinct global and workspace profiles", async () => {
+		await writeProfiles(globalFile(), { activeProfileId: "", profiles: [profile("global")] })
+		await writeProfiles(workspaceFile(), { activeProfileId: "", profiles: [profile("workspace")] })
+		assert.deepEqual(
+			(await new ModelProfileService(workspace).getProfiles()).map((item) => item.id).sort(),
+			["global", "workspace"],
+		)
+	})
+
+	it("falls back to the first merged profile when both active ids are invalid", async () => {
+		await writeProfiles(globalFile(), { activeProfileId: "missing", profiles: [profile("global")] })
+		await writeProfiles(workspaceFile(), { activeProfileId: "also-missing", profiles: [profile("workspace")] })
+		assert.equal((await new ModelProfileService(workspace).getActiveProfile())?.id, "global")
+	})
+
+	it("falls through from a stale workspace active id to a valid global id", async () => {
+		await writeProfiles(globalFile(), { activeProfileId: "global", profiles: [profile("global"), profile("other")] })
+		await writeProfiles(workspaceFile(), { activeProfileId: "missing", profiles: [] })
+		assert.equal((await new ModelProfileService(workspace).getActiveProfile())?.id, "global")
+	})
+
+	it("uses a valid workspace active id even for a global-owned profile", async () => {
+		await writeProfiles(globalFile(), { activeProfileId: "global", profiles: [profile("global"), profile("other")] })
+		await writeProfiles(workspaceFile(), { activeProfileId: "other", profiles: [] })
+		assert.equal((await new ModelProfileService(workspace).getActiveProfile())?.id, "other")
+	})
+
+	it("skips malformed global JSON while a valid workspace layer loads", async () => {
+		await fs.mkdir(path.dirname(globalFile()), { recursive: true })
+		await fs.writeFile(globalFile(), "{", "utf8")
+		await writeProfiles(workspaceFile(), { activeProfileId: "workspace", profiles: [profile("workspace")] })
+		assert.equal((await new ModelProfileService(workspace).getActiveProfile())?.id, "workspace")
+	})
+
+	it("skips a malformed workspace shape while a valid global layer loads", async () => {
+		await writeProfiles(globalFile(), { activeProfileId: "global", profiles: [profile("global")] })
+		await writeProfiles(workspaceFile(), { activeProfileId: "workspace", profiles: "not-an-array" })
+		assert.equal((await new ModelProfileService(workspace).getActiveProfile())?.id, "global")
+	})
+
+	it("maps the active profile onto OpenAI-compatible API configuration fields", async () => {
+		await writeProfiles(globalFile(), {
+			activeProfileId: "z",
+			profiles: [{ ...profile("z", "glm-5"), baseUrl: "https://api.z.ai/api/coding/paas/v4", apiKey: "" }],
+		})
+		const config = await new ModelProfileService(workspace).toApiConfiguration()
+		assert.equal(config.apiProvider, "openai")
+		assert.equal(config.openAiBaseUrl, "https://api.z.ai/api/coding/paas/v4")
+		assert.equal(config.planModeOpenAiModelId, "glm-5")
+		assert.equal(config.actModeOpenAiModelId, "glm-5")
 	})
 })

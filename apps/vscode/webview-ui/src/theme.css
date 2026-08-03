@@ -331,15 +331,28 @@
 		li > ol {
 			@apply my-1 ml-2;
 		}
+		/* Tables scroll horizontally instead of overflowing the chat row when
+		   columns (e.g. long file paths) exceed the available width. */
+		.md-table-wrapper {
+			@apply max-w-full overflow-x-auto my-3;
+		}
 		table {
 			@apply border-collapse w-full my-3;
+		}
+		.md-table-wrapper > table {
+			@apply my-0;
 		}
 		th,
 		td {
 			@apply p-2 border border-border-panel text-left;
+			/* MarkdownRow applies `wrap-anywhere`, which inherits here and would
+			   shrink a cell's min-content width to a single character, collapsing
+			   narrow columns. Restore word-boundary wrapping inside cells. */
+			overflow-wrap: break-word;
+			word-break: normal;
 		}
 		th {
-			@apply bg-code/20 font-semibold;
+			@apply bg-code/20 font-semibold whitespace-nowrap;
 		}
 		tr:nth-child(even) {
 			@apply bg-list-hover;

@@ -4,8 +4,10 @@
 // lifecycle bootstrapping, and host selection while the VSCode extension
 // still provides its custom McpHub-backed runtime builder.
 
+import path from "node:path"
 import {
 	ClineCore,
+	CoreSessionService,
 	type ClineCoreListHistoryOptions,
 	type ClineCoreStartInput,
 	type CoreSessionEvent,
@@ -20,6 +22,7 @@ import {
 	type RestoreResult,
 	type SendSessionInput,
 	type SessionAccumulatedUsage,
+	SqliteSessionStore,
 	type SessionCompactionState,
 	type SessionHistoryRecord,
 	type SessionPendingPrompt,
@@ -38,6 +41,7 @@ import { createVscodeExtraTools } from "./vscode-runtime-builder"
 
 export interface VscodeSessionHostOptions {
 	mcpHub: McpHub
+	workspacePath: string
 	requestToolApproval?: (request: {
 		agentId: string
 		conversationId: string
@@ -76,6 +80,16 @@ export class VscodeSessionHost implements SdkSessionHost {
 	}
 
 	static async create(options: VscodeSessionHostOptions): Promise<VscodeSessionHost> {
+		if (!options.workspacePath?.trim()) {
+			throw new Error("VscodeSessionHost requires a workspace path")
+		}
+		const sessionsDirectory = path.join(options.workspacePath, ".cellockai", "sessions")
+		const store = new SqliteSessionStore({ sessionsDir: sessionsDirectory })
+		store.init()
+		const sessionService = new CoreSessionService(store, {
+			sessionArtifactsDir: sessionsDirectory,
+		})
+
 		// Build tool executor capabilities from options — only include keys that are provided.
 		// When a terminal manager is available, suppress the SDK's built-in run_commands
 		// tool by setting bash to undefined. Our custom run_commands (provided via
@@ -93,6 +107,7 @@ export class VscodeSessionHost implements SdkSessionHost {
 
 		const inner = await ClineCore.create({
 			backendMode: "local",
+			sessionService,
 			capabilities: {
 				requestToolApproval: options.requestToolApproval as
 					| ((request: ToolApprovalRequest) => Promise<ToolApprovalResult>)

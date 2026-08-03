@@ -21,6 +21,8 @@ export default defineConfig({
 			"src/core/controller/models/__tests__/providerCatalogSmoke.test.ts",
 			"src/core/controller/models/__tests__/refreshClineRecommendedModels.test.ts",
 			"src/core/controller/models/__tests__/refreshGroqModels.test.ts",
+			"src/core/storage/__tests__/globalConfig.test.ts",
+			"src/core/storage/__tests__/resetPreservesGlobalFiles.test.ts",
 		],
 		environment: "node",
 		// Several suites lazily `await import()` their subject inside the first test

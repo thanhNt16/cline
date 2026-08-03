@@ -24,12 +24,8 @@ export async function refreshSkills(controller: Controller): Promise<RefreshedSk
 	const settingsSnapshot = await createCoreSettingsService().list({
 		workspaceRoot: primaryWorkspace,
 	})
-	const globalSkills = settingsSnapshot.skills
-		.filter((skill) => skill.source === "global" || skill.source === "global-plugin")
-		.map(coreSkillToSkillInfo)
-	const localSkills = settingsSnapshot.skills
-		.filter((skill) => skill.source === "workspace" || skill.source === "workspace-plugin")
-		.map(coreSkillToSkillInfo)
+	const globalSkills = settingsSnapshot.skills.filter((skill) => skill.source === "global").map(coreSkillToSkillInfo)
+	const localSkills = settingsSnapshot.skills.filter((skill) => skill.source === "workspace").map(coreSkillToSkillInfo)
 
 	// Add remote skills from remote config.
 	// Precedence: remote (enterprise) > disk-global (user) > project (workspace).

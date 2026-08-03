@@ -63,7 +63,7 @@ export default function ConnectionCard({
 					value={serverUrl}
 					onChange={(e) => setServerUrl(e.target.value)}
 					disabled={connected || connecting}
-					placeholder="http://localhost:20130"
+					placeholder="http://localhost:8080"
 					style={{
 						flex: 1,
 						padding: "4px 8px",

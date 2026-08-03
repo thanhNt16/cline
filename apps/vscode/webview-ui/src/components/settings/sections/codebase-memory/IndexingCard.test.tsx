@@ -1,6 +1,6 @@
 import { IndexProgressEvent_Level } from "@shared/proto/cline/codebase_memory"
-import { render, screen } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
+import { fireEvent, render, screen } from "@testing-library/react"
+import { describe, expect, it, vi } from "vitest"
 import IndexingCard from "./IndexingCard"
 
 const baseProps = {
@@ -9,6 +9,8 @@ const baseProps = {
 	onIndex: () => {},
 	onReindex: () => {},
 	hasWorkspace: true,
+	autoIndex: false,
+	onAutoIndexChange: () => {},
 }
 
 describe("IndexingCard progress", () => {
@@ -42,5 +44,24 @@ describe("IndexingCard progress", () => {
 		expect(screen.getAllByText(/Retrying with crash isolation/).length).toBeGreaterThanOrEqual(1)
 		const bar = screen.getByRole("progressbar")
 		expect(bar.getAttribute("aria-valuenow")).toBeNull()
+	})
+})
+
+describe("IndexingCard auto-index toggle", () => {
+	it("reflects the autoIndex state and calls onAutoIndexChange when toggled", () => {
+		const onAutoIndexChange = vi.fn()
+		render(
+			<IndexingCard
+				{...baseProps}
+				isIndexing={false}
+				progressLines={[]}
+				autoIndex={false}
+				onAutoIndexChange={onAutoIndexChange}
+			/>,
+		)
+		const checkbox = screen.getByRole("checkbox") as HTMLInputElement
+		expect(checkbox.checked).toBe(false)
+		fireEvent.click(checkbox)
+		expect(onAutoIndexChange).toHaveBeenCalledWith(true)
 	})
 })

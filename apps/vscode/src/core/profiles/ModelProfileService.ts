@@ -1,108 +1,160 @@
 import { randomUUID } from "node:crypto"
-import * as fs from "node:fs/promises"
 import * as path from "node:path"
-import {
-	CELLOCKAI_DEFAULT_BASE_URL,
-	CELLOCKAI_DEFAULT_MODEL_ID,
-	CELLOCKAI_DEFAULT_PROFILE_NAME,
-	getDefaultApiKey,
-} from "@/config/cellockaiDefaults"
+import { getGlobalProfilesFilePath, writeJsonConfigFileAtomic } from "@core/storage/disk"
+import { readJsonConfigFile } from "@core/storage/readJsonConfig"
 import type { ModelProfile, ProfilesFile } from "./types"
 
+type Layer = "global" | "workspace"
+
+function emptyProfilesFile(): ProfilesFile {
+	return { activeProfileId: "", profiles: [] }
+}
+
+function isModelProfile(value: unknown): value is ModelProfile {
+	if (!value || typeof value !== "object") {
+		return false
+	}
+	const profile = value as Record<string, unknown>
+	return ["id", "name", "baseUrl", "modelId", "apiKey"].every((key) => typeof profile[key] === "string")
+}
+
+function isProfilesFile(value: unknown): value is ProfilesFile {
+	if (!value || typeof value !== "object") {
+		return false
+	}
+	const file = value as Record<string, unknown>
+	return typeof file.activeProfileId === "string" && Array.isArray(file.profiles) && file.profiles.every(isModelProfile)
+}
+
 export class ModelProfileService {
-	private readonly dir: string
-	private readonly file: string
+	private readonly workspaceFile?: string
 
-	constructor(private readonly cwd: string) {
-		this.dir = path.join(cwd, ".cellockai")
-		this.file = path.join(this.dir, "profiles.json")
+	constructor(workspacePath?: string) {
+		this.workspaceFile = workspacePath ? path.join(workspacePath, ".cellockai", "profiles.json") : undefined
 	}
 
-	private buildDefault(): ProfilesFile {
-		const profile: ModelProfile = {
-			id: randomUUID(),
-			name: CELLOCKAI_DEFAULT_PROFILE_NAME,
-			baseUrl: CELLOCKAI_DEFAULT_BASE_URL,
-			modelId: CELLOCKAI_DEFAULT_MODEL_ID,
-			apiKey: getDefaultApiKey(),
+	private globalFile(): string {
+		return getGlobalProfilesFilePath()
+	}
+
+	private async readLayer(file: string): Promise<ProfilesFile | undefined> {
+		const data = await readJsonConfigFile<unknown>(file)
+		return isProfilesFile(data) ? data : undefined
+	}
+
+	/** Merge global + workspace profiles, with workspace collisions fully replacing global profiles. */
+	async loadMerged(): Promise<{
+		merged: ProfilesFile
+		owners: Map<string, Layer>
+		global: ProfilesFile
+		workspace?: ProfilesFile
+	}> {
+		const global = (await this.readLayer(this.globalFile())) ?? emptyProfilesFile()
+		const workspace = this.workspaceFile ? await this.readLayer(this.workspaceFile) : undefined
+		const owners = new Map<string, Layer>()
+		const byId = new Map<string, ModelProfile>()
+
+		for (const profile of global.profiles) {
+			owners.set(profile.id, "global")
+			byId.set(profile.id, profile)
 		}
-		return { activeProfileId: profile.id, profiles: [profile] }
-	}
-
-	private async load(): Promise<ProfilesFile> {
-		try {
-			const raw = await fs.readFile(this.file, "utf8")
-			const parsed = JSON.parse(raw) as ProfilesFile
-			if (parsed?.profiles?.length) {
-				return parsed
-			}
-		} catch {
-			// fall through to seeding
+		for (const profile of workspace?.profiles ?? []) {
+			owners.set(profile.id, "workspace")
+			byId.set(profile.id, profile)
 		}
-		const seeded = this.buildDefault()
-		await this.save(seeded)
-		return seeded
-	}
 
-	private async save(data: ProfilesFile): Promise<void> {
-		await fs.mkdir(this.dir, { recursive: true })
-		await fs.writeFile(this.file, JSON.stringify(data, null, 2), "utf8")
+		const profiles = [...byId.values()]
+		const valid = (id: string | undefined): id is string => id != null && byId.has(id)
+		const activeProfileId = valid(workspace?.activeProfileId)
+			? workspace.activeProfileId
+			: valid(global.activeProfileId)
+				? global.activeProfileId
+				: (profiles[0]?.id ?? "")
+
+		return { merged: { activeProfileId, profiles }, owners, global, workspace }
 	}
 
 	async getProfiles(): Promise<ModelProfile[]> {
-		return (await this.load()).profiles
+		return (await this.loadMerged()).merged.profiles
 	}
 
-	async getActiveProfile(): Promise<ModelProfile> {
-		const data = await this.load()
-		return data.profiles.find((p) => p.id === data.activeProfileId) ?? data.profiles[0]
+	async getActiveProfile(): Promise<ModelProfile | undefined> {
+		const { merged } = await this.loadMerged()
+		return merged.profiles.find((profile) => profile.id === merged.activeProfileId)
 	}
 
 	async addProfile(input: Omit<ModelProfile, "id">): Promise<ModelProfile> {
-		const data = await this.load()
 		const profile: ModelProfile = { id: randomUUID(), ...input }
+		const file = this.globalFile()
+		const data = (await this.readLayer(file)) ?? emptyProfilesFile()
 		data.profiles.push(profile)
-		await this.save(data)
+		await writeJsonConfigFileAtomic(file, data)
 		return profile
 	}
 
 	async updateProfile(id: string, patch: Partial<Omit<ModelProfile, "id">>): Promise<void> {
-		const data = await this.load()
-		const idx = data.profiles.findIndex((p) => p.id === id)
-		if (idx >= 0) {
-			data.profiles[idx] = { ...data.profiles[idx], ...patch }
-			await this.save(data)
+		const { owners } = await this.loadMerged()
+		const layer = owners.get(id)
+		if (!layer) {
+			throw new Error(`Profile ${id} not found`)
 		}
+		const file = layer === "workspace" ? this.workspaceFile! : this.globalFile()
+		const data = await this.readLayer(file)
+		const index = data?.profiles.findIndex((profile) => profile.id === id) ?? -1
+		if (!data || index < 0) {
+			throw new Error(`Profile ${id} not found`)
+		}
+		data.profiles[index] = { ...data.profiles[index], ...patch }
+		await writeJsonConfigFileAtomic(file, data)
 	}
 
 	async deleteProfile(id: string): Promise<void> {
-		const data = await this.load()
-		data.profiles = data.profiles.filter((p) => p.id !== id)
-		if (data.activeProfileId === id && data.profiles[0]) {
-			data.activeProfileId = data.profiles[0].id
+		const { owners } = await this.loadMerged()
+		const layer = owners.get(id)
+		if (!layer) {
+			throw new Error(`Profile ${id} not found`)
 		}
-		await this.save(data)
+		const file = layer === "workspace" ? this.workspaceFile! : this.globalFile()
+		const data = await this.readLayer(file)
+		if (!data || !data.profiles.some((profile) => profile.id === id)) {
+			throw new Error(`Profile ${id} not found`)
+		}
+		data.profiles = data.profiles.filter((profile) => profile.id !== id)
+		if (data.activeProfileId === id) {
+			data.activeProfileId = data.profiles[0]?.id ?? ""
+		}
+		await writeJsonConfigFileAtomic(file, data)
 	}
 
 	async setActiveProfile(id: string): Promise<void> {
-		const data = await this.load()
-		if (data.profiles.some((p) => p.id === id)) {
-			data.activeProfileId = id
-			await this.save(data)
+		const { owners } = await this.loadMerged()
+		const layer = owners.get(id)
+		if (!layer) {
+			throw new Error(`Profile ${id} not found`)
 		}
+		const file = layer === "workspace" ? this.workspaceFile! : this.globalFile()
+		const data = await this.readLayer(file)
+		if (!data || !data.profiles.some((profile) => profile.id === id)) {
+			throw new Error(`Profile ${id} not found`)
+		}
+		data.activeProfileId = id
+		await writeJsonConfigFileAtomic(file, data)
 	}
 
 	/** Map the active profile onto OpenAI-compatible apiConfiguration fields. */
 	async toApiConfiguration(): Promise<Record<string, unknown>> {
-		const p = await this.getActiveProfile()
+		const profile = await this.getActiveProfile()
+		if (!profile) {
+			return {}
+		}
 		return {
 			apiProvider: "openai",
-			openAiBaseUrl: p.baseUrl,
-			openAiApiKey: p.apiKey,
+			openAiBaseUrl: profile.baseUrl,
+			openAiApiKey: profile.apiKey,
 			planModeApiProvider: "openai",
 			actModeApiProvider: "openai",
-			planModeOpenAiModelId: p.modelId,
-			actModeOpenAiModelId: p.modelId,
+			planModeOpenAiModelId: profile.modelId,
+			actModeOpenAiModelId: profile.modelId,
 		}
 	}
 }

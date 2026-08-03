@@ -26,6 +26,7 @@ export interface TaskUsage {
 
 export interface SdkTaskHistoryOptions {
 	mcpHub: McpHub
+	getWorkspacePath: () => Promise<string | undefined>
 	sessions: SdkSessionLifecycle
 	/**
 	 * VS Code's legacy global storage root. Pre-SDK VS Code tasks lived here under
@@ -334,9 +335,14 @@ export class SdkTaskHistory {
 		}
 
 		this.cachedHistoryHostPromise = (async () => {
+			const workspacePath = await this.options.getWorkspacePath()
+			if (!workspacePath) {
+				throw new Error("Cannot read SDK session history without an open workspace")
+			}
 			const { VscodeSessionHost } = await import("./vscode-session-host")
 			const historyHost = await VscodeSessionHost.create({
 				mcpHub: this.options.mcpHub,
+				workspacePath,
 			})
 			this.cachedHistoryHost = historyHost
 			return historyHost
@@ -704,10 +710,11 @@ export class SdkTaskHistory {
 		return (await this.listHistory()).map(sessionHistoryRecordToHistoryItem)
 	}
 
-	async deleteAllTaskHistory(options: { preserveFavorites?: boolean } = {}): Promise<number> {
+	async deleteAllTaskHistory(options: { preserveFavorites?: boolean; taskIds?: ReadonlySet<string> } = {}): Promise<number> {
 		const history = await this.listHistory({ hydrate: false })
+		const scopedHistory = options.taskIds ? history.filter((item) => options.taskIds?.has(item.sessionId)) : history
 		const tasksToDelete = options.preserveFavorites
-			? history.filter(
+			? scopedHistory.filter(
 					(item) =>
 						!(
 							metadataBoolean(item.metadata, "isFavorited") ??
@@ -715,7 +722,7 @@ export class SdkTaskHistory {
 							false
 						),
 				)
-			: history
+			: scopedHistory
 
 		let deletedCount = 0
 		await this.withHistoryHost(async (host) => {

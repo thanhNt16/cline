@@ -382,6 +382,19 @@ describe("SdkTaskHistory", () => {
 		expect(deleteLegacyTask).not.toHaveBeenCalled()
 	})
 
+	it("deletes only scoped sessions when clearing workspace history", async () => {
+		const { history, deleteSession } = makeHistory([
+			makeSessionRecord("project-task"),
+			makeSessionRecord("other-project-task"),
+		])
+
+		const deleted = await history.deleteAllTaskHistory({ taskIds: new Set(["project-task"]) })
+
+		expect(deleted).toBe(1)
+		expect(deleteSession).toHaveBeenCalledTimes(1)
+		expect(deleteSession).toHaveBeenCalledWith("project-task")
+	})
+
 	it("deletes legacy task records when deleting history", async () => {
 		legacyStateReaderMock.taskHistory = [makeHistoryItem("legacy-task", { task: "legacy prompt" })]
 		const { history, deleteSession } = makeHistory([])
@@ -782,6 +795,7 @@ function makeHistory(records: SessionHistoryRecord[], telemetry?: TelemetryServi
 	} as unknown as SdkSessionLifecycle
 	const history = new SdkTaskHistory({
 		mcpHub: {} as McpHub,
+		getWorkspacePath: async () => "/tmp/workspace",
 		sessions,
 		telemetry,
 		legacyExtensionStorageDir,

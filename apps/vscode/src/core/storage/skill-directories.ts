@@ -1,17 +1,14 @@
 import os from "os"
 import * as path from "path"
 
-const SKILL_DIRECTORY_NAMES = {
-	clineruleSkillsDir: ".cellockai/skills",
-	clineSkillsDir: ".cellockai/skills",
-	claudeSkillsDir: ".claude/skills",
-} as const
-
 export type SkillsScanDirectory = {
 	path: string
 	source: "project" | "global"
 }
 
+// Must mirror resolveGlobalSkillsConfigDirPath() in @cline/shared/storage.
+// The shared SDK build does not regenerate type declarations reliably, so the
+// literal is duplicated here rather than imported across the package boundary.
 function getClineSkillsDirectoryPath(): string {
 	return path.join(os.homedir(), ".cellockai", "skills")
 }
@@ -22,9 +19,7 @@ function getClineSkillsDirectoryPath(): string {
  */
 export function getSkillsDirectoriesForScan(cwd: string): SkillsScanDirectory[] {
 	return [
-		{ path: path.join(cwd, SKILL_DIRECTORY_NAMES.clineruleSkillsDir), source: "project" },
-		{ path: path.join(cwd, SKILL_DIRECTORY_NAMES.clineSkillsDir), source: "project" },
-		{ path: path.join(cwd, SKILL_DIRECTORY_NAMES.claudeSkillsDir), source: "project" },
+		{ path: path.join(cwd, ".cellockai", "skills"), source: "project" },
 		{ path: getClineSkillsDirectoryPath(), source: "global" },
 	]
 }

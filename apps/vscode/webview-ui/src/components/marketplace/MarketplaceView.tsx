@@ -69,7 +69,7 @@ const PRIMITIVES: PrimitiveConfig[] = [
 		title: "MCP Servers",
 		description: (
 			<>
-				Connect Cline to external APIs, local tools, and hosted services through{" "}
+				Connect CellockAI to external APIs, local tools, and hosted services through{" "}
 				<VSCodeLink href="https://modelcontextprotocol.io/">MCP</VSCodeLink> servers.
 			</>
 		),

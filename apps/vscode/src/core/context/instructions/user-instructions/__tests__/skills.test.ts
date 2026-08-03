@@ -99,8 +99,6 @@ describe("Skills Utility Functions", () => {
 
 		getSkillsDirectoriesForScanStub.returns([
 			{ path: path.join(TEST_CWD, ".cellockai", "skills"), source: "project" },
-			{ path: path.join(TEST_CWD, ".cellockai", "skills"), source: "project" },
-			{ path: path.join(TEST_CWD, ".claude", "skills"), source: "project" },
 			{ path: GLOBAL_SKILLS_DIR, source: "global" },
 		])
 
@@ -183,7 +181,7 @@ Use systematic debugging approaches.`)
 			expect(skills[0].source).to.equal("project")
 		})
 
-		it("should discover skills from project .claude/skills directory", async () => {
+		it("should ignore skills from project .claude/skills directory", async () => {
 			const claudeSkillsDir = path.join(TEST_CWD, ".claude", "skills")
 			const skillDir = path.join(claudeSkillsDir, "coding")
 			const skillMdPath = path.join(skillDir, "SKILL.md")
@@ -201,9 +199,7 @@ Follow best practices.`)
 
 			const skills = await discoverSkills(TEST_CWD)
 
-			expect(skills).to.have.lengthOf(1)
-			expect(skills[0].name).to.equal("coding")
-			expect(skills[0].source).to.equal("project")
+			expect(skills).to.have.lengthOf(0)
 		})
 
 		it("should discover skills from project .cellockai/skills directory", async () => {

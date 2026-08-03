@@ -9,7 +9,21 @@ mock.module("@core/storage/disk", () => ({
 	getProjectSettingsDirectoryPath: mockGetProjectSettingsDirectoryPath,
 }))
 
-const { WorkspaceHistoryIndex } = await import("../WorkspaceHistoryIndex")
+const { belongsToWorkspace, WorkspaceHistoryIndex } = await import("../WorkspaceHistoryIndex")
+
+describe("belongsToWorkspace", () => {
+	test("uses only the project-owned session index", () => {
+		const indexed = new Set(["indexed"])
+		expect(belongsToWorkspace({ id: "indexed" }, indexed)).toBe(true)
+		expect(
+			belongsToWorkspace(
+				{ id: "legacy", cwdOnTaskInitialization: "/repo/a" },
+				indexed,
+			),
+		).toBe(false)
+		expect(belongsToWorkspace({ id: "unknown" }, new Set())).toBe(false)
+	})
+})
 
 describe("WorkspaceHistoryIndex", () => {
 	let tempDir: string
@@ -67,6 +81,15 @@ describe("WorkspaceHistoryIndex", () => {
 		await index.addTaskId("task-001")
 		expect(await index.containsTaskId("task-001")).toBe(true)
 		expect(await index.containsTaskId("task-999")).toBe(false)
+	})
+
+	test("removeTaskIds removes only requested IDs", async () => {
+		await setupWorkspace()
+		const index = new WorkspaceHistoryIndex()
+		await index.addTaskId("task-001")
+		await index.addTaskId("task-002")
+		await index.removeTaskIds(new Set(["task-001"]))
+		expect(await index.getTaskIds()).toEqual(new Set(["task-002"]))
 	})
 
 	test("getTaskIds returns empty set when file does not exist", async () => {

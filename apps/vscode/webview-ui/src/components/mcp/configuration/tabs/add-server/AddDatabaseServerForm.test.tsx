@@ -5,12 +5,14 @@ import AddDatabaseServerForm from "./AddDatabaseServerForm"
 
 const mocks = vi.hoisted(() => ({
 	addStdioMcpServer: vi.fn(),
+	deleteMcpServer: vi.fn(),
 	setMcpServers: vi.fn(),
 }))
 
 vi.mock("@/services/grpc-client", () => ({
 	McpServiceClient: {
 		addStdioMcpServer: mocks.addStdioMcpServer,
+		deleteMcpServer: mocks.deleteMcpServer,
 	},
 }))
 
@@ -27,8 +29,10 @@ vi.mock("@shared/proto-conversions/mcp/mcp-server-conversion", () => ({
 describe("AddDatabaseServerForm", () => {
 	beforeEach(() => {
 		mocks.addStdioMcpServer.mockReset()
+		mocks.deleteMcpServer.mockReset()
 		mocks.setMcpServers.mockReset()
 		mocks.addStdioMcpServer.mockResolvedValue({ mcpServers: undefined })
+		mocks.deleteMcpServer.mockResolvedValue(undefined)
 	})
 
 	it("submits the prebuilt postgres stdio config with required fields", async () => {
@@ -56,6 +60,7 @@ describe("AddDatabaseServerForm", () => {
 					POSTGRES_USER: "appuser",
 					POSTGRES_PASSWORD: "secret",
 				}),
+				cellockaiPreset: "postgres-mcp-toolbox",
 			}),
 		)
 		expect(onDone).toHaveBeenCalled()
@@ -70,5 +75,25 @@ describe("AddDatabaseServerForm", () => {
 
 		expect(mocks.addStdioMcpServer).not.toHaveBeenCalled()
 		expect(screen.getByText(/required/i)).toBeInTheDocument()
+	})
+
+	it("renders initial values and saves changes in edit mode", async () => {
+		const user = userEvent.setup()
+		render(
+			<AddDatabaseServerForm
+				onDone={vi.fn()}
+				initialName="pg-existing"
+				initialFields={{ name: "pg-existing", database: "db", user: "u", password: "p" }}
+			/>,
+		)
+
+		expect(screen.getByDisplayValue("pg-existing")).toBeInTheDocument()
+		expect(screen.getByDisplayValue("db")).toBeInTheDocument()
+		await user.click(screen.getByRole("button", { name: "Save Changes" }))
+
+		await waitFor(() => expect(mocks.addStdioMcpServer).toHaveBeenCalled())
+		expect(mocks.addStdioMcpServer).toHaveBeenCalledWith(
+			expect.objectContaining({ cellockaiPreset: "postgres-mcp-toolbox" }),
+		)
 	})
 })

@@ -13,11 +13,13 @@ import {
 	resolveDbDataDir,
 	resolveGlobalAgentsRulesPath,
 	resolveGlobalSettingsPath,
+	resolveGlobalSkillsConfigDirPath,
 	resolveHooksConfigSearchPaths,
 	resolveMcpSettingsPath,
 	resolveProviderSettingsPath,
 	resolveRulesConfigSearchPaths,
 	resolveSessionDataDir,
+	resolveSkillsConfigSearchPaths,
 	resolveTeamDataDir,
 	resolveWorkflowsConfigSearchPaths,
 } from "./paths";
@@ -217,5 +219,19 @@ describe("storage path resolution", () => {
 			join("/tmp/home", ".cline", "workflows"),
 			join(workspacePath, ".cline", "workflows"),
 		]);
+	});
+
+	it("resolves skills global dir as ~/.cellockai/skills and never ~/.agents or ~/.cline", () => {
+		snapshot = captureEnv();
+		const workspacePath = "/repo/demo";
+		const expectedGlobal = resolveGlobalSkillsConfigDirPath();
+
+		const paths = resolveSkillsConfigSearchPaths(workspacePath);
+
+		expect(paths).toEqual([
+			join(workspacePath, ".cellockai", "skills"),
+			expectedGlobal,
+		]);
+		expect(expectedGlobal).toMatch(/[/\\]\.cellockai[/\\]skills$/);
 	});
 });

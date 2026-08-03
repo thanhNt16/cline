@@ -92,10 +92,10 @@ Use this skill.`,
 		);
 	});
 
-	it("uses cwd as the workspace root when listing instruction settings", async () => {
+	it("uses only .cellockai when listing workspace skills", async () => {
 		const tempRoot = await mkdtemp(join(tmpdir(), "core-settings-"));
 		tempRoots.push(tempRoot);
-		const skillDir = join(tempRoot, ".cline", "skills", "skill-one");
+		const skillDir = join(tempRoot, ".cellockai", "skills", "skill-one");
 		await mkdir(skillDir, { recursive: true });
 		await writeFile(join(skillDir, "SKILL.md"), "Use this skill.");
 
@@ -113,7 +113,7 @@ Use this skill.`,
 		);
 	});
 
-	it("lists bundled plugin skills with plugin ownership metadata", async () => {
+	it("does not list bundled plugin skills", async () => {
 		const tempRoot = await mkdtemp(
 			join(tmpdir(), "core-settings-plugin-skills-"),
 		);
@@ -151,16 +151,9 @@ Use the browser.`,
 
 		const snapshot = await new CoreSettingsService().list({ cwd: tempRoot });
 
-		expect(snapshot.skills).toEqual(
+		expect(snapshot.skills).not.toEqual(
 			expect.arrayContaining([
-				expect.objectContaining({
-					id: "test-plugin-skill-owner",
-					name: "test-plugin-skill-owner",
-					source: "workspace-plugin",
-					pluginName: "test-plugin-skill-owner",
-					pluginPath,
-					enabled: true,
-				}),
+				expect.objectContaining({ id: "test-plugin-skill-owner" }),
 			]),
 		);
 	});

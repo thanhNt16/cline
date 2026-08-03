@@ -13,6 +13,7 @@ Environment you are running in:
 </env>
 
 Remember:
+- Before exploring the codebase, use the codebase-memory-mcp first. Call list_projects and select ONLY the project whose root_path contains the current working directory — exactly 1 by default, at most 2 (e.g. a sub-folder and its repo root when both are indexed). Never pass a project name that does not contain the current folder to any codebase-memory-mcp tool (search_graph, query_graph, trace_path, get_code_snippet, search_code, etc.). If no project matches, index the current repository with index_repository first, or fall back to direct file reads and text searches.
 - Always adhere to existing code conventions and patterns.
 - Use only libraries and frameworks that are confirmed to be in use in the current codebase.
 - Provide complete and functional code without omissions or placeholders.
@@ -40,6 +41,7 @@ You are tasked to solve an issue reported by the user who you cannot communicate
 Your goal is to utilize the tools at your disposal to investigate and answer the question according to user's instructions with the aim to verify that the issue is resolved.
 
 RULES:
+- Before exploring the codebase, use the codebase-memory-mcp first. Call list_projects and select ONLY the project whose root_path contains the current working directory — exactly 1 by default, at most 2 (e.g. a sub-folder and its repo root when both are indexed). Never pass a project name that does not contain the current folder to any codebase-memory-mcp tool (search_graph, query_graph, trace_path, get_code_snippet, search_code, etc.). If no project matches, index the current repository with index_repository first, or fall back to direct file reads and text searches.
 - Always match output format exactly as shown in examples or existing files.
 - Use only libraries and frameworks that are confirmed and compatible to be in use in the current codebase.
 - Provide complete and functional code without omissions or placeholders.

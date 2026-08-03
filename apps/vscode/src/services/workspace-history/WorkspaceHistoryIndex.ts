@@ -7,6 +7,13 @@ interface WorkspaceHistoryFile {
 	taskIds: string[]
 }
 
+export function belongsToWorkspace(
+	item: { id: string; cwdOnTaskInitialization?: string },
+	workspaceTaskIds: ReadonlySet<string>,
+): boolean {
+	return workspaceTaskIds.has(item.id)
+}
+
 export class WorkspaceHistoryIndex {
 	private cachedTaskIds: Set<string> | null = null
 	private cacheValid = false
@@ -71,6 +78,18 @@ export class WorkspaceHistoryIndex {
 	async containsTaskId(taskId: string): Promise<boolean> {
 		const ids = await this.readIndex()
 		return ids.has(taskId)
+	}
+
+	async removeTaskIds(taskIds: ReadonlySet<string>): Promise<void> {
+		try {
+			const ids = await this.readIndex()
+			for (const taskId of taskIds) {
+				ids.delete(taskId)
+			}
+			await this.writeIndex(ids)
+		} catch (error) {
+			Logger.error("[WorkspaceHistoryIndex] Failed to remove task IDs:", error)
+		}
 	}
 
 	invalidateCache(): void {

@@ -78,7 +78,7 @@ describe("marketplace service", () => {
 	});
 
 	it("uninstalls marketplace skills through skills CLI remove", async () => {
-		const skillDir = join(home, ".agents", "skills", "review-team");
+		const skillDir = join(home, ".cellockai", "skills", "review-team");
 		await mkdir(skillDir, { recursive: true });
 		await writeFile(
 			join(skillDir, "SKILL.md"),
@@ -122,7 +122,8 @@ describe("marketplace service", () => {
 
 	it("cleans up remaining marketplace skill directories after skills CLI remove succeeds", async () => {
 		const clineSkillDir = join(
-			process.env.CLINE_DIR ?? "",
+			home,
+			".cellockai",
 			"skills",
 			"review-team",
 		);

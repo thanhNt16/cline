@@ -4,23 +4,17 @@ mock.module("@/shared/services/Logger", () => ({
 	Logger: { log: mock(() => {}), error: mock(() => {}) },
 }))
 
-const mockCallTool = mock(async (toolName: string, _args: Record<string, unknown>) => {
-	if (toolName === "list_projects") return { projects: ["greenenergy", "acme"] }
-	if (toolName === "search") {
-		return {
-			results: [{ score: 0.86, doc_id: "d1", source_name: "spec.pdf", page: 3, chunk_index: 7, text: "OCPP..." }],
-		}
-	}
-	return {}
-})
-
 mock.module("../VesselIndexerClient", () => ({
 	VesselIndexerClient: class MockVesselIndexerClient {
-		connect = mock(async () => {})
-		callTool = mockCallTool
+		listProjects = mock(async () => ({ projects: ["greenenergy", "acme"] }))
 		createProject = mock(async (name: string) => ({ status: "ok", project: name }))
 		uploadFile = mock(async () => ({ task_id: "task-1" }))
 		indexUrl = mock(async () => ({ task_id: "task-2" }))
+		search = mock(async (_project: string, _query: string, _topK: number) => ({
+			project: "greenenergy",
+			total_results: 1,
+			results: [{ score: 0.86, doc_id: "d1", source_name: "spec.pdf", page: 3, chunk_index: 7, text: "OCPP..." }],
+		}))
 		getTask = mock(async (id: string) => ({
 			id,
 			project: "greenenergy",
@@ -30,7 +24,6 @@ mock.module("../VesselIndexerClient", () => ({
 			detail: null,
 		}))
 		deleteDocument = mock(async () => ({ status: "ok" }))
-		close = mock(async () => {})
 	},
 }))
 

@@ -12,7 +12,7 @@ export async function buildProfilesResponse(_controller: Controller): Promise<Pr
 	const service = new ModelProfileService(cwd)
 	const [profiles, active] = await Promise.all([service.getProfiles(), service.getActiveProfile()])
 	return ProfilesResponse.create({
-		activeProfileId: active.id,
+		activeProfileId: active?.id ?? "",
 		profiles: profiles.map((p) => ({
 			id: p.id,
 			name: p.name,

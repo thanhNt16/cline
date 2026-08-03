@@ -520,6 +520,7 @@ function makeLifecycle(overrides: Partial<ConstructorParameters<typeof SdkSessio
 	return new SdkSessionLifecycle({
 		// biome-ignore lint/suspicious/noExplicitAny: focused fake for lifecycle unit test
 		mcpHub: {} as any,
+		getWorkspacePath: async () => "/tmp/workspace",
 		requestToolApproval: vi.fn(),
 		askQuestion: vi.fn(),
 		onSessionEvent: vi.fn(),

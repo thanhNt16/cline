@@ -30,6 +30,7 @@ export {
 	resolveGlobalAgentsRulesPath,
 	resolveGlobalCronSpecsDir,
 	resolveGlobalSettingsPath,
+	resolveGlobalSkillsConfigDirPath,
 	resolveHooksConfigSearchPaths,
 	resolveMcpSettingsPath,
 	resolvePluginConfigSearchPaths,

@@ -187,7 +187,6 @@ async function withUserInstructionService<T>(
 	const service = createUserInstructionConfigService({
 		skills: {
 			workspacePath: workspaceRoot || undefined,
-			includePluginSkills: true,
 			cwd,
 		},
 		rules: { workspacePath: workspaceRoot || undefined },

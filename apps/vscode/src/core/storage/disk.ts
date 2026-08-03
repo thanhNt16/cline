@@ -316,6 +316,36 @@ export async function deleteRemoteConfigFromCache(organizationId: string): Promi
 	}
 }
 
+/** CellockAI: ~/.cellockai — the shared global config directory. */
+export function getCellockaiGlobalDirectoryPath(): string {
+	return path.join(os.homedir(), ".cellockai")
+}
+
+export function getGlobalProfilesFilePath(): string {
+	return path.join(getCellockaiGlobalDirectoryPath(), "profiles.json")
+}
+
+export function getGlobalDocsIndexSettingsFilePath(): string {
+	return path.join(getCellockaiGlobalDirectoryPath(), "docs_index.json")
+}
+
+/**
+ * Atomic JSON write: mkdir -p the parent, write a temp file with flag "wx"
+ * (create-exclusive), then rename it over the target. A crash or failure
+ * leaves any previous file intact. Mirror of the MCP settings write pattern.
+ */
+export async function writeJsonConfigFileAtomic<T>(filePath: string, data: T): Promise<void> {
+	await fs.mkdir(path.dirname(filePath), { recursive: true })
+	const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}`
+	await fs.writeFile(tmp, JSON.stringify(data, null, 2), { encoding: "utf8", flag: "wx" })
+	try {
+		await fs.rename(tmp, filePath)
+	} catch (error) {
+		await fs.unlink(tmp).catch(() => {})
+		throw error
+	}
+}
+
 /**
  * Gets the path to the global hooks directory if it exists.
  * Returns undefined if the directory doesn't exist.

@@ -1,11 +1,13 @@
 import type { ExtensionMessage } from "@shared/ExtensionMessage"
 import { isClineInternalTester } from "@shared/internal/account"
+import { EmptyRequest } from "@shared/proto/cline/common"
+import { type ProjectInfo, UpdateDocsIndexSettingsRequest } from "@shared/proto/cline/docs_index"
 import { ResetStateRequest } from "@shared/proto/cline/state"
-import type { ProjectInfo } from "@shared/proto/cline/docs_index"
 import type { UserOrganization } from "@shared/proto/index.cline"
 import {
 	CheckCheck,
 	Database,
+	DatabaseZap,
 	FileText,
 	FlaskConical,
 	Folder,
@@ -21,7 +23,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { type ClineUser, useClineAuth } from "@/context/ClineAuthContext"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { cn } from "@/lib/utils"
-import { StateServiceClient } from "@/services/grpc-client"
+import { DocsIndexServiceClient, StateServiceClient } from "@/services/grpc-client"
 import { isAdminOrOwner } from "../account/helpers"
 import { Tab, TabContent, TabList, TabTrigger } from "../common/Tab"
 import ViewHeader from "../common/ViewHeader"
@@ -33,13 +35,24 @@ import GeneralSettingsSection from "./sections/GeneralSettingsSection"
 import { RemoteConfigSection } from "./sections/RemoteConfigSection"
 import TerminalSettingsSection from "./sections/TerminalSettingsSection"
 import CodebaseMemorySection from "./sections/CodebaseMemorySection"
+import DatabaseSection from "./sections/DatabaseSection"
 import DocsIndexSection from "./sections/DocsIndexSection"
 import { ProjectConfigSection } from "./sections/ProjectConfigSection"
 
 const IS_DEV = process.env.IS_DEV
 
 // Tab definitions
-type SettingsTabID = "api-config" | "features" | "terminal" | "general" | "project" | "debug" | "remote-config" | "codebase-memory" | "docs-index"
+type SettingsTabID =
+	| "api-config"
+	| "features"
+	| "terminal"
+	| "general"
+	| "project"
+	| "debug"
+	| "remote-config"
+	| "codebase-memory"
+	| "docs-index"
+	| "mcp-database"
 interface SettingsTab {
 	id: SettingsTabID
 	name: string
@@ -108,6 +121,13 @@ const SETTINGS_TABS: SettingsTab[] = [
 		headerText: "Document Index",
 		icon: FileText,
 	},
+	{
+		id: "mcp-database",
+		name: "Database",
+		tooltipText: "Connect a Database (MCP)",
+		headerText: "Database",
+		icon: DatabaseZap,
+	},
 	// Only show in dev mode
 	{
 		id: "debug",
@@ -153,19 +173,25 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 			"remote-config": RemoteConfigSection,
 			"codebase-memory": CodebaseMemorySection,
 			"docs-index": DocsIndexSection,
+			"mcp-database": DatabaseSection,
 			debug: DebugSection,
 		}),
 		[],
 	) // Empty deps - these imports never change
 
-	const { version, environment, settingsInitialModelTab } = useExtensionState()
+	const { version, environment, settingsInitialModelTab, workspaceRoots, primaryRootIndex } = useExtensionState()
 	const { activeOrganization, clineUser } = useClineAuth()
 
 	const [activeTab, setActiveTab] = useState<string>(targetSection || SETTINGS_TABS[0].id)
-	const [docsServerUrl, setDocsServerUrl] = useState("http://localhost:20130")
+	const [docsServerUrl, setDocsServerUrl] = useState("http://localhost:8080")
 	const [docsConnected, setDocsConnected] = useState(false)
 	const [docsProjects, setDocsProjects] = useState<ProjectInfo[]>([])
 	const [docsSelectedProject, setDocsSelectedProject] = useState("")
+	// Hold writes until the persisted settings have been read, so the default
+	// localhost URL does not race and overwrite a real persisted value.
+	const [docsSettingsLoaded, setDocsSettingsLoaded] = useState(false)
+	const docsWorkspacePath = workspaceRoots?.[primaryRootIndex ?? 0]?.path ?? ""
+	const docsWorkspaceBasename = docsWorkspacePath ? (docsWorkspacePath.split(/[\\/]/).filter(Boolean).pop() ?? "") : ""
 
 	// Optimized message handler with early returns
 	const handleMessage = useCallback((event: MessageEvent) => {
@@ -225,6 +251,41 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 		}
 	}, [targetSection])
 
+	// Initialize Document Index settings from ~/.cellockai/docs_index.json (global).
+	useEffect(() => {
+		let cancelled = false
+		DocsIndexServiceClient.getDocsIndexSettings(EmptyRequest.create())
+			.then((res) => {
+				if (cancelled) return
+				if (res.serverUrl) setDocsServerUrl(res.serverUrl)
+				if (res.lastSelectedProject) setDocsSelectedProject(res.lastSelectedProject)
+				setDocsSettingsLoaded(true)
+			})
+			.catch(() => {
+				if (cancelled) return
+				/* defaults remain; allow writes so a manual edit can still persist */
+				setDocsSettingsLoaded(true)
+			})
+		return () => {
+			cancelled = true
+		}
+	}, [])
+
+	// Persist the Document Index server URL (debounced). Server URL is global, so
+	// it does not depend on a workspace path; only gate on the initial read.
+	useEffect(() => {
+		if (!docsSettingsLoaded || !docsServerUrl) return
+		const handle = setTimeout(() => {
+			DocsIndexServiceClient.updateDocsIndexSettings(
+				UpdateDocsIndexSettingsRequest.create({
+					workspacePath: docsWorkspacePath,
+					serverUrl: docsServerUrl,
+				}),
+			).catch(() => {})
+		}, 400)
+		return () => clearTimeout(handle)
+	}, [docsServerUrl, docsSettingsLoaded, docsWorkspacePath])
+
 	// Memoized tab item renderer
 	const renderTabItem = useCallback(
 		(tab: (typeof SETTINGS_TABS)[0]) => {
@@ -274,10 +335,12 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 			props.setProjects = setDocsProjects
 			props.selectedProject = docsSelectedProject
 			props.setSelectedProject = setDocsSelectedProject
+			props.workspacePath = docsWorkspacePath
+			props.workspaceBasename = docsWorkspaceBasename
 		}
 
 		return <Component {...props} />
-	}, [activeTab, handleResetState, settingsInitialModelTab, version, TAB_CONTENT_MAP, docsServerUrl, docsConnected, docsProjects, docsSelectedProject])
+	}, [activeTab, handleResetState, settingsInitialModelTab, version, TAB_CONTENT_MAP, docsServerUrl, docsConnected, docsProjects, docsSelectedProject, docsWorkspacePath, docsWorkspaceBasename])
 
 	return (
 		<Tab>

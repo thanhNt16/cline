@@ -13,6 +13,7 @@
 	"license": "ISC",
 	"description": "",
 	"dependencies": {
+		"docx": "^9.7.1",
 		"mintlify": "^4.2.338"
 	},
 	"overrides": {

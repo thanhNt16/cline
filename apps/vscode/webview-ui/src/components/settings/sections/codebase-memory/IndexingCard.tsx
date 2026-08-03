@@ -10,9 +10,20 @@ interface IndexingCardProps {
 	onIndex: () => void
 	onReindex: () => void
 	hasWorkspace: boolean
+	autoIndex: boolean
+	onAutoIndexChange: (enabled: boolean) => void
 }
 
-export default function IndexingCard({ status, isIndexing, progressLines, onIndex, onReindex, hasWorkspace }: IndexingCardProps) {
+export default function IndexingCard({
+	status,
+	isIndexing,
+	progressLines,
+	onIndex,
+	onReindex,
+	hasWorkspace,
+	autoIndex,
+	onAutoIndexChange,
+}: IndexingCardProps) {
 	const logRef = useRef<HTMLDivElement>(null)
 
 	useEffect(() => {
@@ -65,6 +76,24 @@ export default function IndexingCard({ status, isIndexing, progressLines, onInde
 					Re-index
 				</Button>
 			</div>
+			<label
+				style={{
+					display: "flex",
+					alignItems: "center",
+					gap: "6px",
+					fontSize: "12px",
+					marginBottom: "12px",
+					color: "var(--vscode-foreground)",
+					cursor: "pointer",
+				}}>
+				<input
+					type="checkbox"
+					checked={autoIndex}
+					onChange={(e) => onAutoIndexChange(e.target.checked)}
+					style={{ cursor: "pointer" }}
+				/>
+				Auto-index the current project with codebase-memory-mcp when it isn't indexed yet
+			</label>
 			{!hasWorkspace && (
 				<div
 					style={{

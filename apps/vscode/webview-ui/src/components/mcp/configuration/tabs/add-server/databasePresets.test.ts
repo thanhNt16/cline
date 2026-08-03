@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildPostgresConfig } from "./databasePresets"
+import { buildPostgresConfig, isPostgresPresetServer, parsePostgresConfig, POSTGRES_PRESET } from "./databasePresets"
 
 describe("buildPostgresConfig", () => {
 	it("uses npx with the prebuilt postgres args", () => {
@@ -81,5 +81,55 @@ describe("buildPostgresConfig", () => {
 			password: "p",
 		})
 		expect(cfg.serverName).toBe("my-pg")
+	})
+})
+
+describe("databasePresets marker + parser", () => {
+	it("buildPostgresConfig stamps the preset metadata", () => {
+		const cfg = buildPostgresConfig({
+			name: "pg",
+			database: "db",
+			user: "u",
+			password: "p",
+		})
+		expect(cfg.metadata?.cellockaiPreset).toBe(POSTGRES_PRESET)
+	})
+
+	it("isPostgresPresetServer detects by metadata", () => {
+		const built = buildPostgresConfig({ name: "pg", database: "db", user: "u", password: "p" })
+		expect(isPostgresPresetServer(built)).toBe(true)
+		expect(isPostgresPresetServer({ command: "npx", args: [] })).toBe(false)
+	})
+
+	it("parsePostgresConfig round-trips env into fields", () => {
+		const built = buildPostgresConfig({
+			name: "pg",
+			host: "h",
+			port: "7",
+			database: "db",
+			user: "u",
+			password: "p",
+			queryParams: "sslmode=require",
+		})
+		const parsed = parsePostgresConfig(built)
+		expect(parsed).toBeDefined()
+		expect(parsed!.database).toBe("db")
+		expect(parsed!.user).toBe("u")
+		expect(parsed!.host).toBe("h")
+		expect(parsed!.port).toBe("7")
+		expect(parsed!.password).toBe("p")
+		expect(parsed!.queryParams).toBe("sslmode=require")
+	})
+
+	it("parsePostgresConfig blanks default host/port", () => {
+		const built = buildPostgresConfig({ name: "pg", database: "db", user: "u", password: "p" })
+		const parsed = parsePostgresConfig(built)
+		expect(parsed!.host).toBe("")
+		expect(parsed!.port).toBe("")
+		expect(parsed!.name).toBe("")
+	})
+
+	it("parsePostgresConfig returns undefined for non-preset servers", () => {
+		expect(parsePostgresConfig({ command: "other", args: [] })).toBeUndefined()
 	})
 })

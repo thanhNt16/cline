@@ -1,8 +1,11 @@
 import { spawn } from "node:child_process";
 import { existsSync, rmSync } from "node:fs";
-import { homedir, platform } from "node:os";
+import { platform } from "node:os";
 import { dirname, join } from "node:path";
-import { resolveClineDir, resolveMcpSettingsPath } from "@cline/shared/storage";
+import {
+	resolveGlobalSkillsConfigDirPath,
+	resolveMcpSettingsPath,
+} from "@cline/shared/storage";
 import { updateMcpSettingsFileSync } from "../extensions/mcp";
 import { parseMcpInstallArgs } from "./mcp-install";
 import { uninstallPlugin } from "./plugin-uninstall";
@@ -57,12 +60,6 @@ const SECRET_AUTHORIZATION_VALUE_PATTERN =
 
 function getMarketplaceEntryArgs(entry: MarketplaceEntryInput): string[] {
 	return entry.install?.args ?? [];
-}
-
-function resolveHomeDir(): string {
-	return (
-		process.env.HOME?.trim() || process.env.USERPROFILE?.trim() || homedir()
-	);
 }
 
 function trimSkillSegmentEdges(value: string): string {
@@ -247,10 +244,7 @@ export function getMarketplaceSkillCandidates(
 }
 
 export function getGlobalMarketplaceSkillPaths(skillName: string): string[] {
-	return [
-		join(resolveClineDir(), "skills", skillName, "SKILL.md"),
-		join(resolveHomeDir(), ".agents", "skills", skillName, "SKILL.md"),
-	].filter((path, index, paths) => paths.indexOf(path) === index);
+	return [join(resolveGlobalSkillsConfigDirPath(), skillName, "SKILL.md")];
 }
 
 export function findInstalledGlobalMarketplaceSkillName(

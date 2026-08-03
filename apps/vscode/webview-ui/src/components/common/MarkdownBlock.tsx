@@ -75,6 +75,13 @@ const MemoizedMarkdownBlock = memo(
 						return <strong {...props} />
 					},
 					img: (props) => <UnsafeImage {...props} />,
+					// Wrap tables so wide ones scroll horizontally instead of
+					// overflowing (and being clipped by) the chat row.
+					table: ({ children, ...tableProps }: ComponentProps<"table">) => (
+						<div className="md-table-wrapper">
+							<table {...tableProps}>{children}</table>
+						</div>
+					),
 				}}
 				rehypePlugins={[[rehypeHighlight as any, {} as Options]]}
 				remarkPlugins={[

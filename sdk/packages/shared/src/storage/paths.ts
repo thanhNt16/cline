@@ -13,7 +13,8 @@ import type { PluginManifest } from "..";
 
 const DEPRECATED_CONFIG_DIR = ".clinerules";
 const CLINE_CONFIG_DIR = ".cline";
-const LEGACY_AGENT_SKILLS_CONFIG_DIR = ".agents";
+const LEGACY_AGENT_CONFIG_DIR = ".agents";
+const CELLOCKAI_CONFIG_DIR = ".cellockai";
 
 export const AGENT_CONFIG_DIRECTORY_NAME = "agents";
 export const HOOKS_CONFIG_DIRECTORY_NAME = "hooks";
@@ -102,6 +103,17 @@ export function resolveClineDir(): string {
 		return envDir;
 	}
 	return join(HOME_DIR, ".cline");
+}
+
+/**
+ * CellockAI global skills directory: `~/.cellockai/skills`.
+ * This fork standardizes on `~/.cellockai` for global config (mcp_settings,
+ * profiles, docs_index, skills). UI discovery, marketplace detection, and
+ * runtime scanning all resolve here — NOT the upstream `~/.cline/skills` or
+ * `~/.agents/skills`.
+ */
+export function resolveGlobalSkillsConfigDirPath(): string {
+	return join(HOME_DIR, CELLOCKAI_CONFIG_DIR, SKILLS_CONFIG_DIRECTORY_NAME);
 }
 
 export function resolveDocumentsClineDirectoryPath(): string {
@@ -314,14 +326,9 @@ function dedupePaths(paths: ReadonlyArray<string>): string[] {
 }
 
 function getWorkspaceSkillDirectories(workspacePath?: string): string[] {
-	if (!workspacePath) {
-		return [];
-	}
-	return [
-		DEPRECATED_CONFIG_DIR,
-		CLINE_CONFIG_DIR,
-		LEGACY_AGENT_SKILLS_CONFIG_DIR,
-	].map((dir) => join(workspacePath, dir, SKILLS_CONFIG_DIRECTORY_NAME));
+	return workspacePath
+		? [join(workspacePath, CELLOCKAI_CONFIG_DIR, SKILLS_CONFIG_DIRECTORY_NAME)]
+		: [];
 }
 
 export function resolveAgentsConfigDirPath(): string {
@@ -360,17 +367,12 @@ export function resolveSkillsConfigSearchPaths(
 ): string[] {
 	return dedupePaths([
 		...getWorkspaceSkillDirectories(workspacePath),
-		join(resolveClineDir(), SKILLS_CONFIG_DIRECTORY_NAME),
-		join(
-			HOME_DIR,
-			LEGACY_AGENT_SKILLS_CONFIG_DIR,
-			SKILLS_CONFIG_DIRECTORY_NAME,
-		),
+		resolveGlobalSkillsConfigDirPath(),
 	]);
 }
 
 export function resolveGlobalAgentsRulesPath(): string {
-	return join(HOME_DIR, LEGACY_AGENT_SKILLS_CONFIG_DIR, AGENTS_RULES_FILE_NAME);
+	return join(HOME_DIR, LEGACY_AGENT_CONFIG_DIR, AGENTS_RULES_FILE_NAME);
 }
 
 export function resolveRulesConfigSearchPaths(

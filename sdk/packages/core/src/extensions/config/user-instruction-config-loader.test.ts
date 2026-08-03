@@ -49,15 +49,12 @@ describe("user instruction config loader", () => {
 		tempRoots.length = 0;
 	});
 
-	it("resolves legacy-compatible default search paths", () => {
+	it("resolves only CellockAI skill search paths", () => {
 		const workspacePath = "/repo/demo";
-		expect(resolveSkillsConfigSearchPaths(workspacePath)).toEqual(
-			expect.arrayContaining([
-				join(workspacePath, ".clinerules", "skills"),
-				join(workspacePath, ".cline", "skills"),
-				join(workspacePath, ".agents", "skills"),
-			]),
-		);
+		expect(resolveSkillsConfigSearchPaths(workspacePath)).toEqual([
+			join(workspacePath, ".cellockai", "skills"),
+			expect.stringMatching(/[/\\]\.cellockai[/\\]skills$/),
+		]);
 		expect(resolveRulesConfigSearchPaths(workspacePath)).toEqual(
 			expect.arrayContaining([
 				join(workspacePath, "AGENTS.md"),
@@ -86,11 +83,11 @@ describe("user instruction config loader", () => {
 		);
 	});
 
-	it("discovers managed plugin instruction roots from workspace .cline manifests", () => {
+	it("excludes managed plugin skills while retaining managed rules and workflows", () => {
 		const workspacePath = "/repo/demo";
 		expect(
 			createSkillsConfigDefinition({ workspacePath }).directories,
-		).toContain(join(workspacePath, ".cline"));
+		).not.toContain(join(workspacePath, ".cline"));
 		expect(
 			createRulesConfigDefinition({ workspacePath }).directories,
 		).toContain(join(workspacePath, ".cline"));
@@ -318,7 +315,7 @@ Use conventional commits.`,
 		},
 	);
 
-	it("loads enterprise-style managed rules, workflows, and skills through the default workspace watcher", async () => {
+	it("loads enterprise-style managed rules and workflows but not skills through the default workspace watcher", async () => {
 		const tempRoot = await mkdtemp(
 			join(tmpdir(), "core-user-instructions-managed-"),
 		);
@@ -380,7 +377,7 @@ Use the security review checklist.`,
 			[...skills.values()].some((skill) =>
 				skill.item.instructions.includes("security review checklist"),
 			),
-		).toBe(true);
+		).toBe(false);
 	});
 
 	it("lets workspace .cline workflows override legacy .clinerules workflows with the same name", async () => {

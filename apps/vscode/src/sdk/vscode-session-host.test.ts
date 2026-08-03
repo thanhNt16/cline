@@ -2,6 +2,17 @@ import type { ClineCoreStartInput, ITelemetryService } from "@cline/core"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mockClineCoreCreate = vi.hoisted(() => vi.fn())
+const mockSessionStoreInit = vi.hoisted(() => vi.fn())
+const mockSqliteSessionStore = vi.hoisted(() =>
+	vi.fn(function () {
+		return { init: mockSessionStoreInit }
+	}),
+)
+const mockCoreSessionService = vi.hoisted(() =>
+	vi.fn(function () {
+		return { projectLocal: true }
+	}),
+)
 const mockCreateVscodeExtraTools = vi.hoisted(() => vi.fn(async () => []))
 
 vi.mock("@cline/core", async () => {
@@ -11,6 +22,8 @@ vi.mock("@cline/core", async () => {
 		ClineCore: {
 			create: mockClineCoreCreate,
 		},
+		SqliteSessionStore: mockSqliteSessionStore,
+		CoreSessionService: mockCoreSessionService,
 	}
 })
 
@@ -31,12 +44,46 @@ describe("VscodeSessionHost telemetry wiring", () => {
 		mockCreateVscodeExtraTools.mockReset().mockResolvedValue([])
 	})
 
+	it("stores sessions under the project .cellockai directory", async () => {
+		await VscodeSessionHost.create({
+			// biome-ignore lint/suspicious/noExplicitAny: focused host unit test
+			mcpHub: {} as any,
+			workspacePath: "/tmp/workspace",
+		})
+
+		expect(mockSqliteSessionStore).toHaveBeenCalledWith({
+			sessionsDir: "/tmp/workspace/.cellockai/sessions",
+		})
+		expect(mockSessionStoreInit).toHaveBeenCalled()
+		expect(mockCoreSessionService).toHaveBeenCalledWith(
+			expect.objectContaining({ init: mockSessionStoreInit }),
+			{ sessionArtifactsDir: "/tmp/workspace/.cellockai/sessions" },
+		)
+		expect(mockClineCoreCreate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				sessionService: { projectLocal: true },
+			}),
+		)
+	})
+
+	it("rejects session storage without a workspace", async () => {
+		await expect(
+			VscodeSessionHost.create({
+				// Deliberately bypass the type contract to verify the runtime trust boundary.
+				// biome-ignore lint/suspicious/noExplicitAny: focused host unit test
+				mcpHub: {} as any,
+			} as never),
+		).rejects.toThrow("workspace path")
+		expect(mockClineCoreCreate).not.toHaveBeenCalled()
+	})
+
 	it("passes shared telemetry to ClineCore.create", async () => {
 		const telemetry = makeTelemetry()
 
 		await VscodeSessionHost.create({
 			// biome-ignore lint/suspicious/noExplicitAny: focused host unit test
 			mcpHub: {} as any,
+			workspacePath: "/tmp/workspace",
 			telemetry,
 		})
 
@@ -48,6 +95,7 @@ describe("VscodeSessionHost telemetry wiring", () => {
 		await VscodeSessionHost.create({
 			// biome-ignore lint/suspicious/noExplicitAny: focused host unit test
 			mcpHub: {} as any,
+			workspacePath: "/tmp/workspace",
 			telemetry,
 		})
 
@@ -71,6 +119,7 @@ describe("VscodeSessionHost telemetry wiring", () => {
 		await VscodeSessionHost.create({
 			// biome-ignore lint/suspicious/noExplicitAny: focused host unit test
 			mcpHub: {} as any,
+			workspacePath: "/tmp/workspace",
 			telemetry,
 			getRemoteConfigIntegration: () =>
 				({
@@ -110,6 +159,7 @@ describe("VscodeSessionHost telemetry wiring", () => {
 		await VscodeSessionHost.create({
 			// biome-ignore lint/suspicious/noExplicitAny: focused host unit test
 			mcpHub: {} as any,
+			workspacePath: "/tmp/workspace",
 			getRemoteConfigIntegration: () =>
 				({
 					applyToStartSessionInput,

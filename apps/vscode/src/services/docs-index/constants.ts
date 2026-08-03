@@ -2,7 +2,7 @@ import type { DocsIndexTool } from "@shared/proto/cline/docs_index"
 
 export const MCP_SERVER_KEY = "vessel-indexer"
 
-export const DEFAULT_SERVER_URL = "http://localhost:20130"
+export const DEFAULT_SERVER_URL = "http://localhost:8080"
 
 export const DOCS_INDEX_TOOLS: ReadonlyArray<{ name: string; description: string }> = [
 	{ name: "create_project", description: "Create a new docindex project (collection + sparse index)" },

@@ -42,12 +42,12 @@ import { McpHub } from "@/services/mcp/McpHub"
 import { telemetryService } from "@/services/telemetry"
 import { CodebaseMemoryFacade } from "@/services/codebase-memory/CodebaseMemoryFacade"
 import { DocsIndexFacade } from "@/services/docs-index/DocsIndexFacade"
-import { WorkspaceHistoryIndex } from "@/services/workspace-history/WorkspaceHistoryIndex"
+import { belongsToWorkspace, WorkspaceHistoryIndex } from "@/services/workspace-history/WorkspaceHistoryIndex"
 import type { ClineExtensionContext } from "@/shared/cline"
 import { ShowMessageRequest, ShowMessageType } from "@/shared/proto/host/window"
 import { Logger } from "@/shared/services/Logger"
 import { isClineManagedProvider } from "@/shared/utils/cline"
-import { arePathsEqual, getDesktopDir } from "@/utils/path"
+import { getDesktopDir } from "@/utils/path"
 import { ClineAccountService } from "./account-service"
 import { AuthService, LogoutReason } from "./auth-service"
 import { buildStartSessionInput, createHistoryItemFromSession } from "./cline-session-factory"
@@ -322,6 +322,7 @@ export class Controller {
 		})
 		this.sessions = new SdkSessionLifecycle({
 			mcpHub: this.mcpHub,
+			getWorkspacePath: () => this.getCurrentWorkspacePath(),
 			telemetry: this.sdkTelemetry.telemetry,
 			requestToolApproval: (request) => this.interactions.handleRequestToolApproval(request),
 			askQuestion: (question, options, context) => this.interactions.handleAskQuestion(question, options, context),
@@ -381,6 +382,7 @@ export class Controller {
 		})
 		this.taskHistory = new SdkTaskHistory({
 			mcpHub: this.mcpHub,
+			getWorkspacePath: () => this.getCurrentWorkspacePath(),
 			sessions: this.sessions,
 			legacyExtensionStorageDir: this.context.globalStorageUri.fsPath,
 			telemetry: telemetryService,
@@ -444,7 +446,7 @@ export class Controller {
 			sessionConfigBuilder: this.sessionConfigBuilder,
 			waitForPendingModeRebuild: () => this.mode.waitForPendingRebuild(),
 			getTask: () => this.task,
-			createTempSessionHost: () => VscodeSessionHost.create({ mcpHub: this.mcpHub }),
+			createTempSessionHost: () => this.createWorkspaceSessionHost(),
 			getWorkspaceRoot: () => this.getWorkspaceRoot(),
 			loadInitialMessages: (sessionHost, taskId) => this.sessionHistory.loadInitialMessages(sessionHost, taskId),
 			buildStartSessionInput,
@@ -495,7 +497,7 @@ export class Controller {
 			onAskResponse: (text, images, files) => this.askResponse(text, images, files),
 			onCancelTask: () => this.cancelTask(),
 			getWorkspaceRoot: () => this.getWorkspaceRoot(),
-			createTempSessionHost: () => VscodeSessionHost.create({ mcpHub: this.mcpHub }),
+			createTempSessionHost: () => this.createWorkspaceSessionHost(),
 			loadInitialMessages: (reader, taskId) => this.sessionHistory.loadInitialMessages(reader, taskId),
 			resolveContextMentions: (text) => this.resolveContextMentions(text),
 			isClineManagedProviderActive: () => this.isClineManagedProviderActive(),
@@ -718,7 +720,6 @@ export class Controller {
 				workflows: { workspacePath: workspaceRoot },
 				skills: {
 					workspacePath: workspaceRoot,
-					includePluginSkills: true,
 					cwd: workspaceRoot,
 				},
 				rules: { workspacePath: workspaceRoot },
@@ -815,15 +816,26 @@ export class Controller {
 	 * This avoids using the VS Code extension host's `process.cwd()` (often `/`),
 	 * which produces invalid SDK workspace metadata with an empty hint.
 	 */
-	private async getWorkspaceRoot(): Promise<string> {
-		const noWorkspaceFallback = getDesktopDir()
+	private async getCurrentWorkspacePath(): Promise<string | undefined> {
 		try {
 			const { paths } = await HostProvider.workspace.getWorkspacePaths({})
-			return resolveWorkspaceRootPath(paths, noWorkspaceFallback)
+			return paths.find((candidate) => candidate.trim().length > 0)
 		} catch (error) {
-			Logger.warn("[SdkController] Failed to get workspace paths, falling back to Desktop:", error)
+			Logger.warn("[SdkController] Failed to get workspace paths:", error)
+			return undefined
 		}
-		return noWorkspaceFallback
+	}
+
+	private async getWorkspaceRoot(): Promise<string> {
+		return (await this.getCurrentWorkspacePath()) ?? getDesktopDir()
+	}
+
+	private async createWorkspaceSessionHost(): Promise<VscodeSessionHost> {
+		const workspacePath = await this.getCurrentWorkspacePath()
+		if (!workspacePath) {
+			throw new Error("Cannot create an SDK session without an open workspace")
+		}
+		return VscodeSessionHost.create({ mcpHub: this.mcpHub, workspacePath })
 	}
 
 	private async getRemoteConfigWorkspacePath(): Promise<string | undefined> {
@@ -1156,7 +1168,7 @@ export class Controller {
 		const sourceSessionId = activeSession?.sessionId ?? currentTask.taskId
 		let sdkMessages: SdkUserMessage[]
 		let tempHost: VscodeSessionHost | undefined
-		const sessionHost = activeSession?.sdkHost ?? (tempHost = await VscodeSessionHost.create({ mcpHub: this.mcpHub }))
+		const sessionHost = activeSession?.sdkHost ?? (tempHost = await this.createWorkspaceSessionHost())
 		try {
 			sdkMessages = (await sessionHost.readMessages(sourceSessionId)) as SdkUserMessage[]
 			const sdkTargetIndex = findSdkUserMessageIndexByOrdinal(sdkMessages, userOrdinal)
@@ -1462,24 +1474,23 @@ export class Controller {
 	}
 
 	async getTaskHistory(request: GetTaskHistoryRequest): Promise<TaskHistoryArray> {
-		const { favoritesOnly, currentWorkspaceOnly, searchQuery, sortBy } = request
+		const { favoritesOnly, searchQuery, sortBy } = request
 		const limit = request.limit > 0 ? Math.min(request.limit, 100) : 50
 		const offset = request.offset > 0 ? request.offset : 0
-		const workspacePath = currentWorkspaceOnly ? await this.getWorkspaceRoot() : undefined
-		const sessionHistory = await this.taskHistory.listHistory({
-			hydrate: false,
-			limit: limit + 1,
-			offset,
-		})
+		const workspacePath = await this.getCurrentWorkspacePath()
+		if (!workspacePath) {
+			return TaskHistoryArray.create({ tasks: [], hasMore: false })
+		}
 
-		const workspaceTaskIds = currentWorkspaceOnly && workspacePath ? await this.workspaceHistoryIndex.getTaskIds() : null
+		const workspaceTaskIds = await this.workspaceHistoryIndex.getTaskIds()
+		const sessionHistory = await this.taskHistory.listHistory({ hydrate: false })
 
 		let filteredTasks: typeof sessionHistory = []
 		for (const item of sessionHistory) {
 			const ts = dateStringToTimestamp(item.updatedAt ?? item.endedAt ?? item.startedAt)
 			const task = metadataString(item.metadata, "title") ?? item.prompt ?? ""
 
-			if (!ts || !task) {
+			if (!ts || !task || !belongsToWorkspace(sessionHistoryRecordToHistoryItem(item), workspaceTaskIds)) {
 				continue
 			}
 
@@ -1487,16 +1498,6 @@ export class Controller {
 				metadataBoolean(item.metadata, "isFavorited") ?? metadataBoolean(item.metadata, "is_favorited") ?? false
 			if (favoritesOnly && !isFavorited) {
 				continue
-			}
-
-			if (currentWorkspaceOnly && workspacePath) {
-				const inIndex = workspaceTaskIds?.has(item.sessionId) ?? false
-				if (!inIndex) {
-					const sessionWorkspacePath = item.cwd ?? item.workspaceRoot
-					if (!sessionWorkspacePath || !arePathsEqual(sessionWorkspacePath, workspacePath)) {
-						continue
-					}
-				}
 			}
 
 			filteredTasks.push(item)
@@ -1538,8 +1539,8 @@ export class Controller {
 			}
 		})
 
-		const hasMore = sessionHistory.length > limit
-		const tasks = filteredTasks.slice(0, limit).map((item) => {
+		const hasMore = filteredTasks.length > offset + limit
+		const tasks = filteredTasks.slice(offset, offset + limit).map((item) => {
 			const metadata = item.metadata
 			return {
 				id: item.sessionId,
@@ -1609,7 +1610,15 @@ export class Controller {
 	async deleteAllTaskHistory(): Promise<DeleteAllTaskHistoryCount> {
 		await this.clearTask()
 
-		const taskHistory = await this.taskHistory.listHistory({ hydrate: false })
+		const workspacePath = await this.getCurrentWorkspacePath()
+		if (!workspacePath) {
+			return DeleteAllTaskHistoryCount.create({ tasksDeleted: 0 })
+		}
+		const workspaceTaskIds = await this.workspaceHistoryIndex.getTaskIds()
+		const taskHistory = (await this.taskHistory.listHistory({ hydrate: false })).filter((item) =>
+			belongsToWorkspace(sessionHistoryRecordToHistoryItem(item), workspaceTaskIds),
+		)
+		const taskIds = new Set(taskHistory.map((item) => item.sessionId))
 		const totalTasks = taskHistory.length
 
 		const userChoice = (
@@ -1638,7 +1647,21 @@ export class Controller {
 			if (hasFavoritedTasks) {
 				const tasksDeleted = await this.taskHistory.deleteAllTaskHistory({
 					preserveFavorites: true,
+					taskIds,
 				})
+				const deletedTaskIds = new Set(
+					taskHistory
+						.filter(
+							(item) =>
+								!(
+									metadataBoolean(item.metadata, "isFavorited") ??
+									metadataBoolean(item.metadata, "is_favorited") ??
+									false
+								),
+						)
+						.map((item) => item.sessionId),
+				)
+				await this.workspaceHistoryIndex.removeTaskIds(deletedTaskIds)
 				await this.postStateToWebview()
 				return DeleteAllTaskHistoryCount.create({ tasksDeleted })
 			}
@@ -1659,8 +1682,8 @@ export class Controller {
 			}
 		}
 
-		const tasksDeleted = await this.taskHistory.deleteAllTaskHistory()
-		this.workspaceHistoryIndex.invalidateCache()
+		const tasksDeleted = await this.taskHistory.deleteAllTaskHistory({ taskIds })
+		await this.workspaceHistoryIndex.removeTaskIds(taskIds)
 		await this.postStateToWebview()
 		return DeleteAllTaskHistoryCount.create({
 			tasksDeleted: tasksDeleted || totalTasks,
@@ -1738,6 +1761,8 @@ export class Controller {
 			syncTelemetrySettingFromSharedGlobalSettings(this.stateManager)
 			const workspaceManager = await this.ensureWorkspaceManager()
 			const { getStateToPostToWebview: buildBaseState } = await import("@core/controller/state/getStateToPostToWebview")
+			const workspacePath = workspaceManager?.getPrimaryRoot()?.path
+			const workspaceTaskIds = workspacePath ? await this.workspaceHistoryIndex.getTaskIds() : new Set<string>()
 			const state = await buildBaseState({
 				task: this.task,
 				stateManager: this.stateManager,
@@ -1745,12 +1770,17 @@ export class Controller {
 				backgroundCommandRunning: this.backgroundCommandRunning,
 				backgroundCommandTaskId: this.backgroundCommandTaskId,
 				workspaceManager,
+				workspaceHistoryIndex: this.workspaceHistoryIndex,
 			})
-			const sdkTaskHistory = (await this.taskHistory.listHistory({ limit: 100, hydrate: false }))
-				.map(sessionHistoryRecordToHistoryItem)
-				.filter((item) => item.ts && item.task)
-				.sort((a, b) => b.ts - a.ts)
-			const legacyTaskHistory = state.taskHistory ?? []
+			const sdkTaskHistory = workspacePath
+				? (await this.taskHistory.listHistory({ hydrate: false }))
+						.map(sessionHistoryRecordToHistoryItem)
+						.filter((item) => item.ts && item.task && belongsToWorkspace(item, workspaceTaskIds))
+						.sort((a, b) => b.ts - a.ts)
+				: []
+			const legacyTaskHistory = workspacePath
+				? (state.taskHistory ?? []).filter((item) => belongsToWorkspace(item, workspaceTaskIds))
+				: []
 			const mergedTaskHistoryById = new Map<string, HistoryItem>()
 
 			// Keep the SDK records authoritative for migrated/new tasks, but append
@@ -1766,7 +1796,7 @@ export class Controller {
 			// history adapter can lag behind the active in-memory TaskProxy). Classic
 			// state included the current task immediately, and the testing platform
 			// asserts that taskHistory reflects newTask before the model turn completes.
-			if (this.task?.taskId && !mergedTaskHistoryById.has(this.task.taskId)) {
+			if (workspacePath && this.task?.taskId && !mergedTaskHistoryById.has(this.task.taskId)) {
 				const taskMessage = this.task.messageStateHandler
 					.getClineMessages()
 					.find((message) => message.type === "say" && message.say === "task" && message.text)

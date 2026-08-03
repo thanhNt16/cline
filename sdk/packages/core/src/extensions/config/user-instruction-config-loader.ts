@@ -521,15 +521,10 @@ export function createSkillsConfigDefinition(
 	options?: CreateSkillsConfigDefinitionOptions,
 ): UnifiedConfigDefinition<"skill", SkillConfig> {
 	const directories = resolveSkillDirectories(options);
-	const managedRoot = options?.workspacePath
-		? join(options.workspacePath, ".cline")
-		: undefined;
 
 	return {
 		type: "skill",
-		directories: managedRoot
-			? dedupeDirectoryPaths([...directories, managedRoot])
-			: directories,
+		directories,
 		discoverFiles: discoverSkillFiles,
 		includeFile: (fileName) => fileName === SKILL_FILE_NAME,
 		parseFile: (context) =>

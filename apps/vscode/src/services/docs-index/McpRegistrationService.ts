@@ -7,7 +7,7 @@ export class McpRegistrationService {
 	constructor(private readonly mcpHub: McpHub) {}
 
 	async isRegistered(serverUrl: string): Promise<boolean> {
-		const settingsPath = await this.mcpHub.getMcpSettingsFilePath()
+		const settingsPath = await this.mcpHub.resolveMcpWriteFilePath(MCP_SERVER_KEY)
 		const fs = await import("node:fs/promises")
 		try {
 			const content = await fs.readFile(settingsPath, "utf8")
@@ -21,7 +21,7 @@ export class McpRegistrationService {
 	}
 
 	async register(serverUrl: string): Promise<void> {
-		const settingsPath = await this.mcpHub.getMcpSettingsFilePath()
+		const settingsPath = await this.mcpHub.resolveMcpWriteFilePath(MCP_SERVER_KEY)
 		const mcpUrl = `${serverUrl}/mcp`
 		Logger.log(`[DocsIndex] register: writing to ${settingsPath} url=${mcpUrl}`)
 		await updateMcpSettingsFile(settingsPath, (settings) => {
@@ -40,7 +40,7 @@ export class McpRegistrationService {
 	}
 
 	async unregister(): Promise<void> {
-		const settingsPath = await this.mcpHub.getMcpSettingsFilePath()
+		const settingsPath = await this.mcpHub.resolveMcpWriteFilePath(MCP_SERVER_KEY)
 		Logger.log(`[DocsIndex] unregister: removing from ${settingsPath}`)
 		await updateMcpSettingsFile(settingsPath, (settings) => {
 			if (!settings.mcpServers || typeof settings.mcpServers !== "object") {

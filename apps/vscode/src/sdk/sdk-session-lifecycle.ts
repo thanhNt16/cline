@@ -20,6 +20,7 @@ type AskQuestionHandler = NonNullable<Parameters<typeof VscodeSessionHost.create
 
 export interface SdkSessionLifecycleOptions {
 	mcpHub: McpHub
+	getWorkspacePath: () => Promise<string | undefined>
 	requestToolApproval: RequestToolApprovalHandler
 	askQuestion: AskQuestionHandler
 	onSessionEvent: (event: CoreSessionEvent) => void
@@ -294,14 +295,22 @@ export class SdkSessionLifecycle {
 		if (!this.sharedHostPromise) {
 			// Host-lifetime dependencies only. Anything task/session-specific must be
 			// supplied to sdkHost.start(...), otherwise it can leak across reused sessions.
-			this.sharedHostPromise = VscodeSessionHost.create({
-				mcpHub: this.options.mcpHub,
-				requestToolApproval: this.options.requestToolApproval,
-				askQuestion: this.options.askQuestion,
-				getTerminalManager: this.options.getTerminalManager,
-				getRemoteConfigIntegration: this.options.getRemoteConfigIntegration,
-				telemetry: this.options.telemetry,
-			})
+			this.sharedHostPromise = this.options
+				.getWorkspacePath()
+				.then((workspacePath) => {
+					if (!workspacePath) {
+						throw new Error("Cannot create an SDK session without an open workspace")
+					}
+					return VscodeSessionHost.create({
+						mcpHub: this.options.mcpHub,
+						workspacePath,
+						requestToolApproval: this.options.requestToolApproval,
+						askQuestion: this.options.askQuestion,
+						getTerminalManager: this.options.getTerminalManager,
+						getRemoteConfigIntegration: this.options.getRemoteConfigIntegration,
+						telemetry: this.options.telemetry,
+					})
+				})
 				.then((sdkHost) => {
 					this.ensureSharedHostSubscription(sdkHost)
 					this.sharedHost = sdkHost

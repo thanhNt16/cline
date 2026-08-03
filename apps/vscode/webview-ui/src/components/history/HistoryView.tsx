@@ -31,7 +31,6 @@ const HISTORY_FILTERS = {
 	mostExpensive: "Most Expensive",
 	mostTokens: "Most Tokens",
 	mostRelevant: "Most Relevant",
-	workspaceOnly: "Workspace Only",
 	favoritesOnly: "Favorites Only",
 }
 
@@ -46,7 +45,6 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 	const [deleteAllDisabled, setDeleteAllDisabled] = useState(false)
 	const [selectedItems, setSelectedItems] = useState<string[]>([])
 	const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
-	const [showCurrentWorkspaceOnly, setShowCurrentWorkspaceOnly] = useState(true)
 
 	// Keep track of pending favorite toggle operations
 	const [pendingFavoriteToggles, setPendingFavoriteToggles] = useState<Record<string, boolean>>({})
@@ -77,7 +75,7 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 						favoritesOnly: showFavoritesOnly,
 						searchQuery: searchQuery || undefined,
 						sortBy: sortOption,
-						currentWorkspaceOnly: showCurrentWorkspaceOnly,
+						currentWorkspaceOnly: true,
 						limit: HISTORY_PAGE_SIZE,
 						offset,
 					}),
@@ -111,7 +109,7 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 				}
 			}
 		},
-		[showFavoritesOnly, showCurrentWorkspaceOnly, searchQuery, sortOption],
+		[showFavoritesOnly, searchQuery, sortOption],
 	)
 
 	const loadMoreTaskHistory = useCallback(() => {
@@ -127,7 +125,7 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 		setHasMoreTasks(false)
 		setNextHistoryOffset(0)
 		loadTaskHistory(0)
-	}, [loadTaskHistory, showFavoritesOnly, showCurrentWorkspaceOnly])
+	}, [loadTaskHistory, showFavoritesOnly])
 
 	const toggleFavorite = useCallback(
 		async (taskId: string, currentValue: boolean) => {
@@ -148,10 +146,7 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 					currentTasks.map((task) => (task.id === taskId ? { ...task, isFavorited: nextValue } : task)),
 				)
 
-				// Refresh if either filter is active to ensure proper combined filtering
-				if (showFavoritesOnly || showCurrentWorkspaceOnly) {
-					await loadTaskHistory(0)
-				}
+				await loadTaskHistory(0)
 			} catch (err) {
 				console.error(`[FAVORITE_TOGGLE_UI] Error for task ${taskId}:`, err)
 				// Revert optimistic update
@@ -171,7 +166,7 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 				}, 1000)
 			}
 		},
-		[showFavoritesOnly, showCurrentWorkspaceOnly, loadTaskHistory],
+		[loadTaskHistory],
 	)
 
 	// Use the onRelinquishControl hook instead of message event
@@ -425,9 +420,7 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 								}
 							}
 							// Handle filter toggles
-							else if (value === "workspaceOnly") {
-								setShowCurrentWorkspaceOnly(!showCurrentWorkspaceOnly)
-							} else if (value === "favoritesOnly") {
+							else if (value === "favoritesOnly") {
 								setShowFavoritesOnly(!showFavoritesOnly)
 							}
 						}}
@@ -440,14 +433,8 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 								const isSortOption = ["newest", "oldest", "mostExpensive", "mostTokens", "mostRelevant"].includes(
 									key,
 								)
-								const isFilterOption = ["workspaceOnly", "favoritesOnly"].includes(key)
-								const isSelected = isSortOption
-									? sortOption === key
-									: key === "workspaceOnly"
-										? showCurrentWorkspaceOnly
-										: key === "favoritesOnly"
-											? showFavoritesOnly
-											: false
+								const isFilterOption = key === "favoritesOnly"
+								const isSelected = isSortOption ? sortOption === key : key === "favoritesOnly" && showFavoritesOnly
 								const isDisabled = key === "mostRelevant" && !searchQuery
 
 								return (
@@ -459,9 +446,7 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 										<span className="flex items-center gap-2">
 											{isFilterOption && (
 												<span
-													className={`codicon ${
-														key === "workspaceOnly" ? "codicon-folder" : "codicon-star-full"
-													} ${isSelected ? "text-button-background" : ""}`}
+													className={`codicon codicon-star-full ${isSelected ? "text-button-background" : ""}`}
 												/>
 											)}
 											{value}
