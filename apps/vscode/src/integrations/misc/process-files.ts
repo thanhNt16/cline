@@ -66,11 +66,11 @@ export async function selectFiles(imagesAllowed: boolean): Promise<{ images: str
 		// for standard models we will check the size of the file to ensure its not too large
 		try {
 			const stats = await fs.stat(filePath)
-			if (stats.size > 20 * 1000 * 1024) {
+			if (stats.size > 50 * 1000 * 1024) {
 				Logger.warn(`File too large, skipping: ${filePath}`)
 				HostProvider.window.showMessage({
 					type: ShowMessageType.ERROR,
-					message: `File too large: ${path.basename(filePath)} was skipped (size exceeds 20MB).`,
+					message: `File too large: ${path.basename(filePath)} was skipped (size exceeds 50MB).`,
 				})
 				return null
 			}
