@@ -13,6 +13,8 @@ import { ExtensionRegistryInfo } from "@/registry"
 import { BannerService } from "@/services/banner/BannerService"
 import { featureFlagsService } from "@/services/feature-flags"
 import { getDistinctId } from "@/services/logging/distinctId"
+import { belongsToWorkspace } from "@/services/workspace-history/WorkspaceHistoryIndex"
+import { Logger } from "@/shared/services/Logger"
 import { getLatestAnnouncementId } from "@/utils/announcements"
 import { getClineOnboardingModels } from "../models/getClineOnboardingModels"
 
@@ -20,7 +22,7 @@ import { getClineOnboardingModels } from "../models/getClineOnboardingModels"
  * Builds the ExtensionState object to push to the webview.
  * Extracted from the classic Controller.getStateToPostToWebview().
  */
-export async function getStateToPostToWebview(controller: {
+async function buildState(controller: {
 	task?: any
 	stateManager: any
 	mcpHub?: any
@@ -99,10 +101,7 @@ export async function getStateToPostToWebview(controller: {
 
 	const processedTaskHistory = (taskHistory || [])
 		.filter((item: any) => item.ts && item.task)
-		.filter((item: any) => {
-			if (!workspaceTaskIds || workspaceTaskIds.size === 0) return true
-			return workspaceTaskIds.has(item.id)
-		})
+		.filter((item: any) => !workspaceTaskIds || belongsToWorkspace(item, workspaceTaskIds))
 		.sort((a: any, b: any) => b.ts - a.ts)
 		.slice(0, 100)
 
@@ -201,4 +200,15 @@ export async function getStateToPostToWebview(controller: {
 		welcomeBanners,
 		openAiCodexIsAuthenticated,
 	} as ExtensionState
+}
+
+export async function getStateToPostToWebview(controller: Parameters<typeof buildState>[0]): Promise<ExtensionState> {
+	try {
+		return await buildState(controller)
+	} catch (error) {
+		Logger.error("[getStateToPostToWebview] state build failed; returning safe fallback:", error)
+		// welcomeViewCompleted must stay truthy: a falsy/missing value flips the
+		// webview to onboarding. Other fields are best-effort on the happy path.
+		return { welcomeViewCompleted: true } as ExtensionState
+	}
 }
