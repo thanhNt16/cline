@@ -1,4 +1,5 @@
 import type { ApiProvider, ModelInfo } from "@shared/api"
+import { toLegacyApiProvider } from "@shared/model-catalog/provider-helpers"
 import { ResolveModelInfoRequest } from "@shared/proto/cline/models"
 import { fromProtobufModelInfo } from "@shared/proto-conversions/models/typeConversion"
 import type { Mode } from "@shared/storage/types"
@@ -31,9 +32,13 @@ const unknownModelInfo: ModelInfo = {
  * here and the corresponding writer.
  */
 function getActiveProviderAndModelId(apiConfiguration: ReturnType<typeof useExtensionState>["apiConfiguration"], mode: Mode) {
+	// State written by older builds or other hosts may carry SDK catalog
+	// spellings (e.g. `openai-compatible`); fold them back to the legacy
+	// `ApiProvider` spelling so the provider-keyed lookups below resolve.
 	// CellockAI: default to OpenAI Compatible when no provider is configured.
-	const provider = ((mode === "plan" ? apiConfiguration?.planModeApiProvider : apiConfiguration?.actModeApiProvider) ||
-		"openai") as ApiProvider
+	const provider = toLegacyApiProvider(
+		(mode === "plan" ? apiConfiguration?.planModeApiProvider : apiConfiguration?.actModeApiProvider) || "openai",
+	) as ApiProvider
 	const modeFields = getModeSpecificFields(apiConfiguration, mode)
 
 	const providerSpecificModelIds: Partial<Record<string, string | undefined>> = {

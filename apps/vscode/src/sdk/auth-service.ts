@@ -8,7 +8,7 @@
 // disk — it's fetched from the Cline API on startup and cached in memory.
 // This matches the CLI's pattern (see apps/cli/src/runtime/interactive-welcome.ts).
 
-import type { OAuthCredentials } from "@cline/core"
+import type { ITelemetryService, OAuthCredentials, ProviderSettings } from "@cline/core"
 import {
 	createOAuthClientCallbacks,
 	getValidClineCredentials,
@@ -84,6 +84,22 @@ export enum LogoutReason {
 
 const WORKOS_TOKEN_PREFIX = "workos:"
 
+type AuthMetadata = Record<string, unknown>
+
+function getAuthMetadata(auth: ProviderSettings["auth"]): AuthMetadata | undefined {
+	if (!auth) return undefined
+
+	const metadata = (auth as { metadata?: unknown }).metadata
+	return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? (metadata as AuthMetadata) : undefined
+}
+
+function readSessionStartedAtMs(metadata: AuthMetadata | undefined): number | undefined {
+	if (!metadata) return undefined
+
+	const value = metadata.sessionStartedAtMs
+	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined
+}
+
 // ---------------------------------------------------------------------------
 // providers.json helpers
 // ---------------------------------------------------------------------------
@@ -97,6 +113,7 @@ function readClineCredentials(): {
 	refreshToken?: string
 	expiresAt?: number // milliseconds since epoch (providers.json convention)
 	accountId?: string
+	sessionStartedAtMs?: number // milliseconds since epoch
 } | null {
 	try {
 		const manager = getProviderSettingsManager()
@@ -117,9 +134,10 @@ function readClineCredentials(): {
 			refreshToken: settings.auth.refreshToken,
 			expiresAt: (settings.auth as { expiresAt?: number }).expiresAt,
 			accountId: settings.auth.accountId,
+			sessionStartedAtMs: readSessionStartedAtMs(getAuthMetadata(settings.auth)),
 		}
 		sdkDebug(
-			`[SdkAuthService] readClineCredentials: found credentials (accessHash=${hashSecret(result.accessToken)}, refreshHash=${hashSecret(result.refreshToken)}, expiresAt=${result.expiresAt})`,
+			`[SdkAuthService] readClineCredentials: found credentials (accessHash=${hashSecret(result.accessToken)}, refreshHash=${hashSecret(result.refreshToken)}, expiresAt=${result.expiresAt}, sessionStartedAtMs=${result.sessionStartedAtMs})`,
 		)
 		return result
 	} catch (error) {
@@ -136,10 +154,17 @@ function writeClineCredentials(credentials: {
 	refreshToken?: string
 	expiresAt?: number // milliseconds since epoch
 	accountId?: string
+	metadata?: AuthMetadata
+	sessionStartedAtMs?: number // milliseconds since epoch
 }): void {
 	try {
 		const manager = getProviderSettingsManager()
 		const existing = manager.getProviderSettings("cline")
+		const existingMetadata = getAuthMetadata(existing?.auth)
+		const sessionStartedAtMs =
+			credentials.sessionStartedAtMs ??
+			readSessionStartedAtMs(credentials.metadata) ??
+			readSessionStartedAtMs(existingMetadata)
 
 		const auth = {
 			...(existing?.auth ?? {}),
@@ -147,6 +172,17 @@ function writeClineCredentials(credentials: {
 			refreshToken: credentials.refreshToken,
 			accountId: credentials.accountId,
 		} as Record<string, unknown>
+		const incomingMetadata = Object.fromEntries(
+			Object.entries(credentials.metadata ?? {}).filter(([, value]) => value !== undefined),
+		)
+		const metadata = { ...(existingMetadata ?? {}), ...incomingMetadata }
+		delete metadata.startedAt
+		if (sessionStartedAtMs !== undefined) {
+			metadata.sessionStartedAtMs = sessionStartedAtMs
+		}
+		if (Object.keys(metadata).length > 0) {
+			auth.metadata = metadata
+		}
 		if (credentials.expiresAt !== undefined) {
 			auth.expiresAt = credentials.expiresAt
 		}
@@ -155,12 +191,12 @@ function writeClineCredentials(credentials: {
 			{
 				...(existing ?? { provider: "cline" }),
 				provider: "cline",
-				auth: auth as { accessToken?: string; refreshToken?: string; accountId?: string },
+				auth: auth as { accessToken?: string; refreshToken?: string; accountId?: string; metadata?: AuthMetadata },
 			},
 			{ tokenSource: "oauth", setLastUsed: true },
 		)
 		sdkDebug(
-			`[SdkAuthService] writeClineCredentials: wrote (accessHash=${hashSecret(credentials.accessToken)}, refreshHash=${hashSecret(credentials.refreshToken)}, expiresAt=${credentials.expiresAt})`,
+			`[SdkAuthService] writeClineCredentials: wrote (accessHash=${hashSecret(credentials.accessToken)}, refreshHash=${hashSecret(credentials.refreshToken)}, expiresAt=${credentials.expiresAt}, sessionStartedAtMs=${sessionStartedAtMs})`,
 		)
 	} catch (error) {
 		Logger.error("[SdkAuthService] Failed to write credentials to providers.json:", error)
@@ -202,6 +238,7 @@ export class AuthService {
 	private _activeAuthStatusUpdateHandlers = new Set<StreamingResponseHandler<AuthState>>()
 	private _handlerToController = new Map<StreamingResponseHandler<AuthState>, Controller>()
 	private _refreshPromise: Promise<string | undefined> | null = null
+	private _telemetry?: ITelemetryService
 
 	private constructor() {}
 
@@ -209,9 +246,12 @@ export class AuthService {
 	 * Gets the singleton instance of AuthService.
 	 * On first call with a controller, initializes BannerService.
 	 */
-	public static getInstance(controller?: Controller): AuthService {
+	public static getInstance(controller?: Controller, telemetry?: ITelemetryService): AuthService {
 		if (!AuthService.instance) {
 			AuthService.instance = new AuthService()
+		}
+		if (telemetry) {
+			AuthService.instance._telemetry = telemetry
 		}
 		// Initialize BannerService on first call with a controller
 		// (mirrors classic AuthService behavior)
@@ -238,6 +278,7 @@ export class AuthService {
 	private async credentialsToAuthInfo(credentials: OAuthCredentials, provider: string): Promise<ClineAuthInfo> {
 		// Fetch full user info from the API using the access token
 		const userInfo = await this.fetchUserInfoFromApi(credentials.access)
+		const startedAt = readSessionStartedAtMs(credentials.metadata)
 
 		return {
 			idToken: credentials.access,
@@ -250,7 +291,7 @@ export class AuthService {
 				organizations: [],
 			},
 			provider,
-			startedAt: Date.now(),
+			startedAt,
 		}
 	}
 
@@ -290,6 +331,7 @@ export class AuthService {
 			expires: authInfo.expiresAt ? authInfo.expiresAt * 1000 : 0,
 			accountId: authInfo.userInfo.id || undefined,
 			email: authInfo.userInfo.email || undefined,
+			metadata: authInfo.startedAt ? { sessionStartedAtMs: authInfo.startedAt } : undefined,
 		}
 	}
 
@@ -303,7 +345,7 @@ export class AuthService {
 
 		return getValidClineCredentials(
 			this.toOAuthCredentials(authInfo),
-			{ apiBaseUrl: ClineEnv.config().apiBaseUrl },
+			{ apiBaseUrl: ClineEnv.config().apiBaseUrl, telemetry: this._telemetry },
 			{ forceRefresh: options?.forceRefresh },
 		)
 	}
@@ -389,7 +431,7 @@ export class AuthService {
 					expiresAt: newCredentials.expires ? newCredentials.expires / 1000 : undefined,
 					userInfo: userInfo ?? currentInfo.userInfo,
 					provider: currentInfo.provider,
-					startedAt: currentInfo.startedAt ?? Date.now(),
+					startedAt: currentInfo.startedAt,
 				}
 				this._authenticated = true
 
@@ -402,6 +444,8 @@ export class AuthService {
 						refreshToken: newCredentials.refresh,
 						expiresAt: newCredentials.expires,
 						accountId: this._clineAuthInfo.userInfo.id,
+						metadata: newCredentials.metadata,
+						sessionStartedAtMs: readSessionStartedAtMs(newCredentials.metadata),
 					})
 
 					setImmediate(() => {
@@ -473,6 +517,20 @@ export class AuthService {
 	// ---- Login flows ----
 
 	/**
+	 * A successful login completes onboarding. The onboarding webview does NOT
+	 * set this flag for OAuth sign-ups — it waits on the "Almost there!" step
+	 * until the host confirms authentication (parity with the classic
+	 * extension, where Controller.handleAuthCallback set it post-exchange).
+	 */
+	private markWelcomeViewCompleted(): void {
+		try {
+			StateManager.get().setGlobalState("welcomeViewCompleted", true)
+		} catch (error) {
+			Logger.error("[SdkAuthService] Failed to mark welcome view completed:", error)
+		}
+	}
+
+	/**
 	 * Initiate Cline OAuth login.
 	 * Uses SDK's loginClineOAuth() which spawns a local callback server.
 	 * Persists credentials to providers.json.
@@ -533,7 +591,13 @@ export class AuthService {
 					refreshToken: credentials.refresh,
 					expiresAt: credentials.expires,
 					accountId: authInfo.userInfo.id || credentials.accountId,
+					metadata: credentials.metadata,
+					sessionStartedAtMs: authInfo.startedAt,
 				})
+
+				// Set before pushing state so the same update moves the webview
+				// from the welcome view to chat.
+				this.markWelcomeViewCompleted()
 
 				// Push auth state update
 				await this.sendAuthStatusUpdate()
@@ -584,6 +648,7 @@ export class AuthService {
 			throw new Error("Invalid response from mock server")
 		}
 
+		const sessionStartedAtMs = Date.now()
 		this._clineAuthInfo = {
 			idToken: tokenData.accessToken,
 			refreshToken: tokenData.refreshToken,
@@ -598,7 +663,7 @@ export class AuthService {
 				subject: tokenData.userInfo?.subject,
 			},
 			provider: "cline",
-			startedAt: Date.now(),
+			startedAt: sessionStartedAtMs,
 		}
 		this._authenticated = true
 
@@ -609,7 +674,11 @@ export class AuthService {
 			refreshToken: tokenData.refreshToken,
 			expiresAt: new Date(tokenData.expiresAt).getTime(),
 			accountId: this._clineAuthInfo.userInfo.id,
+			metadata: { sessionStartedAtMs },
+			sessionStartedAtMs,
 		})
+
+		this.markWelcomeViewCompleted()
 
 		await this.sendAuthStatusUpdate()
 		Logger.log(`[SdkAuthService] E2E mock login completed as ${this._clineAuthInfo.userInfo.email}`)
@@ -644,6 +713,8 @@ export class AuthService {
 				refreshToken: credentials.refresh,
 				expiresAt: credentials.expires,
 				accountId: authInfo.userInfo.id || credentials.accountId,
+				metadata: credentials.metadata,
+				sessionStartedAtMs: authInfo.startedAt,
 			})
 
 			await this.sendAuthStatusUpdate()
@@ -746,8 +817,9 @@ export class AuthService {
 	/**
 	 * Handle deauthentication — clear tokens from providers.json and push unauthenticated state.
 	 */
-	async handleDeauth(_reason: LogoutReason = LogoutReason.UNKNOWN): Promise<void> {
+	async handleDeauth(reason: LogoutReason = LogoutReason.UNKNOWN): Promise<void> {
 		try {
+			telemetryService.captureAuthLoggedOut("cline", reason)
 			this._clineAuthInfo = null
 			this._authenticated = false
 			clearClineCredentials()
@@ -805,6 +877,7 @@ export class AuthService {
 			// Fetch full user info
 			const userInfo = await this.fetchUserInfoFromApi(tokenData.accessToken)
 
+			const sessionStartedAtMs = Date.now()
 			const authInfo: ClineAuthInfo = {
 				idToken: tokenData.accessToken,
 				refreshToken: tokenData.refreshToken,
@@ -817,7 +890,7 @@ export class AuthService {
 				},
 				expiresAt: new Date(tokenData.expiresAt).getTime() / 1000,
 				provider: "cline",
-				startedAt: Date.now(),
+				startedAt: sessionStartedAtMs,
 			}
 
 			this._clineAuthInfo = authInfo
@@ -829,7 +902,16 @@ export class AuthService {
 				refreshToken: tokenData.refreshToken,
 				expiresAt: new Date(tokenData.expiresAt).getTime(),
 				accountId: authInfo.userInfo.id,
+				metadata: {
+					provider,
+					sessionStartedAtMs,
+					tokenType: tokenData.tokenType,
+					userInfo: tokenData.userInfo,
+				},
+				sessionStartedAtMs,
 			})
+
+			this.markWelcomeViewCompleted()
 
 			await this.sendAuthStatusUpdate()
 		} catch (error) {
@@ -876,6 +958,7 @@ export class AuthService {
 					organizations: [],
 				},
 				provider: "cline",
+				startedAt: creds.sessionStartedAtMs,
 			}
 
 			const validCredentials = await this.resolveValidClineCredentials(restoredAuthInfo)
@@ -892,6 +975,8 @@ export class AuthService {
 				refreshToken: validCredentials.refresh,
 				expiresAt: validCredentials.expires,
 				accountId: validCredentials.accountId ?? restoredAuthInfo.userInfo.id,
+				metadata: validCredentials.metadata,
+				sessionStartedAtMs: readSessionStartedAtMs(validCredentials.metadata),
 			})
 
 			this._clineAuthInfo = {
@@ -904,6 +989,7 @@ export class AuthService {
 					email: validCredentials.email ?? restoredAuthInfo.userInfo.email,
 				},
 				provider: restoredAuthInfo.provider,
+				startedAt: restoredAuthInfo.startedAt,
 			}
 			this._authenticated = true
 

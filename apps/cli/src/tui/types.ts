@@ -15,6 +15,7 @@ import type {
 	PendingPromptSnapshot,
 	PendingPromptSubmittedEvent,
 } from "../runtime/session-events";
+import type { HistoryExportFormat } from "../session/history-export";
 import type { RepoStatus } from "../utils/repo-status";
 import type { CliCompactionMode, Config } from "../utils/types";
 import type { ClineAccountSnapshot } from "./cline-account";
@@ -44,6 +45,15 @@ export type ChatEntry = (
 	  }
 	| { kind: "error"; text: string }
 	| { kind: "status"; text: string }
+	| {
+			kind: "compaction";
+			compactionMode: "auto" | "manual" | "inherited";
+			status: "started" | "completed" | "skipped" | "failed" | "cancelled";
+			tokensBefore?: number;
+			tokensAfter?: number;
+			messagesBefore?: number;
+			messagesAfter?: number;
+	  }
 	| { kind: "team"; text: string }
 	| { kind: "user_submitted"; text: string; delivery?: "queue" | "steer" }
 	| {
@@ -114,6 +124,7 @@ export interface PendingPromptMutationResult {
 }
 
 export type AppView = "onboarding" | "home" | "chat";
+export type TuiStartupTarget = "chat" | "config" | "history";
 
 export type RuntimeToolInteraction =
 	| {
@@ -130,7 +141,7 @@ export type RuntimeToolInteraction =
 
 export interface TuiProps {
 	config: Config;
-	initialView?: "chat" | "config";
+	startupTarget?: TuiStartupTarget;
 	initialPrompt?: string;
 	initialNotice?: CliMigrationNotice;
 	onInitialNoticeShown?: (notice: CliMigrationNotice) => void | Promise<void>;
@@ -184,9 +195,22 @@ export interface TuiProps {
 	onSessionRestart: () => Promise<void>;
 	onAccountChange: () => Promise<void>;
 	onResumeSession: (sessionId: string) => Promise<ResumedSessionResult>;
+	onExportHistorySession: (
+		sessionId: string,
+		format: HistoryExportFormat,
+	) => Promise<string>;
+	onDeleteHistorySession: (sessionId: string) => Promise<boolean>;
 	onCompact: () => Promise<InteractiveCompactionResult>;
 	onFork: () => Promise<
-		{ forkedFromSessionId: string; newSessionId: string } | undefined
+		| {
+				forkedFromSessionId: string;
+				newSessionId: string;
+				carriedWorkingContext?: {
+					workingContextMessages: number;
+					canonicalMessages: number;
+				};
+		  }
+		| undefined
 	>;
 	getCheckpointData: () => Promise<
 		{ messages: Message[]; checkpointHistory: CheckpointEntry[] } | undefined

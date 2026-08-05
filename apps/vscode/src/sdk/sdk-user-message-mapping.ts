@@ -1,9 +1,17 @@
-import { normalizeUserInput } from "@cline/shared"
-import { ACT_MODE_CONTINUATION_PROMPT } from "./sdk-mode-coordinator"
+import { normalizeUserInput, stripModeNotices } from "@cline/shared"
+
+/**
+ * Canned prompt SdkModeCoordinator sends to drive the plan -> act
+ * auto-continuation. Defined here (a leaf module) rather than in the
+ * coordinator so display-layer consumers (message-translator, ordinal
+ * mapping) don't pull the coordinator's heavy import graph into their tests.
+ */
+export const ACT_MODE_CONTINUATION_PROMPT = "The user approved switching to act mode. Continue with the approved plan now."
 
 export type SdkUserMessage = {
 	role?: unknown
 	content?: unknown
+	metadata?: unknown
 }
 
 export function extractSdkUserText(message: SdkUserMessage): string {
@@ -41,8 +49,12 @@ export function extractSdkUserText(message: SdkUserMessage): string {
  */
 export function isSyntheticUserPrompt(text: string): boolean {
 	// Persisted prompts are wrapped by formatModePrompt as
-	// <user_input mode="...">...</user_input>; strip that before matching.
-	const normalized = normalizeUserInput(text)
+	// <user_input mode="...">...</user_input>; strip that before matching. A
+	// user-initiated plan -> act toggle can additionally prepend a
+	// <mode_notice> element to the canned continuation, so strip those too or
+	// the synthetic prompt would start counting as a visible user message and
+	// shift every later edit/regenerate ordinal by one.
+	const normalized = stripModeNotices(normalizeUserInput(text))
 	return normalized.startsWith("[TASK RESUMPTION]") || normalized === ACT_MODE_CONTINUATION_PROMPT
 }
 
@@ -97,4 +109,32 @@ export function findSdkUserMessageIndexByOrdinal(sdkMessages: SdkUserMessage[], 
 		seenUsers += 1
 		return seenUsers === userOrdinal
 	})
+}
+
+/**
+ * Returns the checkpoint run number for a persisted SDK user message.
+ * This intentionally mirrors the core checkpoint counter: every root user
+ * message starts a run except recovery notices. Hidden mode/resume prompts
+ * therefore still advance the counter even though they have no webview row.
+ */
+export function getSdkCheckpointRunCountForMessageIndex(sdkMessages: SdkUserMessage[], targetIndex: number): number | undefined {
+	if (sdkMessages[targetIndex]?.role !== "user") {
+		return undefined
+	}
+
+	let runCount = 0
+	for (let index = 0; index <= targetIndex; index += 1) {
+		const message = sdkMessages[index]
+		if (message?.role !== "user") {
+			continue
+		}
+		const metadata =
+			message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
+				? (message.metadata as Record<string, unknown>)
+				: undefined
+		if (metadata?.kind !== "recovery_notice") {
+			runCount += 1
+		}
+	}
+	return runCount
 }

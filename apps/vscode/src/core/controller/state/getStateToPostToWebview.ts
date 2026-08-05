@@ -14,6 +14,7 @@ import { BannerService } from "@/services/banner/BannerService"
 import { featureFlagsService } from "@/services/feature-flags"
 import { getDistinctId } from "@/services/logging/distinctId"
 import { belongsToWorkspace } from "@/services/workspace-history/WorkspaceHistoryIndex"
+import { getExtensionVariant } from "@/services/telemetry/rollout-metadata"
 import { Logger } from "@/shared/services/Logger"
 import { getLatestAnnouncementId } from "@/utils/announcements"
 import { getClineOnboardingModels } from "../models/getClineOnboardingModels"
@@ -28,6 +29,7 @@ async function buildState(controller: {
 	mcpHub?: any
 	backgroundCommandRunning?: boolean
 	backgroundCommandTaskId?: string
+	foregroundCommandRunning?: boolean
 	workspaceManager?: any
 	workspaceHistoryIndex?: { getTaskIds: () => Promise<Set<string>> }
 	checkpointRestoreInput?: ExtensionState["checkpointRestoreInput"]
@@ -75,9 +77,7 @@ async function buildState(controller: {
 	// API providers are configured via Settings → API Configuration instead.
 	const welcomeViewCompleted = true
 
-	const customPrompt = stateManager.getGlobalSettingsKey("customPrompt")
 	const mcpResponsesCollapsed = stateManager.getGlobalStateKey("mcpResponsesCollapsed")
-	const maxConsecutiveMistakes = stateManager.getGlobalSettingsKey("maxConsecutiveMistakes")
 	const favoritedModelIds = stateManager.getGlobalStateKey("favoritedModelIds")
 	const lastDismissedInfoBannerVersion = stateManager.getGlobalStateKey("lastDismissedInfoBannerVersion") || 0
 	const lastDismissedModelBannerVersion = stateManager.getGlobalStateKey("lastDismissedModelBannerVersion") || 0
@@ -128,6 +128,7 @@ async function buildState(controller: {
 
 	return {
 		version,
+		extensionVariant: getExtensionVariant(),
 		apiConfiguration,
 		activeProfileModelId,
 		currentTaskItem,
@@ -169,13 +170,12 @@ async function buildState(controller: {
 		welcomeViewCompleted,
 		onboardingModels,
 		mcpResponsesCollapsed,
-		maxConsecutiveMistakes,
-		customPrompt,
 		taskHistory: processedTaskHistory,
 		shouldShowAnnouncement,
 		favoritedModelIds,
 		backgroundCommandRunning: controller.backgroundCommandRunning ?? false,
 		backgroundCommandTaskId: controller.backgroundCommandTaskId,
+		foregroundCommandRunning: controller.foregroundCommandRunning ?? false,
 		workspaceRoots: resolvedWorkspaceRoots,
 		primaryRootIndex: controller.workspaceManager?.getPrimaryIndex?.() ?? 0,
 		isMultiRootWorkspace: resolvedWorkspaceRoots.length > 1,

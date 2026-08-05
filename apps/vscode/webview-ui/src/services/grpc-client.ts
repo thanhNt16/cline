@@ -1298,6 +1298,14 @@ export class TaskServiceClient extends ProtoBusClient {
 			proto.cline.Empty.fromJSON,
 		)
 	}
+	static async proceedWhileRunningCommand(request: proto.cline.EmptyRequest): Promise<proto.cline.Empty> {
+		return this.makeUnaryRequest(
+			"proceedWhileRunningCommand",
+			request,
+			proto.cline.EmptyRequest.toJSON,
+			proto.cline.Empty.fromJSON,
+		)
+	}
 	static async clearTask(request: proto.cline.EmptyRequest): Promise<proto.cline.Empty> {
 		return this.makeUnaryRequest("clearTask", request, proto.cline.EmptyRequest.toJSON, proto.cline.Empty.fromJSON)
 	}

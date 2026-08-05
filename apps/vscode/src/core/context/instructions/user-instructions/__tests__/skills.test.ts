@@ -135,8 +135,42 @@ Instructions here`)
 			expect(skills[0].source).to.equal("global")
 		})
 
-		it("should discover skills from project .cellockai/skills directory", async () => {
-			const projectSkillsDir = path.join(TEST_CWD, ".cellockai", "skills")
+	// Regression test for https://github.com/cline/cline/issues/12151:
+	// SKILL.md files saved with a UTF-8 BOM (e.g. by Windows Notepad's "UTF-8 with BOM"
+	// encoding) were silently skipped because the frontmatter regex required "---" at the
+	// very start of the file and never accounted for the leading \uFEFF byte sequence.
+	it("should discover skills whose SKILL.md starts with a UTF-8 BOM", async () => {
+		const skillDir = path.join(GLOBAL_SKILLS_DIR, "my-skill")
+		const skillMdPath = path.join(skillDir, "SKILL.md")
+
+		fileExistsStub.withArgs(GLOBAL_SKILLS_DIR).resolves(true)
+		fileExistsStub.withArgs(skillMdPath).resolves(true)
+		isDirectoryStub.withArgs(GLOBAL_SKILLS_DIR).resolves(true)
+		readdirStub.withArgs(GLOBAL_SKILLS_DIR).resolves(["my-skill"])
+		statStub.withArgs(skillDir).resolves({ isDirectory: () => true })
+		readFileStub.withArgs(skillMdPath, "utf-8").resolves(`\uFEFF---
+name: my-skill
+description: A test skill
+---
+# my-skill
+This is a test skill.`)
+
+		const skills = await discoverSkills(TEST_CWD)
+
+		expect(skills).to.have.lengthOf(1)
+		expect(skills[0].name).to.equal("my-skill")
+		expect(skills[0].description).to.equal("A test skill")
+		expect(skills[0].source).to.equal("global")
+	})
+
+	// Fork note (CellockAI): upstream main also added a "project .clinerules/skills
+	// directory" discovery test. It was NOT adopted: this fork's
+	// getSkillsDirectoriesForScan (and discoverSkills) only scan
+	// <cwd>/.cellockai/skills and ~/.cellockai/skills — .clinerules is not scanned,
+	// so that test would assert behavior the fork never performs. Should the fork
+	// ever adopt .clinerules scanning, restore the upstream test.
+	it("should discover skills from project .cellockai/skills directory", async () => {
+		const projectSkillsDir = path.join(TEST_CWD, ".cellockai", "skills")
 			const skillDir = path.join(projectSkillsDir, "explaining-code")
 			const skillMdPath = path.join(skillDir, "SKILL.md")
 

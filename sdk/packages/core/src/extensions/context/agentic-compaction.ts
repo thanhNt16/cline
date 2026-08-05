@@ -1,5 +1,6 @@
 import { createHandlerAsync } from "@cline/llms";
 import type { BasicLogger } from "@cline/shared";
+import { countUserRunMessages } from "../../session/user-run-messages";
 import type {
 	CoreCompactionContext,
 	CoreCompactionResult,
@@ -7,8 +8,8 @@ import type {
 } from "../../types/config";
 import type { ProviderConfig } from "../../types/provider-settings";
 import {
-	buildBudgetProjection,
 	type BudgetProjectionResult,
+	buildBudgetProjection,
 } from "./budget-projection";
 import {
 	buildSummaryMessage,
@@ -20,6 +21,7 @@ import {
 	findCutIndex,
 	findLatestSummaryIndex,
 	getCompactionSummaryMetadata,
+	resolveEffectiveMaxInputTokens,
 	resolveSummarizerConfig,
 	serializeConversation,
 } from "./compaction-shared";
@@ -29,23 +31,19 @@ const MIN_AGENTIC_SUMMARY_INPUT_TOKENS = 1_024;
 function resolveProviderMaxInputTokens(
 	providerConfig: ProviderConfig,
 ): number | undefined {
-	const explicit = providerConfig.maxInputTokens;
-	if (typeof explicit === "number" && Number.isFinite(explicit)) {
-		return explicit;
-	}
-	const modelInfoLimit =
-		providerConfig.modelInfo?.maxInputTokens ??
-		providerConfig.modelInfo?.contextWindow;
-	if (typeof modelInfoLimit === "number" && Number.isFinite(modelInfoLimit)) {
+	const modelInfoLimit = resolveEffectiveMaxInputTokens({
+		maxInputTokens:
+			providerConfig.maxInputTokens ?? providerConfig.modelInfo?.maxInputTokens,
+		contextWindow: providerConfig.modelInfo?.contextWindow,
+	});
+	if (modelInfoLimit !== undefined) {
 		return modelInfoLimit;
 	}
 	const knownModelInfo = providerConfig.knownModels?.[providerConfig.modelId];
-	const knownModelLimit =
-		knownModelInfo?.maxInputTokens ?? knownModelInfo?.contextWindow;
-	if (typeof knownModelLimit === "number" && Number.isFinite(knownModelLimit)) {
-		return knownModelLimit;
-	}
-	return undefined;
+	return resolveEffectiveMaxInputTokens({
+		maxInputTokens: knownModelInfo?.maxInputTokens,
+		contextWindow: knownModelInfo?.contextWindow,
+	});
 }
 
 export function buildAgenticSummaryInputBudget(options: {
@@ -143,14 +141,11 @@ export async function runAgenticCompaction(options: {
 	);
 	const canUseActiveContextLimit = options.summarizer === undefined;
 	const activeCompactionInputLimit = Math.max(
-		options.context.maxInputTokens,
-		options.context.triggerTokens,
+		options.context.budget.request.maxInputTokens,
+		options.context.budget.request.triggerTokens,
 		MIN_AGENTIC_SUMMARY_INPUT_TOKENS,
 	);
-	if (
-		resolvedSummarizerInputLimit === undefined &&
-		!canUseActiveContextLimit
-	) {
+	if (resolvedSummarizerInputLimit === undefined && !canUseActiveContextLimit) {
 		options.logger?.log(
 			"Agentic compaction summarizer has no known input limit; using conservative summary budget",
 			{
@@ -176,12 +171,15 @@ export async function runAgenticCompaction(options: {
 	const availableSummaryInputTokens =
 		summarizerInputLimit - summaryRequestOverheadTokens;
 	if (availableSummaryInputTokens <= 0) {
-		options.logger?.debug("Skipped agentic compaction: summarizer budget exhausted", {
-			summarizerProviderId: summarizerProviderConfig.providerId,
-			summarizerModelId: summarizerProviderConfig.modelId,
-			summarizerInputLimit,
-			summaryRequestOverheadTokens,
-		});
+		options.logger?.debug(
+			"Skipped agentic compaction: summarizer budget exhausted",
+			{
+				summarizerProviderId: summarizerProviderConfig.providerId,
+				summarizerModelId: summarizerProviderConfig.modelId,
+				summarizerInputLimit,
+				summaryRequestOverheadTokens,
+			},
+		);
 		return undefined;
 	}
 	const summaryInputBudget = buildAgenticSummaryInputBudget({
@@ -230,8 +228,8 @@ export async function runAgenticCompaction(options: {
 		summarizerProviderId: summarizerProviderConfig.providerId,
 		summarizerModelId: summarizerProviderConfig.modelId,
 		summarizerInputLimit,
-		maxInputTokens: options.context.maxInputTokens,
-		triggerTokens: options.context.triggerTokens,
+		maxInputTokens: options.context.budget.request.maxInputTokens,
+		triggerTokens: options.context.budget.request.triggerTokens,
 	});
 	const rawSummary = await generateSummary({
 		providerConfig: summarizerProviderConfig,
@@ -252,6 +250,7 @@ export async function runAgenticCompaction(options: {
 			summary,
 			fileOps,
 			tokensBefore,
+			userRunSpan: countUserRunMessages(messagesToSummarize),
 		}),
 		...messages.slice(cutIndex),
 	];
@@ -266,12 +265,11 @@ export async function runAgenticCompaction(options: {
 		messagesPreserved: messages.length - cutIndex,
 		tokensBefore,
 		tokensAfter,
-		maxInputTokens: options.context.maxInputTokens,
+		maxInputTokens: options.context.budget.request.maxInputTokens,
 	});
 	const budgetActionCount = summaryInputBudget.actions.filter(
 		(action) =>
-			action.reason === "over_budget" ||
-			action.reason === "tool_pair_boundary",
+			action.reason === "over_budget" || action.reason === "tool_pair_boundary",
 	).length;
 	return {
 		messages: resultMessages,

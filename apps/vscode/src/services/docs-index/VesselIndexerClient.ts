@@ -85,7 +85,7 @@ export class VesselIndexerClient {
 		const fileBuffer = await fs.readFile(filePath)
 		const filename = path.basename(filePath)
 		const formData = new FormData()
-		formData.append("file", new Blob([fileBuffer]), filename)
+		formData.append("file", new Blob([new Uint8Array(fileBuffer)]), filename)
 		const response = await fetch(`${this.serverUrl}/projects/${encodeURIComponent(project)}/documents`, {
 			method: "POST",
 			body: formData,

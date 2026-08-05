@@ -43,6 +43,7 @@ import {
 	validateSlashCommand,
 } from "@/utils/slash-commands"
 import ClineRulesToggleModal from "../cline-rules/ClineRulesToggleModal"
+import { getModeToggleDraftAction } from "./chat-textarea-mode-toggle"
 import ServersToggleModal from "./ServersToggleModal"
 
 const { MAX_IMAGES_AND_FILES_PER_MESSAGE } = CHAT_CONSTANTS
@@ -587,7 +588,11 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					event.preventDefault()
 
 					if (!sendingDisabled) {
-						setIsTextAreaFocused(false)
+						// Note: don't set isTextAreaFocused to false here. The textarea keeps
+						// DOM focus after sending, and clearing the flag without an actual
+						// blur desyncs it permanently (programmatic .focus() on an
+						// already-focused element never re-fires onFocus), which hides the
+						// plan/act mode outline until a real blur/refocus cycle.
 						onSend()
 					}
 				}
@@ -1037,16 +1042,37 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 				)
 				// Focus the textarea after mode toggle with slight delay
 				setTimeout(() => {
-					if (response.value) {
-						// The toggle consumed the composer content as the continuation
-						// message. Clear only what was submitted: the rebuild can take a
-						// moment and the user may have typed or attached new content in
-						// the meantime, which must not be wiped.
-						if ((textAreaRef.current?.value ?? "") === submittedText) {
+					const consumedComposerContent = response.value === true
+					const currentText = textAreaRef.current?.value ?? ""
+					// Reconcile only the submitted draft: the rebuild can take a moment
+					// and the user may have typed new content in the meantime.
+					const draftAction = getModeToggleDraftAction({
+						consumed: consumedComposerContent,
+						currentText,
+						submittedText,
+					})
+
+					switch (draftAction) {
+						case "clear":
 							setInputValue("")
-						}
+							break
+						case "restore":
+							setInputValue(submittedText)
+							break
+						case "keep":
+							break
+					}
+
+					if (consumedComposerContent) {
 						setSelectedImages((current) => (current === submittedImages ? [] : current))
 						setSelectedFiles((current) => (current === submittedFiles ? [] : current))
+					} else {
+						if (submittedImages.length > 0) {
+							setSelectedImages((current) => (current.length === 0 ? submittedImages : current))
+						}
+						if (submittedFiles.length > 0) {
+							setSelectedFiles((current) => (current.length === 0 ? submittedFiles : current))
+						}
 					}
 					textAreaRef.current?.focus()
 				}, 100)
@@ -1565,7 +1591,6 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 								data-testid="send-button"
 								onClick={() => {
 									if (!sendingDisabled) {
-										setIsTextAreaFocused(false)
 										onSend()
 									}
 								}}

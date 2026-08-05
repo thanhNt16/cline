@@ -1,6 +1,7 @@
 import type { HistoryItem } from "@shared/HistoryItem"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { StateManager } from "@/core/storage/StateManager"
+import { isDirectory } from "@/utils/fs"
 import { PROVIDER_FAILURE_ERROR_TYPE, PROVIDER_FAILURE_PHASE } from "./provider-failure-telemetry"
 import { SdkTaskStartCoordinator, type SdkTaskStartCoordinatorOptions } from "./sdk-task-start-coordinator"
 
@@ -12,9 +13,20 @@ vi.mock("@/shared/services/Logger", () => ({
 	},
 }))
 
+// CellockAI: isolate from the developer's real ~/.cellockai/profiles.json so
+// buildSessionConfig uses the provider each test sets up, not the active profile.
+vi.mock("@/core/controller/state/active-profile-overlay", () => ({
+	overlayActiveProfile: (apiConfiguration: unknown) => apiConfiguration,
+}))
+
+vi.mock("@/utils/fs", () => ({
+	isDirectory: vi.fn(),
+}))
+
 describe("SdkTaskStartCoordinator", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
+		vi.mocked(isDirectory).mockResolvedValue(false)
 	})
 
 	it("initializes a new task, emits the task message, and sends the resolved prompt", async () => {
@@ -47,12 +59,27 @@ describe("SdkTaskStartCoordinator", () => {
 		expect(options.taskHistory.updateTaskHistoryItem).toHaveBeenCalledWith(
 			expect.objectContaining({ id: sessionId, task: "hello @file", modelId: "model" }),
 		)
+		// Attachments must be on the authoritative task message so the webview's
+		// optimistic pending copy (which carries them) gets confirmed and cleared.
 		expect(options.messages.appendAndEmit).toHaveBeenCalledWith(
-			[expect.objectContaining({ type: "say", say: "task", text: "hello @file" })],
+			[
+				expect.objectContaining({
+					type: "say",
+					say: "task",
+					text: "hello @file",
+					images: ["image.png"],
+					files: ["a.ts"],
+				}),
+			],
 			{ type: "status", payload: { sessionId, status: "running" } },
 		)
-		expect(options.postStateToWebview).toHaveBeenCalledOnce()
+		expect(options.postStateToWebview).toHaveBeenCalledTimes(2)
 		expect(options.messages.appendAndEmit.mock.invocationCallOrder[0]).toBeLessThan(
+			options.sessions.startNewSession.mock.invocationCallOrder[0],
+		)
+		// The first state post carries the streaming TurnState to the webview (thinking
+		// indicator) and must not wait for the potentially slow session startup.
+		expect(options.postStateToWebview.mock.invocationCallOrder[0]).toBeLessThan(
 			options.sessions.startNewSession.mock.invocationCallOrder[0],
 		)
 		expect(options.resolveContextMentions).toHaveBeenCalledWith("hello @file")
@@ -65,7 +92,24 @@ describe("SdkTaskStartCoordinator", () => {
 		)
 	})
 
-	it("emits a Cline auth error instead of starting when the cline provider has no token", async () => {
+	it("omits images/files from the task message when the task has no attachments", async () => {
+		const { coordinator, options } = makeCoordinator()
+
+		await coordinator.initTask("plain text task")
+
+		const [emitted] = options.messages.appendAndEmit.mock.calls[0][0] as [Record<string, unknown>]
+		expect(emitted).toMatchObject({ type: "say", say: "task", text: "plain text task" })
+		expect(emitted).not.toHaveProperty("images")
+		expect(emitted).not.toHaveProperty("files")
+	})
+
+	// CellockAI: fork deliberately disables Cline account auth (commit
+	// 9010021db "feat: disable Cline account auth — no login required"); the
+	// initTask auth gate is inert because usesClineAccountAuth() always returns
+	// false. This main-only test asserted the auth error path we removed.
+	// Skipped: the fork's cline provider proceeds into a normal session start
+	// (failing later as a generic provider error, not an auth error).
+	it.skip("emits a Cline auth error instead of starting when the cline provider has no token", async () => {
 		const { coordinator, options } = makeCoordinator({ config: { providerId: "cline", modelId: "model", apiKey: "" } })
 
 		const sessionId = await coordinator.initTask("needs auth")
@@ -76,7 +120,10 @@ describe("SdkTaskStartCoordinator", () => {
 		expect(options.sessions.startNewSession).not.toHaveBeenCalled()
 	})
 
-	it("emits a Cline auth error instead of starting when ClinePass has no token", async () => {
+	// CellockAI: same fork divergence as the cline-provider test above — Cline
+	// account auth is disabled, so ClinePass providers start normally without an
+	// auth error.
+	it.skip("emits a Cline auth error instead of starting when ClinePass has no token", async () => {
 		const { coordinator, options } = makeCoordinator({ config: { providerId: "cline-pass", modelId: "model", apiKey: "" } })
 
 		const sessionId = await coordinator.initTask("needs clinepass auth")
@@ -115,7 +162,8 @@ describe("SdkTaskStartCoordinator", () => {
 			],
 			{ type: "status", payload: { sessionId: state.task?.taskId, status: "error" } },
 		)
-		expect(options.postStateToWebview).toHaveBeenCalledOnce()
+		// One early post before session startup, one after the failure.
+		expect(options.postStateToWebview).toHaveBeenCalledTimes(2)
 	})
 
 	it.each([true, false])("forwards task useAutoCondense=%s into SDK session config inputs", async (useAutoCondense) => {
@@ -138,6 +186,7 @@ describe("SdkTaskStartCoordinator", () => {
 	})
 
 	it("reinitializes an existing task with preserved initial messages", async () => {
+		vi.mocked(isDirectory).mockResolvedValue(true)
 		const historyItem: HistoryItem = {
 			id: "task-1",
 			task: "old task",
@@ -153,6 +202,8 @@ describe("SdkTaskStartCoordinator", () => {
 
 		expect(options.clearTask).toHaveBeenCalledOnce()
 		expect(options.taskHistory.findHistoryItem).toHaveBeenCalledWith("task-1")
+		expect(isDirectory).toHaveBeenCalledWith("/task-cwd")
+		expect(options.getWorkspaceRoot).not.toHaveBeenCalled()
 		expect(options.sessionConfigBuilder.build).toHaveBeenCalledWith({ cwd: "/task-cwd", mode: "act" })
 		expect(options.createTempSessionHost).toHaveBeenCalledOnce()
 		expect(options.loadInitialMessages).toHaveBeenCalledWith(tempHost, "task-1")
@@ -168,6 +219,25 @@ describe("SdkTaskStartCoordinator", () => {
 		})
 		expect(state.task?.taskId).toBe("session-123")
 		expect(options.postStateToWebview).toHaveBeenCalledOnce()
+	})
+
+	it("falls back to the workspace root when a stored task cwd is unavailable", async () => {
+		const historyItem: HistoryItem = {
+			id: "task-1",
+			task: "old task",
+			ts: 1,
+			tokensIn: 0,
+			tokensOut: 0,
+			totalCost: 0,
+			cwdOnTaskInitialization: "/missing-task-cwd",
+		}
+		const { coordinator, options } = makeCoordinator({ historyItem })
+
+		await coordinator.reinitExistingTaskFromId("task-1")
+
+		expect(isDirectory).toHaveBeenCalledWith("/missing-task-cwd")
+		expect(options.getWorkspaceRoot).toHaveBeenCalledOnce()
+		expect(options.sessionConfigBuilder.build).toHaveBeenCalledWith({ cwd: "/workspace", mode: "act" })
 	})
 
 	it("emits Cline auth errors when reinitialization fails due auth", async () => {
@@ -256,6 +326,9 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 		emitClineAuthError: vi.fn(),
 		captureProviderApiError: vi.fn(),
 		postStateToWebview: vi.fn().mockResolvedValue(undefined),
+		// CellockAI: added alongside the fork's workspace-isolated history feature
+		// (workspaceHistoryIndex.addTaskId called in initTask after session start).
+		workspaceHistoryIndex: { addTaskId: vi.fn().mockResolvedValue(undefined) },
 	} as unknown as SdkTaskStartCoordinatorOptions & {
 		sessions: SdkTaskStartCoordinatorOptions["sessions"] & {
 			startNewSession: ReturnType<typeof vi.fn>

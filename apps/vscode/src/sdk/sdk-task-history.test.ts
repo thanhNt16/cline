@@ -4,7 +4,7 @@ import getFolderSize from "get-folder-size"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { McpHub } from "@/services/mcp/McpHub"
 import type { TelemetryService } from "@/services/telemetry/TelemetryService"
-import { deleteLegacyTask, readApiConversationHistory, readTaskHistory } from "./legacy-state-reader"
+import { deleteLegacyTask, readApiConversationHistory, readTaskHistory, readUiMessages } from "./legacy-state-reader"
 import { sdkMessagesToClineMessages } from "./message-translator"
 import type { SdkSessionLifecycle } from "./sdk-session-lifecycle"
 import { SdkTaskHistory, sessionHistoryRecordToHistoryItem } from "./sdk-task-history"
@@ -32,6 +32,8 @@ vi.mock("@/utils/fs", () => ({
 const legacyStateReaderMock = vi.hoisted(() => ({
 	taskHistory: [] as HistoryItem[],
 	taskHistoryByDataDir: new Map<string | undefined, HistoryItem[]>(),
+	uiMessages: [] as unknown[],
+	uiMessagesByDataDir: new Map<string | undefined, unknown[]>(),
 	apiConversationHistory: [] as unknown[],
 	apiConversationHistoryByDataDir: new Map<string | undefined, unknown[]>(),
 }))
@@ -58,18 +60,15 @@ vi.mock("./legacy-state-reader", () => ({
 		}
 		return filteredHistory.length !== history.length
 	}),
+	readUiMessages: vi.fn(
+		(_taskId: string, dataDir?: string) =>
+			legacyStateReaderMock.uiMessagesByDataDir.get(dataDir) ?? legacyStateReaderMock.uiMessages,
+	),
 	readApiConversationHistory: vi.fn(
 		(_taskId: string, dataDir?: string) =>
 			legacyStateReaderMock.apiConversationHistoryByDataDir.get(dataDir) ?? legacyStateReaderMock.apiConversationHistory,
 	),
-}))
-
-vi.mock("./cline-session-factory", () => ({
-	buildSessionConfig: vi.fn(async ({ cwd, workspaceRoot, mode }) => ({
-		cwd,
-		workspaceRoot,
-		mode,
-	})),
+	taskDirPath: vi.fn((taskId: string, dataDir?: string) => `${dataDir ?? "default"}/tasks/${taskId}`),
 }))
 
 vi.mock("get-folder-size", () => ({
@@ -82,6 +81,8 @@ describe("SdkTaskHistory", () => {
 	beforeEach(() => {
 		legacyStateReaderMock.taskHistory = []
 		legacyStateReaderMock.taskHistoryByDataDir.clear()
+		legacyStateReaderMock.uiMessages = []
+		legacyStateReaderMock.uiMessagesByDataDir.clear()
 		legacyStateReaderMock.apiConversationHistory = []
 		legacyStateReaderMock.apiConversationHistoryByDataDir.clear()
 		vi.clearAllMocks()
@@ -129,6 +130,8 @@ describe("SdkTaskHistory", () => {
 
 		expect(result).toMatchObject([
 			{ type: "say", say: "task", text: "Build the feature", partial: false },
+			// Mid-transcript turns are never retagged into the inferred completion row:
+			// history carries no per-turn outcome, so an earlier turn's text stays plain.
 			{ type: "say", say: "text", text: "Done", partial: false },
 			{ type: "say", say: "user_feedback", text: "Follow up", partial: false },
 			// A trailing ask:"completion_result" is appended so a reopened task
@@ -205,7 +208,8 @@ describe("SdkTaskHistory", () => {
 		expect(result).toMatchObject([
 			{ type: "say", say: "task", text: "add a joke", partial: false },
 			{ type: "say", say: "tool", partial: false },
-			{ type: "say", say: "text", text: "Done!", partial: false },
+			// The turn's final text response is retagged to the inferred completion row.
+			{ type: "say", say: "completion_result", text: "Done!", partial: false },
 			{ type: "ask", ask: "completion_result", partial: false },
 		])
 		expect(result.map((message) => message.text).join("\n")).not.toContain(rawToolResult)
@@ -213,6 +217,154 @@ describe("SdkTaskHistory", () => {
 			tool: "editedExistingFile",
 			path: "/Users/maxpaulus/c/c2/README.md",
 		})
+	})
+
+	it("retags only the final turn's text, styled by the mode recovered from user_input wrappers", async () => {
+		const { history, readMessages } = makeHistory([makeSessionRecord("task-1")])
+		readMessages.mockResolvedValueOnce([
+			{ role: "user", content: '<user_input mode="plan">plan the feature</user_input>' },
+			{ role: "assistant", content: [{ type: "text", text: "Here is the plan." }] },
+			{ role: "user", content: '<user_input mode="act">looks good, do it</user_input>' },
+			{ role: "assistant", content: [{ type: "text", text: "Implemented." }] },
+		] as never)
+
+		const result = await history.getClineMessages("task-1")
+
+		expect(result).toMatchObject([
+			// The <user_input mode="..."> wrapper is stripped for display but its mode
+			// styles the final turn's inferred completion row. Mid-transcript turns stay
+			// plain — history has no per-turn outcome to trust.
+			{ type: "say", say: "task", text: "plan the feature" },
+			{ type: "say", say: "text", text: "Here is the plan." },
+			{ type: "say", say: "user_feedback", text: "looks good, do it" },
+			{ type: "say", say: "completion_result", text: "Implemented." },
+			{ type: "ask", ask: "completion_result" },
+		])
+	})
+
+	it("styles the final turn's inferred completion with the plan box when the last turn ran in plan mode", async () => {
+		const { history, readMessages } = makeHistory([makeSessionRecord("task-1")])
+		readMessages.mockResolvedValueOnce([
+			{ role: "user", content: '<user_input mode="act">build it</user_input>' },
+			{ role: "assistant", content: [{ type: "text", text: "Built." }] },
+			{ role: "user", content: '<user_input mode="plan">now plan the next phase</user_input>' },
+			{ role: "assistant", content: [{ type: "text", text: "Phase two plan." }] },
+		] as never)
+
+		const result = await history.getClineMessages("task-1")
+
+		expect(result).toContainEqual(
+			expect.objectContaining({ type: "say", say: "plan_completion_result", text: "Phase two plan." }),
+		)
+		expect(result).toContainEqual(expect.objectContaining({ type: "say", say: "text", text: "Built." }))
+	})
+
+	it("hides the plan -> act auto-continuation prompt when rehydrating from history", async () => {
+		// Live, the canned continuation is sent with fireAndForgetSend and never echoed
+		// as user_feedback; reopening the task from history must not resurface it.
+		const { history, readMessages } = makeHistory([makeSessionRecord("task-1")])
+		readMessages.mockResolvedValueOnce([
+			{ role: "user", content: '<user_input mode="plan">plan the feature</user_input>' },
+			{ role: "assistant", content: [{ type: "text", text: "Here is the plan." }] },
+			{
+				role: "user",
+				content:
+					'<user_input mode="act"><mode_notice>The user switched from plan mode to act mode before sending this message.</mode_notice>The user approved switching to act mode. Continue with the approved plan now.</user_input>',
+			},
+			{ role: "assistant", content: [{ type: "text", text: "Implemented." }] },
+		] as never)
+
+		const result = await history.getClineMessages("task-1")
+
+		expect(result.filter((m) => m.say === "user_feedback")).toHaveLength(0)
+		expect(result.map((m) => m.text).join("\n")).not.toContain("The user approved switching to act mode")
+		// The hidden prompt still carries the turn's mode: the final completion row
+		// must render as an act-mode completion, not a plan box.
+		expect(result).toContainEqual(expect.objectContaining({ type: "say", say: "completion_result", text: "Implemented." }))
+	})
+
+	it("hides [TASK RESUMPTION] prompts when rehydrating from history", async () => {
+		const { history, readMessages } = makeHistory([makeSessionRecord("task-1")])
+		readMessages.mockResolvedValueOnce([
+			{ role: "user", content: '<user_input mode="act">build the feature</user_input>' },
+			{ role: "assistant", content: [{ type: "text", text: "Partway done." }] },
+			{
+				role: "user",
+				content: '<user_input mode="act">[TASK RESUMPTION] Please continue where you left off.</user_input>',
+			},
+			{ role: "assistant", content: [{ type: "text", text: "Finished." }] },
+		] as never)
+
+		const result = await history.getClineMessages("task-1")
+
+		expect(result.filter((m) => m.say === "user_feedback")).toHaveLength(0)
+		expect(result.map((m) => m.text).join("\n")).not.toContain("[TASK RESUMPTION]")
+		expect(result).toContainEqual(expect.objectContaining({ type: "say", say: "completion_result", text: "Finished." }))
+	})
+
+	it("retags the terminal text of a session whose record says it completed", async () => {
+		// "completed" is written by the runtime host when the session is released after a
+		// clean final turn (task switch / clear / extension dispose).
+		const { history, readMessages } = makeHistory([makeSessionRecord("task-1", { status: "completed" })])
+		readMessages.mockResolvedValueOnce([
+			{ role: "user", content: "first request" },
+			{ role: "assistant", content: [{ type: "text", text: "Final answer." }] },
+		] as never)
+
+		const result = await history.getClineMessages("task-1")
+
+		expect(result).toContainEqual(expect.objectContaining({ type: "say", say: "completion_result", text: "Final answer." }))
+	})
+
+	it("does not retag the terminal text of a session that did not end cleanly", async () => {
+		// "failed"/"cancelled" runs ended on a dangling response. Non-terminal statuses at
+		// rest mean the process died without recording an outcome — "idle" is also the state
+		// after an aborted turn (markTurnIdle runs for every finish reason), so it cannot be
+		// trusted as a clean ending.
+		for (const status of ["failed", "cancelled", "running", "pending", "idle"] as const) {
+			const { history, readMessages } = makeHistory([makeSessionRecord("task-1", { status })])
+			readMessages.mockResolvedValueOnce([
+				{ role: "user", content: "first request" },
+				{ role: "assistant", content: [{ type: "text", text: "First answer." }] },
+				{ role: "user", content: "second request" },
+				{ role: "assistant", content: [{ type: "text", text: "Dangling partial answer" }] },
+			] as never)
+
+			const result = await history.getClineMessages("task-1")
+
+			expect(result).toContainEqual(expect.objectContaining({ type: "say", say: "text", text: "Dangling partial answer" }))
+			expect(result.filter((m) => m.say === "completion_result" || m.say === "plan_completion_result")).toHaveLength(0)
+		}
+	})
+
+	it("does not retag the terminal text when no session record exists (unknown outcome)", async () => {
+		const { history, readMessages } = makeHistory([])
+		readMessages.mockResolvedValueOnce([
+			{ role: "user", content: "do the thing" },
+			{ role: "assistant", content: [{ type: "text", text: "Answer of unknown outcome" }] },
+		] as never)
+
+		const result = await history.getClineMessages("task-without-record")
+
+		expect(result).toContainEqual(expect.objectContaining({ type: "say", say: "text", text: "Answer of unknown outcome" }))
+		expect(result.filter((m) => m.say === "completion_result" || m.say === "plan_completion_result")).toHaveLength(0)
+	})
+
+	it("does not retag a transcript that ends on a dangling tool call", () => {
+		const result = sdkMessagesToClineMessages([
+			{ role: "user", content: "do the thing" },
+			{
+				role: "assistant",
+				content: [
+					{ type: "text", text: "Reading the file first." },
+					{ type: "tool_use", id: "toolu_dangling", name: "read_files", input: { path: "/a.ts" } },
+				],
+			},
+		])
+
+		// The aborted turn's text stays a plain text row — no inferred completion box.
+		expect(result.filter((m) => m.say === "completion_result" || m.say === "plan_completion_result")).toHaveLength(0)
+		expect(result).toContainEqual(expect.objectContaining({ type: "say", say: "text", text: "Reading the file first." }))
 	})
 
 	it("hides subagent sessions from task history", async () => {
@@ -406,57 +558,106 @@ describe("SdkTaskHistory", () => {
 		expect(result.some((item) => item.id === "legacy-task")).toBe(false)
 	})
 
-	it("emits telemetry when migrating a legacy task to an SDK session", async () => {
-		vi.spyOn(Date, "now").mockReturnValue(123_456)
+	it("deletes legacy task records when deleting all history", async () => {
 		legacyStateReaderMock.taskHistory = [
-			makeHistoryItem("legacy-task", {
-				task: "legacy prompt",
-				isFavorited: true,
-				tokensIn: 10,
-				tokensOut: 20,
-				totalCost: 0.03,
-				cwdOnTaskInitialization: "/legacy/repo",
-			}),
+			makeHistoryItem("legacy-task", { task: "legacy prompt" }),
+			makeHistoryItem("favorite-legacy-task", { task: "favorite legacy prompt", isFavorited: true }),
 		]
+		const { history, deleteSession } = makeHistory([makeSessionRecord("sdk-task")])
+
+		const deletedCount = await history.deleteAllTaskHistory({ preserveFavorites: true })
+
+		expect(deletedCount).toBe(2)
+		expect(deleteSession).toHaveBeenCalledWith("sdk-task")
+		expect(deleteSession).toHaveBeenCalledWith("legacy-task")
+		expect(deleteLegacyTask).toHaveBeenCalledWith("legacy-task", undefined)
+		expect(deleteLegacyTask).not.toHaveBeenCalledWith("favorite-legacy-task", undefined)
+		await expect(history.findHistoryItem("legacy-task")).resolves.toBeUndefined()
+		await expect(history.findHistoryItem("favorite-legacy-task")).resolves.toMatchObject({ id: "favorite-legacy-task" })
+	})
+
+	it("identifies legacy tasks without migrating them", async () => {
+		legacyStateReaderMock.taskHistory = [makeHistoryItem("legacy-task", { task: "legacy prompt" })]
+		const telemetry = makeTelemetry()
+		const { history, startSession } = makeHistory([], telemetry)
+
+		await expect(history.isLegacyTask("legacy-task")).resolves.toBe(true)
+
+		expect(startSession).not.toHaveBeenCalled()
+		expect(telemetry.captureLegacyTaskMigration).not.toHaveBeenCalled()
+	})
+
+	it("reads legacy task UI messages without migrating", async () => {
+		legacyStateReaderMock.taskHistory = [makeHistoryItem("legacy-task", { task: "legacy prompt" })]
+		legacyStateReaderMock.uiMessages = [{ ts: 1, type: "say", say: "task", text: "legacy prompt" }]
+		const { history, startSession } = makeHistory([])
+
+		const messages = await history.getClineMessages("legacy-task")
+
+		expect(readUiMessages).toHaveBeenCalledWith("legacy-task", undefined)
+		expect(messages).toEqual(legacyStateReaderMock.uiMessages)
+		expect(startSession).not.toHaveBeenCalled()
+	})
+
+	it("adds a tool warning to legacy initial messages when resuming", async () => {
+		legacyStateReaderMock.taskHistory = [makeHistoryItem("legacy-task", { task: "legacy prompt" })]
 		legacyStateReaderMock.apiConversationHistory = [
 			{ role: "user", content: "legacy prompt" },
 			{ role: "assistant", content: "legacy answer" },
 		]
-		const telemetry = makeTelemetry()
-		const { history, startSession } = makeHistory([], telemetry)
+		const { history } = makeHistory([])
 
-		await history.getClineMessages("legacy-task")
+		const messages = await history.getLegacyResumeInitialMessages("legacy-task")
 
-		expect(startSession).toHaveBeenCalledWith(
-			expect.objectContaining({
-				config: expect.objectContaining({
-					sessionId: "legacy-task",
-					cwd: "/legacy/repo",
-				}),
-				initialMessages: expect.arrayContaining([
-					expect.objectContaining({ role: "user" }),
-					expect.objectContaining({ role: "assistant" }),
-				]),
-				sessionMetadata: expect.objectContaining({
-					migratedFromLegacyTask: true,
-					title: "legacy prompt",
-					isFavorited: true,
-				}),
-			}),
+		expect(readApiConversationHistory).toHaveBeenCalledWith("legacy-task", undefined)
+		expect(messages).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ role: "user", content: "legacy prompt" }),
+				expect.objectContaining({ role: "assistant", content: "legacy answer" }),
+				expect.objectContaining({ role: "user", content: expect.stringContaining("tool names may have changed") }),
+			]),
 		)
-		expect(telemetry.captureLegacyTaskMigration).toHaveBeenCalledWith(
-			expect.objectContaining({
-				taskId: "legacy-task",
-				outcome: "success",
-				reason: "migrated",
-				legacyApiHistoryLength: 2,
-				convertedMessageCount: 2,
-				hasFavorite: true,
-				hasCost: true,
-				hasTokenUsage: true,
-				hasCwd: true,
-			}),
-		)
+	})
+
+	it("uses pretty legacy UI messages plus resumed SDK messages when both stores exist", async () => {
+		legacyStateReaderMock.taskHistory = [makeHistoryItem("legacy-task", { task: "legacy prompt" })]
+		legacyStateReaderMock.uiMessages = [{ ts: 1, type: "say", say: "task", text: "old legacy UI" }]
+		legacyStateReaderMock.apiConversationHistory = [{ role: "user", content: "old legacy API" }]
+		const { history, readMessages } = makeHistory([makeSessionRecord("legacy-task", { metadata: { legacyTask: true } })])
+		readMessages.mockResolvedValueOnce([
+			{ role: "user", content: "raw legacy prompt with <task>tags</task>" },
+			{
+				role: "user",
+				content:
+					"Warning: this is a legacy conversation, which means tool names may have changed. Please use the most up-to-date tools you are aware of.",
+			},
+			{ role: "assistant", content: "new SDK answer" },
+		] as never)
+		const fallbackMessages = [
+			{
+				role: "user",
+				content: [
+					{
+						type: "text",
+						text: "Warning: this is a legacy conversation, which means tool names may have changed. Please use the most up-to-date tools you are aware of.",
+					},
+					{ type: "text", text: "new SDK history" },
+				],
+			},
+		]
+
+		const clineMessages = await history.getClineMessages("legacy-task")
+		const resumeMessages = await history.getLegacyResumeInitialMessages("legacy-task", fallbackMessages)
+
+		expect(readUiMessages).toHaveBeenCalledWith("legacy-task", undefined)
+		expect(readApiConversationHistory).not.toHaveBeenCalled()
+		expect(readMessages).toHaveBeenCalledWith("legacy-task")
+		expect(clineMessages).toEqual([
+			{ ts: 1, type: "say", say: "task", text: "old legacy UI" },
+			expect.objectContaining({ text: "new SDK answer" }),
+			expect.objectContaining({ type: "ask", ask: "completion_result" }),
+		])
+		expect(resumeMessages).toEqual(fallbackMessages)
 	})
 
 	it("emits backlog telemetry when legacy tasks are still pending migration", async () => {
@@ -498,34 +699,18 @@ describe("SdkTaskHistory", () => {
 		expect(result.map((item) => item.sessionId)).toEqual(["cline-dir-task", "extension-storage-task"])
 	})
 
-	it("migrates legacy tasks using API history from VS Code extension storage", async () => {
+	it("identifies legacy tasks from VS Code extension storage without migrating them", async () => {
 		legacyStateReaderMock.taskHistoryByDataDir.set("/legacy/globalStorage", [
 			makeHistoryItem("extension-storage-task", {
 				task: "extension storage prompt",
 				cwdOnTaskInitialization: "/legacy/repo",
 			}),
 		])
-		legacyStateReaderMock.apiConversationHistoryByDataDir.set("/legacy/globalStorage", [
-			{ role: "user", content: "extension storage prompt" },
-			{ role: "assistant", content: "extension storage answer" },
-		])
 		const { history, startSession } = makeHistory([], undefined, "/legacy/globalStorage")
 
-		await history.getClineMessages("extension-storage-task")
+		await expect(history.isLegacyTask("extension-storage-task")).resolves.toBe(true)
 
-		expect(readApiConversationHistory).toHaveBeenCalledWith("extension-storage-task", "/legacy/globalStorage")
-		expect(startSession).toHaveBeenCalledWith(
-			expect.objectContaining({
-				config: expect.objectContaining({
-					sessionId: "extension-storage-task",
-					cwd: "/legacy/repo",
-				}),
-				sessionMetadata: expect.objectContaining({
-					migratedFromLegacyTask: true,
-					title: "extension storage prompt",
-				}),
-			}),
-		)
+		expect(startSession).not.toHaveBeenCalled()
 	})
 
 	it("updates usage for an existing SDK task", async () => {
@@ -772,6 +957,10 @@ function makeHistory(records: SessionHistoryRecord[], telemetry?: TelemetryServi
 		},
 	)
 	const deleteSession = vi.fn(async (sessionId: string) => {
+		const exists = currentRecords.some((record) => record.sessionId === sessionId)
+		if (!exists) {
+			throw new Error(`Session not found: ${sessionId}`)
+		}
 		currentRecords = currentRecords.filter((record) => record.sessionId !== sessionId)
 		return true
 	})
@@ -807,6 +996,7 @@ function makeHistory(records: SessionHistoryRecord[], telemetry?: TelemetryServi
 		listHistory,
 		updateSession,
 		deleteSession,
+		readMessages,
 		startSession,
 	}
 }

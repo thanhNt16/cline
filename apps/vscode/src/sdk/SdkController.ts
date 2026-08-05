@@ -7,6 +7,7 @@
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import {
+	createRestoredCheckpointMetadata,
 	createUserInstructionConfigService,
 	type PreparedRemoteConfigCoreIntegration,
 	type SessionHistoryRecord,
@@ -14,7 +15,7 @@ import {
 	type UserInstructionConfigService,
 } from "@cline/core"
 import { formatDisplayUserInput, type RemoteConfig, type RemoteConfigBundle } from "@cline/shared"
-import type { ApiConfiguration, ModelInfo } from "@shared/api"
+import type { ApiConfiguration } from "@shared/api"
 import type { ChatContent } from "@shared/ChatContent"
 import { CLINE_ACCOUNT_AUTH_ERROR_MESSAGE } from "@shared/ClineAccount"
 import { mentionRegexGlobal } from "@shared/context-mentions"
@@ -29,11 +30,10 @@ import { parseMentions } from "@/core/mentions"
 import { ensureMcpServersDirectoryExists, getProjectSettingsDirectoryPath } from "@/core/storage/disk"
 import { refreshSdkRemoteConfig } from "@/core/storage/remote-config/sdk-refresh"
 import { clearRemoteConfig } from "@/core/storage/remote-config/utils"
-import { VcsType, type WorkspaceRoot } from "@shared/multi-root/types"
 import { StateManager } from "@/core/storage/StateManager"
 import { WorkspaceRootManager } from "@/core/workspace/WorkspaceRootManager"
 import { HostProvider } from "@/hosts/host-provider"
-import type { ITerminalManager } from "@/integrations/terminal/types"
+import { VscodeTerminalManager } from "@/hosts/vscode/terminal/VscodeTerminalManager"
 import { ExtensionRegistryInfo } from "@/registry"
 import { OcaAuthService } from "@/services/auth/oca/OcaAuthService"
 import { UrlContentFetcher } from "@/services/browser/UrlContentFetcher"
@@ -44,12 +44,14 @@ import { CodebaseMemoryFacade } from "@/services/codebase-memory/CodebaseMemoryF
 import { DocsIndexFacade } from "@/services/docs-index/DocsIndexFacade"
 import { belongsToWorkspace, WorkspaceHistoryIndex } from "@/services/workspace-history/WorkspaceHistoryIndex"
 import type { ClineExtensionContext } from "@/shared/cline"
+import { toLegacyApiProvider } from "@/shared/model-catalog/provider-helpers"
 import { ShowMessageRequest, ShowMessageType } from "@/shared/proto/host/window"
 import { Logger } from "@/shared/services/Logger"
 import { isClineManagedProvider } from "@/shared/utils/cline"
 import { getDesktopDir } from "@/utils/path"
 import { ClineAccountService } from "./account-service"
 import { AuthService, LogoutReason } from "./auth-service"
+import { BUILTIN_SLASH_COMMANDS } from "./builtin-slash-commands"
 import { buildStartSessionInput, createHistoryItemFromSession } from "./cline-session-factory"
 import { MessageTranslatorState } from "./message-translator"
 import { createProviderCatalog } from "./model-catalog/catalog"
@@ -68,7 +70,9 @@ import {
 	isVisibleCheckpointUserMessage,
 } from "./sdk-checkpoints"
 import { SdkCompactionCoordinator } from "./sdk-compaction-coordinator"
+import { SdkDiffEditCoordinator } from "./sdk-diff-edit-coordinator"
 import { SdkFollowupCoordinator } from "./sdk-followup-coordinator"
+import { SdkForegroundCommandCoordinator } from "./sdk-foreground-command-coordinator"
 import { SdkInteractionCoordinator } from "./sdk-interaction-coordinator"
 import { SdkMcpCoordinator } from "./sdk-mcp-coordinator"
 import { SdkMessageCoordinator, type SessionEventListener } from "./sdk-message-coordinator"
@@ -78,22 +82,28 @@ import { SdkSessionConfigBuilder } from "./sdk-session-config-builder"
 import { SdkSessionEventCoordinator } from "./sdk-session-event-coordinator"
 import { SdkSessionHistoryLoader } from "./sdk-session-history-loader"
 import { SdkSessionLifecycle } from "./sdk-session-lifecycle"
+import { SdkSessionRebuildScheduler } from "./sdk-session-rebuild-scheduler"
 import { SdkTaskControlCoordinator } from "./sdk-task-control-coordinator"
 import { SdkTaskHistory, sessionHistoryRecordToHistoryItem } from "./sdk-task-history"
 import { SdkTaskStartCoordinator } from "./sdk-task-start-coordinator"
 import { createVscodeSdkTelemetryHandle, type VscodeSdkTelemetryHandle } from "./sdk-telemetry"
+import { SdkTerminalExecutionModeCoordinator } from "./sdk-terminal-execution-mode-coordinator"
 import { isToolAutoApproved } from "./sdk-tool-policies"
 import {
 	extractSdkUserText,
 	findSdkUserMessageIndexByOrdinal,
+	getSdkCheckpointRunCountForMessageIndex,
 	isSyntheticSdkUserMessage,
 	type SdkUserMessage,
 } from "./sdk-user-message-mapping"
+import { buildDisabledWorkflowNames, expandSlashCommands } from "./slash-command-expansion"
 import { StatePostDebouncer } from "./state-post-debouncer"
 import { createTaskProxy, type TaskProxy } from "./task-proxy"
 import { syncTelemetrySettingFromSharedGlobalSettings } from "./telemetry-settings-sync"
 import { TurnStateTracker } from "./turn-state-tracker"
+import { createWorkspaceFileReadExecutor } from "./vscode-file-read-executor"
 import { VscodeSessionHost } from "./vscode-session-host"
+import type { VscodeTerminalExecutionMode } from "./vscode-terminal-execution-mode"
 import { WebviewGrpcBridge } from "./webview-grpc-bridge"
 import { resolveWorkspaceRootPath } from "./workspace-root"
 
@@ -143,6 +153,7 @@ function historyItemToTaskResponse(item: HistoryItem): TaskResponse {
 		tokensOut: item.tokensOut ?? 0,
 		cacheWrites: item.cacheWrites ?? 0,
 		cacheReads: item.cacheReads ?? 0,
+		isLegacy: item.isLegacy ?? false,
 	})
 }
 
@@ -156,11 +167,14 @@ export class Controller {
 	private turnStateTracker!: TurnStateTracker
 	private messages: SdkMessageCoordinator
 	private sessions: SdkSessionLifecycle
+	private sessionRebuilds: SdkSessionRebuildScheduler
 	private interactions: SdkInteractionCoordinator
+	private diffEdits: SdkDiffEditCoordinator
 	private sessionConfigBuilder: SdkSessionConfigBuilder
 	private taskHistory: SdkTaskHistory
 	private mode: SdkModeCoordinator
 	private mcpTools: SdkMcpCoordinator
+	private terminalExecutionMode: SdkTerminalExecutionModeCoordinator
 	private providerChanges: SdkProviderChangeCoordinator
 	private followups: SdkFollowupCoordinator
 	private taskControl: SdkTaskControlCoordinator
@@ -195,11 +209,20 @@ export class Controller {
 	workspaceHistoryIndex: WorkspaceHistoryIndex
 	readonly stateManager: StateManager
 
-	// Lazy terminal manager for foreground terminal execution.
-	// Concrete impl comes from HostProvider (VscodeTerminalManager in VSCode,
-	// StandaloneTerminalManager in cline-core / JetBrains).
+	// Lazy terminal manager for foreground (VS Code terminal) command execution.
 	// Created on first use; shared across all sessions in this Controller's lifetime.
-	private _terminalManager?: ITerminalManager
+	// Only used in the `vscodeTerminal` execution mode — `backgroundExec` and the
+	// standalone (JetBrains/CLI) host run commands through the SDK's built-in tool.
+	private _terminalManager?: VscodeTerminalManager
+
+	// Registry of in-flight foreground (VS Code terminal) command executions.
+	// Owned here — not by the session — so it survives session rebuilds, which
+	// recreate the tool set. Drives the "Proceed While Running" button.
+	private readonly foregroundCommands = new SdkForegroundCommandCoordinator({
+		onRunningChanged: () => {
+			void this.postStateToWebview()
+		},
+	})
 
 	// Private state kept for stub compatibility
 	private backgroundCommandRunning = false
@@ -222,6 +245,11 @@ export class Controller {
 	private userInstructionService?: Promise<UserInstructionConfigService>
 	private userInstructionServiceRoot?: string
 	private isDisposed = false
+
+	// Synchronous snapshot of getWorkspaceRoot()'s latest result, for the message
+	// translator (which runs synchronously and relativizes the tool paths shown in
+	// the chat view). Warmed in the constructor and refreshed on every call.
+	private lastKnownWorkspaceRoot?: string
 
 	get remoteConfig(): RemoteConfig | undefined {
 		return this.remoteConfigCoreIntegration?.prepared.bundle?.remoteConfig
@@ -277,15 +305,24 @@ export class Controller {
 			})
 
 		// Initialize SDK-backed auth and account services.
-		this.authService = AuthService.getInstance(this)
+		this.authService = AuthService.getInstance(this, this.sdkTelemetry.telemetry)
 		this.ocaAuthService = OcaAuthService.initialize(this)
 		this.accountService = ClineAccountService.getInstance()
 		this.codebaseMemory = new CodebaseMemoryFacade(this.context, this.mcpHub)
 		this.docsIndex = new DocsIndexFacade(this.mcpHub)
 		this.workspaceHistoryIndex = new WorkspaceHistoryIndex()
 
-		// Initialize message translator state
-		this.messageTranslatorState = new MessageTranslatorState(undefined, () => this.getActiveProviderId())
+		// Initialize message translator state. The mode getter styles the inferred turn-final
+		// completion row (plan → yellow plan box, act → green completion box).
+		this.messageTranslatorState = new MessageTranslatorState(
+			undefined,
+			() => this.getActiveProviderId(),
+			() => (this.stateManager.getGlobalSettingsKey("mode") === "plan" ? "plan" : "act"),
+			() => this.lastKnownWorkspaceRoot,
+		)
+		// Warm the synchronous workspace-root snapshot used for display-path
+		// relativization (getWorkspaceRoot never rejects — it falls back internally).
+		void this.getWorkspaceRoot()
 		// Authoritative UI-mode tracker, sharing the one id/seq/epoch authority.
 		this.turnStateTracker = new TurnStateTracker(this.messageTranslatorState.getMinter())
 		this.messages = new SdkMessageCoordinator({
@@ -297,11 +334,11 @@ export class Controller {
 		this.sessionConfigBuilder = new SdkSessionConfigBuilder({
 			stateManager: this.stateManager,
 			emitHookMessage: (msg) => this.messages.emitHookMessage(msg),
-			onSwitchToActMode: () => {
-				this.mode.queueSwitchToActMode()
-			},
-			shouldStopAfterModeSwitch: () => this.mode.hasPendingModeChange(),
 			onConsecutiveMistakeLimitReached: (context) => this.interactions.handleConsecutiveMistakeLimitReached(context),
+		})
+		this.diffEdits = new SdkDiffEditCoordinator({
+			getCwd: () => this.getWorkspaceRoot(),
+			isBackgroundEditEnabled: () => !!this.stateManager.getGlobalSettingsKey("backgroundEditEnabled"),
 		})
 		this.interactions = new SdkInteractionCoordinator({
 			messages: this.messages,
@@ -311,14 +348,21 @@ export class Controller {
 			// asks, ask_question, user_feedback) never collide with translator-minted ids.
 			getMinter: () => this.messageTranslatorState.getMinter(),
 			setTurnPhase: (phase, anchorTs) => this.turnStateTracker.set(phase, anchorTs),
+			// Open the diff editor preview before the approval buttons render.
+			onToolApprovalAsk: (request) => this.diffEdits.openForApproval(request.toolCallId, request.toolName, request.input),
 			recordApprovedToolMessage: (toolCallId, messageTs) =>
 				this.messageTranslatorState.recordApprovedToolMessageTs(toolCallId, messageTs),
-			recordDeniedToolApproval: (toolCallId, toolName, reason) =>
-				this.messageTranslatorState.recordDeniedToolApproval(toolCallId, toolName, reason),
+			recordDeniedToolApproval: (toolCallId, toolName, reason) => {
+				this.messageTranslatorState.recordDeniedToolApproval(toolCallId, toolName, reason)
+				// A denied edit's executor never runs, so close its diff preview here. Covers
+				// manual Reject and clearPending (task cancel/abort) in one place.
+				void this.diffEdits.discardPreview(toolCallId)
+			},
 			shouldAutoApproveTool: (request) => {
 				const autoApprovalSettings = this.stateManager.getGlobalSettingsKey("autoApprovalSettings")
 				return autoApprovalSettings ? isToolAutoApproved(request.toolName, autoApprovalSettings, this.mcpHub) : false
 			},
+			getCwd: () => this.lastKnownWorkspaceRoot,
 		})
 		this.sessions = new SdkSessionLifecycle({
 			mcpHub: this.mcpHub,
@@ -326,34 +370,51 @@ export class Controller {
 			telemetry: this.sdkTelemetry.telemetry,
 			requestToolApproval: (request) => this.interactions.handleRequestToolApproval(request),
 			askQuestion: (question, options, context) => this.interactions.handleAskQuestion(question, options, context),
+			editorExecutor: (input, cwd, context) => this.diffEdits.executeEditorTool(input, cwd, context),
+			applyPatchExecutor: (input, cwd, context) => this.diffEdits.executeApplyPatchTool(input, cwd, context),
+			// The SDK's built-in reader resolves relative paths against the extension
+			// host's process.cwd() (usually "/"); resolve them against the workspace instead.
+			readFileExecutor: createWorkspaceFileReadExecutor(() => this.getWorkspaceRoot()),
 			onSessionEvent: (event) => {
 				this.sessionEvents.handleSessionEvent(event).catch((err) => {
 					Logger.error("[SdkController] Failed to handle session event:", err)
 				})
 			},
+			onDidBecomeIdle: () => this.handleSessionBecameIdle(),
 			getRemoteConfigIntegration: () => this.remoteConfigCoreIntegration,
+			foregroundCommands: this.foregroundCommands,
 			getTerminalManager: () => {
+				// Guarded by getEffectiveTerminalExecutionMode() at the read sites
+				// (vscode-session-host.ts, sdk-terminal-execution-mode-coordinator.ts):
+				// this factory itself is only invoked when a caller has already
+				// resolved to "vscodeTerminal" mode on a real VS Code host, but
+				// VscodeTerminalManager's constructor still assumes
+				// vscode.window.onDidStartTerminalShellExecution exists, which the
+				// standalone (JetBrains/CLI) stub does not provide.
 				if (!this._terminalManager) {
-					this._terminalManager = HostProvider.get().createTerminalManager()
+					this._terminalManager = new VscodeTerminalManager()
 					this.applyTerminalSettings(this._terminalManager)
-					Logger.log(
-						`[SdkController] Created ${this._terminalManager.constructor.name} for foreground terminal execution`,
-					)
+					Logger.log("[SdkController] Created VscodeTerminalManager for foreground terminal execution")
 				}
 				return this._terminalManager
 			},
 			onSendStart: () => {
 				this.beginProviderFailureTelemetryTurn()
 			},
+			// this.mode is assigned later in this constructor; the closure only
+			// runs at send time, long after construction completes.
+			consumeModeSwitchNotice: (sessionId) => this.mode.consumeModeSwitchNotice(sessionId),
 			onSendComplete: async () => {
-				await this.providerChanges.handleTurnComplete(this.mode)
+				// Normal flows close their diff sessions inline; anything left here is orphaned.
+				void this.diffEdits.discardAllPreviews("turn complete")
 
 				this.postStateToWebview().catch((err) => {
 					Logger.error("[SdkController] Failed to post state after turn:", err)
 				})
 			},
 			onSendError: async (error, sessionId) => {
-				// A turn failed — the UI shows error recovery.
+				// A turn failed — the UI shows error recovery (Retry / Sign In / Add Credits).
+				void this.diffEdits.discardAllPreviews("turn error")
 				this.turnStateTracker.set("error")
 				const errorMessage = error instanceof Error ? error.message : String(error)
 				const providerId = this.getSessionProviderId(sessionId) ?? this.getActiveProviderId()
@@ -380,6 +441,7 @@ export class Controller {
 				this.postStateToWebview().catch(() => {})
 			},
 		})
+		this.sessionRebuilds = new SdkSessionRebuildScheduler({ sessions: this.sessions })
 		this.taskHistory = new SdkTaskHistory({
 			mcpHub: this.mcpHub,
 			getWorkspacePath: () => this.getCurrentWorkspacePath(),
@@ -406,6 +468,7 @@ export class Controller {
 			postStateToWebview: () => this.postStateToWebview(),
 			getTurnPhase: () => this.turnStateTracker.currentPhase,
 			resolveContextMentions: (text) => this.resolveContextMentions(text),
+			rebuilds: this.sessionRebuilds,
 			onAutoContinueStarting: () => {
 				this.turnStateTracker.set("streaming")
 				this.messageTranslatorState.clearTurnOutcome()
@@ -424,6 +487,19 @@ export class Controller {
 				(await this.sessionHistory.loadInitialMessages(sdkHost, sessionId)) ?? [],
 			buildStartSessionInput,
 			postStateToWebview: () => this.postStateToWebview(),
+			rebuilds: this.sessionRebuilds,
+		})
+		this.terminalExecutionMode = new SdkTerminalExecutionModeCoordinator({
+			stateManager: this.stateManager,
+			sessions: this.sessions,
+			messages: this.messages,
+			sessionConfigBuilder: this.sessionConfigBuilder,
+			getWorkspaceRoot: () => this.getWorkspaceRoot(),
+			loadInitialMessages: async (sdkHost, sessionId) =>
+				(await this.sessionHistory.loadInitialMessages(sdkHost, sessionId)) ?? [],
+			buildStartSessionInput,
+			postStateToWebview: () => this.postStateToWebview(),
+			rebuilds: this.sessionRebuilds,
 		})
 		this.providerChanges = new SdkProviderChangeCoordinator({
 			stateManager: this.stateManager,
@@ -436,6 +512,7 @@ export class Controller {
 				(await this.sessionHistory.loadInitialMessages(sdkHost, sessionId)) ?? [],
 			buildStartSessionInput,
 			postStateToWebview: () => this.postStateToWebview(),
+			rebuilds: this.sessionRebuilds,
 		})
 		this.followups = new SdkFollowupCoordinator({
 			stateManager: this.stateManager,
@@ -444,7 +521,11 @@ export class Controller {
 			messages: this.messages,
 			taskHistory: this.taskHistory,
 			sessionConfigBuilder: this.sessionConfigBuilder,
-			waitForPendingModeRebuild: () => this.mode.waitForPendingRebuild(),
+			waitForPendingRebuilds: async () => {
+				await this.mode.waitForPendingRebuild()
+				await this.sessionRebuilds.waitUntilSettled()
+			},
+			runExclusive: (operation) => this.sessionRebuilds.runExclusive(operation),
 			getTask: () => this.task,
 			createTempSessionHost: () => this.createWorkspaceSessionHost(),
 			getWorkspaceRoot: () => this.getWorkspaceRoot(),
@@ -457,6 +538,13 @@ export class Controller {
 			postStateToWebview: () => this.postStateToWebview(),
 			onResumeFailed: () => {
 				this.turnStateTracker.set("error")
+			},
+			onFollowUpAbandoned: () => {
+				// Settle the streaming phase askResponse pre-set, unless a turn
+				// (for example on the newly displayed task) has actually started.
+				if (this.turnStateTracker.currentPhase === "streaming" && !this.sessions.getActiveSession()?.isRunning) {
+					this.turnStateTracker.set("idle")
+				}
 			},
 		})
 		this.taskControl = new SdkTaskControlCoordinator({
@@ -477,6 +565,7 @@ export class Controller {
 				this.messageTranslatorState.clearApprovedToolMessageTs()
 				this.messageTranslatorState.getMinter().bumpEpoch()
 			},
+			setTurnPhase: (phase, anchorTs) => this.turnStateTracker.set(phase, anchorTs),
 			postStateToWebview: () => this.postStateToWebview(),
 		})
 		this.taskStart = new SdkTaskStartCoordinator({
@@ -509,8 +598,13 @@ export class Controller {
 		this.compaction = new SdkCompactionCoordinator({
 			stateManager: this.stateManager,
 			sessions: this.sessions,
+			rebuilds: this.sessionRebuilds,
 			messages: this.messages,
+			taskHistory: this.taskHistory,
 			sessionConfigBuilder: this.sessionConfigBuilder,
+			getDisplayedTaskId: () => this.task?.taskId,
+			createTempSessionHost: () => this.createWorkspaceSessionHost(),
+			loadInitialMessages: (reader, taskId) => this.sessionHistory.loadInitialMessages(reader, taskId),
 			getWorkspaceRoot: () => this.getWorkspaceRoot(),
 			postStateToWebview: () => this.postStateToWebview(),
 		})
@@ -518,14 +612,12 @@ export class Controller {
 			messageTranslatorState: this.messageTranslatorState,
 			sessions: this.sessions,
 			messages: this.messages,
-			mcpTools: this.mcpTools,
-			providerChanges: this.providerChanges,
-			mode: this.mode,
 			taskHistory: this.taskHistory,
 			stateManager: this.stateManager,
 			getTask: () => this.task,
 			postStateToWebview: () => this.postStateToWebview(),
 			setTurnPhase: (phase, anchorTs) => this.turnStateTracker.set(phase, anchorTs),
+			getTurnPhase: () => this.turnStateTracker.currentPhase,
 			captureProviderApiError: (event) => this.captureProviderFailure(event),
 			beginProviderFailureTelemetryTurn: () => this.beginProviderFailureTelemetryTurn(),
 		})
@@ -586,6 +678,14 @@ export class Controller {
 		this.providerChanges.handleApiConfigurationChanged(previous, next)
 	}
 
+	handleTerminalExecutionModeChanged(previous: VscodeTerminalExecutionMode, next: VscodeTerminalExecutionMode): void {
+		this.terminalExecutionMode.handleTerminalExecutionModeChanged(previous, next)
+	}
+
+	private handleSessionBecameIdle(): void {
+		this.sessionRebuilds?.sessionBecameIdle()
+	}
+
 	private isSelectionForActiveModeProvider(event: Extract<ProviderConfigChange, { kind: "selection" }>): boolean {
 		try {
 			const modeValue = this.stateManager.getGlobalSettingsKey("mode")
@@ -596,7 +696,14 @@ export class Controller {
 
 			const apiConfig = this.stateManager.getApiConfiguration()
 			const activeProvider = mode === "plan" ? apiConfig.planModeApiProvider : apiConfig.actModeApiProvider
-			return activeProvider === event.providerId.toString()
+			if (activeProvider === undefined) {
+				return false
+			}
+			// Normalize both sides so stale SDK spellings in cached state
+			// (e.g. `openai-compatible`) still match the parse-normalized
+			// event id and model-only commits keep the lightweight
+			// in-session update path.
+			return toLegacyApiProvider(activeProvider) === toLegacyApiProvider(event.providerId.toString())
 		} catch {
 			return false
 		}
@@ -677,6 +784,7 @@ export class Controller {
 		this.messages.cancelPendingSave()
 		// Clear MCP tool list change callback before disposing McpHub
 		this.mcpHub?.clearToolListChangeCallback()
+		await this.diffEdits.discardAllPreviews("controller dispose")
 		await this.clearTask()
 		await this.sessions.dispose("SdkController.dispose")
 		await this.taskHistory.dispose()
@@ -735,9 +843,13 @@ export class Controller {
 	}
 
 	/**
-	 * Expand a leading `/workflow` or `/skill` slash command into its instruction
-	 * body. Mirrors the CLI's `buildUserInputMessage`. Returns the input unchanged
-	 * if it is not a known command or expansion fails.
+	 * Expand a `/workflow` or `/skill` slash command into its instruction body.
+	 * Serves the same purpose as the CLI's `buildUserInputMessage`, but is more
+	 * permissive than the SDK's leading-only resolver: it accepts the legacy
+	 * `/my-workflow.md` spelling the webview autocomplete inserts, matches
+	 * commands mid-message (anything the chat input highlights as a command),
+	 * and honors the user's workflow enable/disable toggles. Returns the input
+	 * unchanged if no known command matches or expansion fails.
 	 */
 	private async resolveSlashCommands(text: string): Promise<string> {
 		if (this.isDisposed) {
@@ -746,7 +858,23 @@ export class Controller {
 		try {
 			const workspaceRoot = await this.getWorkspaceRoot()
 			const service = await this.ensureUserInstructionService(workspaceRoot)
-			return service.resolveRuntimeSlashCommand(text)
+			const remoteWorkflows = this.stateManager.getRemoteConfigSettings()?.remoteGlobalWorkflows ?? []
+			const workflowRecords = service.listRecords("workflow").map((record) => ({
+				id: record.id,
+				name: record.item.name,
+				filePath: record.filePath,
+			}))
+			const disabledWorkflowNames = buildDisabledWorkflowNames({
+				records: workflowRecords,
+				globalToggles: this.stateManager.getGlobalSettingsKey("globalWorkflowToggles"),
+				workspaceToggles: this.stateManager.getWorkspaceStateKey("workflowToggles"),
+				remoteToggles: this.stateManager.getGlobalStateKey("remoteWorkflowToggles"),
+				remoteAlwaysEnabledNames: remoteWorkflows.filter((workflow) => workflow.alwaysEnabled).map((w) => w.name),
+			})
+			return expandSlashCommands(text, [...service.listRuntimeCommands(), ...BUILTIN_SLASH_COMMANDS], {
+				disabledWorkflowNames,
+				workflowRecords,
+			})
 		} catch (error) {
 			Logger.warn("[SdkController] Slash command resolution failed, using raw text:", error)
 			return text
@@ -827,7 +955,16 @@ export class Controller {
 	}
 
 	private async getWorkspaceRoot(): Promise<string> {
-		return (await this.getCurrentWorkspacePath()) ?? getDesktopDir()
+		const noWorkspaceFallback = getDesktopDir()
+		try {
+			const { paths } = await HostProvider.workspace.getWorkspacePaths({})
+			this.lastKnownWorkspaceRoot = resolveWorkspaceRootPath(paths, noWorkspaceFallback)
+			return this.lastKnownWorkspaceRoot
+		} catch (error) {
+			Logger.warn("[SdkController] Failed to get workspace paths, falling back to Desktop:", error)
+		}
+		this.lastKnownWorkspaceRoot = noWorkspaceFallback
+		return noWorkspaceFallback
 	}
 
 	private async createWorkspaceSessionHost(): Promise<VscodeSessionHost> {
@@ -935,6 +1072,12 @@ export class Controller {
 			requestId: clineError.requestId,
 			errorType: event.errorType,
 			failurePhase: event.failurePhase,
+			// Every event here is a failure the user actually saw: transient
+			// errors are retried inside the provider layer before any event
+			// reaches this adapter, and recoverable in-run notices are filtered
+			// out upstream. The legacy extension applies the same
+			// surfaced-failures-only rule at its emission sites, so the A/B
+			// cohorts compare directly with no query-side filtering.
 		})
 	}
 
@@ -1056,6 +1199,19 @@ export class Controller {
 		stubWarn("cancelBackgroundCommand")
 	}
 
+	/**
+	 * "Proceed While Running": detach every in-flight foreground terminal
+	 * command. Each pending run_commands call returns its partial output plus
+	 * the log file path the remaining output is redirected to, and the agent
+	 * turn continues while the commands keep running in their terminals.
+	 */
+	async proceedWhileRunningCommand(): Promise<void> {
+		const detached = this.foregroundCommands.proceedWhileRunning()
+		if (detached === 0) {
+			Logger.warn("[SdkController] proceedWhileRunningCommand: No foreground command is running")
+		}
+	}
+
 	async cancelQueuedPrompt(promptId: string): Promise<void> {
 		const trimmedPromptId = promptId.trim()
 		if (!trimmedPromptId) {
@@ -1130,6 +1286,12 @@ export class Controller {
 		this.turnStateTracker.set("streaming")
 		// Clear the previous turn's completion signal so this new turn's phase is computed fresh.
 		this.messageTranslatorState.clearTurnOutcome()
+		// The webview only learns the phase through a full state post. Without one here it would
+		// keep the stale terminal phase (and hide the thinking indicator) until the first session
+		// event of the new turn posts state — a visible delay after every follow-up/approval.
+		this.postStateToWebview().catch((error) => {
+			Logger.error("[SdkController] Failed to post state after askResponse phase change:", error)
+		})
 		await this.followups.askResponse(prompt, images, files, this.task?.taskState?.askResponse, turnStateBefore.phase)
 	}
 
@@ -1164,7 +1326,7 @@ export class Controller {
 		const userOrdinal = clineMessages
 			.slice(0, targetIndex + 1)
 			.filter((message) => message.type === "say" && (message.say === "task" || message.say === "user_feedback")).length
-		const checkpointRunCount = getCheckpointRunCountForMessage(clineMessages, targetIndex)
+		const canRestoreWorkspace = getCheckpointRunCountForMessage(clineMessages, targetIndex) !== undefined
 		const sourceSessionId = activeSession?.sessionId ?? currentTask.taskId
 		let sdkMessages: SdkUserMessage[]
 		let tempHost: VscodeSessionHost | undefined
@@ -1175,6 +1337,7 @@ export class Controller {
 			if (sdkTargetIndex === -1) {
 				throw new Error("Could not map edited message to persisted conversation history")
 			}
+			const checkpointRunCount = getSdkCheckpointRunCountForMessageIndex(sdkMessages, sdkTargetIndex)
 
 			const initialMessages = sdkMessages.slice(0, sdkTargetIndex) as Parameters<
 				VscodeSessionHost["start"]
@@ -1210,6 +1373,9 @@ export class Controller {
 				sessionMetadata: {
 					title: historyTitle,
 					modelId: config.modelId,
+					...(checkpointRunCount
+						? { checkpoint: createRestoredCheckpointMetadata(sessionRecord, checkpointRunCount) }
+						: {}),
 				},
 			}
 
@@ -1217,7 +1383,7 @@ export class Controller {
 				if (activeSession?.isRunning) {
 					throw new Error("Wait for the current run to finish before restoring workspace changes")
 				}
-				if (checkpointRunCount === undefined) {
+				if (!canRestoreWorkspace || checkpointRunCount === undefined) {
 					throw new Error("Workspace restore is only available for messages that started an agent run")
 				}
 				await sessionHost.restore({
@@ -1231,6 +1397,12 @@ export class Controller {
 					},
 				})
 			}
+
+			// The edit supersedes the old session — settle any pending tool
+			// approval / ask_question exactly like cancelTask does. Without this,
+			// the old run stays suspended forever on a promise nothing can
+			// resolve, and the stale parked resolver intercepts later responses.
+			this.interactions.clearPending("Superseded by an edited message")
 
 			const { startResult, sdkHost } = await this.sessions.startNewSession(startInput)
 
@@ -1379,14 +1551,18 @@ export class Controller {
 	 * 1. Silently tear down the active session (unsubscribe + stop in background)
 	 * 2. Create the new task proxy with loaded messages BEFORE any state push
 	 * 3. Only then push state to the webview
+	 *
+	 * Delegates straight to the coordinator (including the history lookup) so
+	 * the "latest selection wins" generation is allocated synchronously at the
+	 * moment of the request — awaiting the lookup here first would let a
+	 * stalled older request grab a NEWER generation than a later selection and
+	 * replace it.
 	 */
 	async showTaskWithId(taskId: string): Promise<TaskResponse> {
-		const historyItem = await this.taskHistory.findHistoryItem(taskId)
+		const historyItem = await this.taskControl.showTaskWithId(taskId)
 		if (!historyItem) {
 			throw new Error(`Task not found in history: ${taskId}`)
 		}
-
-		await this.taskControl.showTaskWithId(taskId, { skipHistoryLookup: true })
 		return historyItemToTaskResponse(historyItem)
 	}
 
@@ -1412,6 +1588,8 @@ export class Controller {
 	// ---- Auth callbacks ----
 
 	async handleSignOut(): Promise<void> {
+		const sessionProviderId = this.getSessionProviderId() ?? this.getActiveProviderId()
+		await this.taskControl.cancelClineTaskOnSignOut(isClineManagedProvider(sessionProviderId))
 		await this.authService.handleDeauth(LogoutReason.USER_INITIATED)
 		clearRemoteConfig()
 		await this.setRemoteConfigCoreIntegration(undefined)
@@ -1466,11 +1644,6 @@ export class Controller {
 		await this.authService.handleHicapCallback(code)
 		this.persistProviderApiKeyFromState("hicap")
 		await this.postStateToWebview()
-	}
-
-	async readOpenRouterModels(): Promise<Record<string, ModelInfo> | undefined> {
-		stubWarn("readOpenRouterModels")
-		return undefined
 	}
 
 	async getTaskHistory(request: GetTaskHistoryRequest): Promise<TaskHistoryArray> {
@@ -1554,6 +1727,9 @@ export class Controller {
 				cacheWrites: metadataNumber(metadata, "cacheWrites") ?? 0,
 				cacheReads: metadataNumber(metadata, "cacheReads") ?? 0,
 				modelId: item.model || metadataString(metadata, "modelId") || "",
+				isLegacy:
+					metadataBoolean(metadata, "legacyTask") === true ||
+					metadataBoolean(metadata, "migratedFromLegacyTask") === true,
 			}
 		})
 
@@ -1575,6 +1751,7 @@ export class Controller {
 					cacheWrites: 0,
 					cacheReads: 0,
 					modelId: this.task.api?.getModel?.().id ?? "",
+					isLegacy: false,
 				})
 			}
 		}
@@ -1583,21 +1760,13 @@ export class Controller {
 	}
 
 	async exportTaskWithId(id: string): Promise<void> {
-		const historyItem = (await this.taskHistory.listHistory({ hydrate: false })).find((item) => item.sessionId === id)
-		if (!historyItem) {
+		const taskDirPath = await this.taskHistory.getTaskDirPath(id)
+		if (!taskDirPath) {
 			throw new Error(`Task not found in history: ${id}`)
 		}
 
-		// SDK-backed tasks are no longer stored under VS Code's globalStorageFsPath/tasks.
-		// The SDK owns session persistence and exposes the persisted messages artifact path
-		// on the session history record; open that artifact's containing session directory.
-		const taskDirPath = historyItem.messagesPath ? path.dirname(historyItem.messagesPath) : undefined
-		if (!taskDirPath) {
-			throw new Error(`Task history item has no SDK artifact path: ${id}`)
-		}
-
 		await fs.access(taskDirPath)
-		Logger.log(`[EXPORT] Opening SDK task directory: ${taskDirPath}`)
+		Logger.log(`[EXPORT] Opening task directory: ${taskDirPath}`)
 		const open = (await import("open")).default
 		await open(taskDirPath)
 	}
@@ -1769,6 +1938,11 @@ export class Controller {
 				mcpHub: this.mcpHub,
 				backgroundCommandRunning: this.backgroundCommandRunning,
 				backgroundCommandTaskId: this.backgroundCommandTaskId,
+				foregroundCommandRunning: this.foregroundCommands.isRunning,
+				// Without this the webview always receives workspaceRoots: [] on the
+				// SDK path (classic Controller exposes a public workspaceManager;
+				// SdkController builds one lazily). The task-header working-directory
+				// badge and anything else keyed on workspaceRoots depend on it.
 				workspaceManager,
 				workspaceHistoryIndex: this.workspaceHistoryIndex,
 			})
@@ -1860,7 +2034,7 @@ export class Controller {
 	 * Called once when the lazy terminal manager is first created, and can be
 	 * called again when settings change at runtime.
 	 */
-	applyTerminalSettings(terminalManager: ITerminalManager): void {
+	applyTerminalSettings(terminalManager: VscodeTerminalManager): void {
 		const shellIntegrationTimeout = this.stateManager.getGlobalSettingsKey("shellIntegrationTimeout")
 		if (shellIntegrationTimeout !== undefined) {
 			terminalManager.setShellIntegrationTimeout(Number(shellIntegrationTimeout))
@@ -1886,41 +2060,32 @@ export class Controller {
 	 * Get the terminal manager instance (if created).
 	 * Used by updateSettings handlers to apply runtime changes.
 	 */
-	get terminalManager(): ITerminalManager | undefined {
+	get terminalManager(): VscodeTerminalManager | undefined {
 		return this._terminalManager
 	}
 
 	// ---- Workspace (kept from classic) ----
 
-	private workspaceManager: WorkspaceRootManager | undefined
+	private _workspaceManager?: WorkspaceRootManager
+	private _workspaceManagerPathsKey?: string
 
 	async ensureWorkspaceManager(): Promise<WorkspaceRootManager | undefined> {
-		if (this.workspaceManager) {
-			return this.workspaceManager
-		}
-		const roots = await this.getWorkspaceRoots()
-		if (roots.length === 0) {
-			return undefined
-		}
-		this.workspaceManager = new WorkspaceRootManager(roots, 0)
-		return this.workspaceManager
-	}
-
-	private async getWorkspaceRoots(): Promise<WorkspaceRoot[]> {
 		try {
 			const { paths } = await HostProvider.workspace.getWorkspacePaths({})
-			if (!paths || paths.length === 0) {
-				return []
+			const validPaths = (paths ?? []).filter((workspacePath) => workspacePath.trim().length > 0)
+			if (validPaths.length === 0) {
+				return undefined
 			}
-			const pathModule = await import("node:path")
-			return paths.map((p) => ({
-				path: p,
-				name: pathModule.basename(p),
-				vcs: VcsType.None,
-			}))
+			// Rebuild only when the set of workspace folders changes
+			const pathsKey = JSON.stringify(validPaths)
+			if (!this._workspaceManager || this._workspaceManagerPathsKey !== pathsKey) {
+				this._workspaceManager = await WorkspaceRootManager.fromPaths(validPaths)
+				this._workspaceManagerPathsKey = pathsKey
+			}
+			return this._workspaceManager
 		} catch (error) {
-			Logger.warn("[SdkController] Failed to get workspace paths:", error)
-			return []
+			Logger.warn("[SdkController] Failed to build workspace manager:", error)
+			return undefined
 		}
 	}
 }

@@ -6,13 +6,14 @@ import type {
 	PendingPromptSubmittedEvent,
 } from "../../runtime/session-events";
 import { formatCliErrorMessage } from "../../utils/cline-pass-errors";
-import { resolveStatusNoticeLabel } from "../../utils/events";
+import { resolveNonCompactionStatusLabel } from "../../utils/events";
 import {
 	formatToolInput,
 	formatToolOutput,
 	truncate,
 } from "../../utils/helpers";
 import type { ChatEntry, InlineStream, TuiProps } from "../types";
+import { parseCompactionNoticeMetadata } from "../utils/compaction-status";
 
 interface AgentEventDeps {
 	appendEntry: (entry: ChatEntry) => void;
@@ -29,9 +30,11 @@ interface AgentEventDeps {
 	}) => void;
 	onTurnErrorReported: TuiProps["onTurnErrorReported"];
 	verbose: boolean;
+	modelId?: string;
 }
 
 export function useAgentEventHandlers(deps: AgentEventDeps) {
+	const openCompactionEntryRef = useRef(false);
 	const {
 		appendEntry,
 		updateLastEntry,
@@ -43,7 +46,49 @@ export function useAgentEventHandlers(deps: AgentEventDeps) {
 		addUsageDelta,
 		onTurnErrorReported,
 		verbose,
+		modelId,
 	} = deps;
+
+	// Compaction dividers that arrived while an assistant message was still
+	// streaming. Appending them immediately would split the message in two, so
+	// they are held until the active content block closes (or the turn ends).
+	const pendingCompactionEntriesRef = useRef<
+		Extract<ChatEntry, { kind: "compaction" }>[]
+	>([]);
+
+	const flushPendingCompactionEntries = useCallback(() => {
+		const pending = pendingCompactionEntriesRef.current;
+		if (pending.length === 0) return;
+		pendingCompactionEntriesRef.current = [];
+		for (const entry of pending) {
+			if (entry.status !== "started" && openCompactionEntryRef.current) {
+				updateEntry((current) =>
+					current.kind === "compaction" && current.status === "started"
+						? { ...current, ...entry }
+						: current,
+				);
+				openCompactionEntryRef.current = false;
+			} else {
+				appendEntry(entry);
+				if (entry.status === "started") {
+					openCompactionEntryRef.current = true;
+				}
+			}
+		}
+	}, [appendEntry, updateEntry]);
+
+	const finalizeDanglingCompactionEntry = useCallback(
+		(status: "failed" | "cancelled") => {
+			if (!openCompactionEntryRef.current) return;
+			openCompactionEntryRef.current = false;
+			updateEntry((entry) =>
+				entry.kind === "compaction" && entry.status === "started"
+					? { ...entry, status }
+					: entry,
+			);
+		},
+		[updateEntry],
+	);
 
 	const closeToolEntry = useCallback(
 		(event: AgentEvent & { type: "content_end" }) => {
@@ -84,9 +129,11 @@ export function useAgentEventHandlers(deps: AgentEventDeps) {
 					setIsRunning(true);
 					setIsStreaming(true);
 					closeInlineStream();
+					flushPendingCompactionEntries();
 					break;
 				case "iteration_end":
 					closeInlineStream();
+					flushPendingCompactionEntries();
 					break;
 				case "content_start": {
 					setIsStreaming(false);
@@ -165,24 +212,72 @@ export function useAgentEventHandlers(deps: AgentEventDeps) {
 					setIsRunning(false);
 					setIsStreaming(false);
 					closeInlineStream();
+					flushPendingCompactionEntries();
+					finalizeDanglingCompactionEntry("cancelled");
 					break;
 				case "error":
+					// Recoverable errors are in-run notices (the MistakeTracker
+					// emits one for every recorded mistake, e.g. a plan-mode
+					// guard-blocked command) — the run continues, so the footer
+					// must keep reflecting the active turn instead of flipping
+					// to idle mid-run. Surface them only in verbose mode.
+					if (event.recoverable) {
+						if (verbose) {
+							appendEntry({
+								kind: "error",
+								text: formatCliErrorMessage(event.error, { modelId }),
+							});
+						}
+						break;
+					}
 					setIsRunning(false);
 					setIsStreaming(false);
 					closeInlineStream();
+					flushPendingCompactionEntries();
+					finalizeDanglingCompactionEntry("failed");
 					turnErrorReportedRef.current = true;
 					onTurnErrorReported(true);
-					if (!event.recoverable || verbose) {
-						appendEntry({
-							kind: "error",
-							text: formatCliErrorMessage(event.error),
-						});
-					}
+					appendEntry({
+						kind: "error",
+						text: formatCliErrorMessage(event.error, { modelId }),
+					});
 					break;
 				case "notice":
 					if (event.displayRole === "status") {
-						closeInlineStream();
-						const label = resolveStatusNoticeLabel(event);
+						const compaction = parseCompactionNoticeMetadata(event.metadata);
+						if (!compaction) {
+							closeInlineStream();
+						}
+						if (compaction) {
+							if (activeInlineStreamRef.current) {
+								// An assistant message is still streaming; appending now
+								// would split it around the divider. Hold the divider (final
+								// state until the content block closes, then reconcile it
+								// with the same open divider atomically.
+								pendingCompactionEntriesRef.current.push({
+									kind: "compaction",
+									...compaction,
+								});
+								break;
+							}
+							if (compaction.status === "started") {
+								appendEntry({ kind: "compaction", ...compaction });
+								openCompactionEntryRef.current = true;
+							} else if (openCompactionEntryRef.current) {
+								// Finalize the in-progress divider in place, wherever it
+								// sits in the transcript.
+								updateEntry((entry) =>
+									entry.kind === "compaction" && entry.status === "started"
+										? { ...entry, ...compaction }
+										: entry,
+								);
+								openCompactionEntryRef.current = false;
+							} else {
+								appendEntry({ kind: "compaction", ...compaction });
+							}
+							break;
+						}
+						const label = resolveNonCompactionStatusLabel(event);
 						if (label) {
 							appendEntry({ kind: "status", text: label });
 						}
@@ -200,6 +295,7 @@ export function useAgentEventHandlers(deps: AgentEventDeps) {
 		[
 			appendEntry,
 			updateLastEntry,
+			updateEntry,
 			closeInlineStream,
 			activeInlineStreamRef,
 			setIsRunning,
@@ -207,7 +303,10 @@ export function useAgentEventHandlers(deps: AgentEventDeps) {
 			addUsageDelta,
 			onTurnErrorReported,
 			verbose,
+			modelId,
 			closeToolEntry,
+			finalizeDanglingCompactionEntry,
+			flushPendingCompactionEntries,
 		],
 	);
 

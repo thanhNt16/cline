@@ -5,6 +5,7 @@ interface AboutSectionProps {
 	version: string
 	renderSectionHeader: (tabId: string) => JSX.Element | null
 }
+
 const AboutSection = ({ version, renderSectionHeader }: AboutSectionProps) => {
 	return (
 		<div>
