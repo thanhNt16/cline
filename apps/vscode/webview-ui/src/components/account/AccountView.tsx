@@ -13,6 +13,7 @@ import { AccountServiceClient } from "@/services/grpc-client"
 import ViewHeader from "../common/ViewHeader"
 import VSCodeButtonLink from "../common/VSCodeButtonLink"
 import { updateSetting } from "../settings/utils/settingsHandlers"
+import { ClinePassCard } from "./ClinePassCard"
 import { CreditBalance } from "./CreditBalance"
 import CreditsHistoryTable from "./CreditsHistoryTable"
 import { convertProtoUsageTransactions, getClineUris, getMainRole } from "./helpers"
@@ -371,6 +372,8 @@ const ClineAccountView = ({ clineUser, userOrganizations, activeOrganization, cl
 					isLoading={isLoading}
 					lastFetchTime={lastFetchTime}
 				/>
+
+				<ClinePassCard />
 
 				<VSCodeDivider className="mt-6 mb-3 w-full" />
 

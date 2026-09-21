@@ -17,6 +17,8 @@ import {
 } from "./commands/update";
 import { CLI_DEFAULT_CHECKPOINT_CONFIG } from "./runtime/defaults";
 import type { TuiStartupTarget } from "./tui/types";
+import { filterChatModels } from "./utils/chat-models";
+import { registerClineClientIdentity } from "./utils/cline-client-identity";
 import { getCliBuildInfo } from "./utils/common";
 import {
 	buildCliCompactionConfig,
@@ -57,9 +59,6 @@ import {
 	identifyTelemetryAccount,
 } from "./utils/telemetry";
 import type { Config } from "./utils/types";
-import { runConnectWizard } from "./wizards/connect";
-import { runMcpWizard } from "./wizards/mcp";
-import { runScheduleWizard } from "./wizards/schedule";
 
 export function stdinHasPipedInput(): boolean {
 	if (process.stdin.isTTY) return false;
@@ -145,6 +144,7 @@ function startupTargetTakesPrecedenceOverMigrationNotice(
 }
 
 export async function runCli(): Promise<void> {
+	registerClineClientIdentity("cline-cli");
 	installStreamErrorGuards();
 	autoUpdateOnStartup();
 
@@ -452,6 +452,7 @@ export async function runCli(): Promise<void> {
 					io,
 				);
 			} else if (isFullTTY) {
+				const { runConnectWizard } = await import("./wizards/connect");
 				ctx.exitCode = await runConnectWizard();
 			} else {
 				writeln(`\nAdapters:\n${formatAdapterList()}`);
@@ -464,6 +465,7 @@ export async function runCli(): Promise<void> {
 		.description("Manage MCP servers")
 		.action(async () => {
 			if (isFullTTY) {
+				const { runMcpWizard } = await import("./wizards/mcp");
 				ctx.exitCode = await runMcpWizard();
 			} else {
 				writeln(
@@ -502,6 +504,24 @@ export async function runCli(): Promise<void> {
 				transport: opts.transport,
 				json: opts.json === true || program.opts().json === true,
 				yes: opts.yes === true,
+				io,
+			});
+		});
+	const mcpUninstallCmd = mcpCmd
+		.command("uninstall")
+		.alias("remove")
+		.alias("rm")
+		.description("Uninstall an MCP server by name")
+		.argument("<name>", "MCP server name")
+		.option("--json", "Output as JSON")
+		.action(async (name: string) => {
+			const opts = mcpUninstallCmd.opts<{
+				json?: boolean;
+			}>();
+			const { runMcpUninstallCommand } = await import("./commands/mcp");
+			ctx.exitCode = await runMcpUninstallCommand({
+				name,
+				json: opts.json === true || program.opts().json === true,
 				io,
 			});
 		});
@@ -571,6 +591,7 @@ export async function runCli(): Promise<void> {
 		.passThroughOptions()
 		.action(async (_opts: unknown, cmd: Command) => {
 			if (cmd.args.length === 0 && isFullTTY) {
+				const { runScheduleWizard } = await import("./wizards/schedule");
 				ctx.exitCode = await runScheduleWizard();
 				return;
 			}
@@ -1011,7 +1032,9 @@ export async function runCli(): Promise<void> {
 				`${c.dim}[model-catalog] catalog resolution failed (${message})${c.reset}`,
 			);
 		}
-		const knownModelIds = knownModels ? Object.keys(knownModels) : [];
+		const knownModelIds = knownModels
+			? Object.keys(filterChatModels(knownModels))
+			: [];
 		const resolvedReasoning = resolveCliReasoning({
 			thinking: args.thinking,
 			thinkingExplicitlySet: args.thinkingExplicitlySet,
@@ -1177,8 +1200,8 @@ export async function runCli(): Promise<void> {
 					activeProviderId: provider,
 				});
 				if (initialNotice) {
-					markInitialNoticeShown = () => {
-						markClineCliMigrationNoticeShown();
+					markInitialNoticeShown = (notice) => {
+						markClineCliMigrationNoticeShown(undefined, notice.id);
 					};
 				}
 			}

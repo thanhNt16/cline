@@ -18,6 +18,17 @@ export interface SdkTaskControlCoordinatorOptions {
 	resetMessageTranslator: () => void
 	postStateToWebview: () => Promise<void>
 	/**
+	 * Drops the StateManager's task-scoped settings overlay (persisting pending
+	 * writes first). Task settings — e.g. autoApprovalSettings written by
+	 * toggling auto-approve while a task is open — shadow global settings in
+	 * getGlobalSettingsKey(). If the overlay outlives the task view, later
+	 * global updates are accepted but never surface in posted state (the stale
+	 * overlay version wins), which froze the auto-approve checkboxes after
+	 * "New Task" (#13260). Must run whenever the task view is cleared or
+	 * switched to another task.
+	 */
+	clearTaskSettings: () => Promise<void>
+	/**
 	 * Sets the authoritative turn phase. showTaskWithId must derive the phase
 	 * from the reopened conversation (resumable/completed) — leaving the
 	 * previous task's phase in place hides the Resume button for interrupted
@@ -113,6 +124,8 @@ export class SdkTaskControlCoordinator {
 			this.options.setTask(undefined)
 		}
 
+		await this.options.clearTaskSettings()
+
 		this.options.resetMessageTranslator()
 	}
 
@@ -180,6 +193,13 @@ export class SdkTaskControlCoordinator {
 			if (isSuperseded()) {
 				return historyItem
 			}
+
+			// The outgoing task's settings overlay must not apply to the newly
+			// opened task (see clearTaskSettings option doc). Dropping the overlay
+			// before the transcript loads is safe: unlike clearing the old proxy's
+			// messages or bumping the translator epoch, it does not produce
+			// new-epoch empty snapshots.
+			await this.options.clearTaskSettings()
 
 			// Load the replacement transcript BEFORE touching the shared task view.
 			// Clearing the old proxy's messages + bumping the translator epoch first

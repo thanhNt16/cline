@@ -36,7 +36,7 @@ export function QueuedPrompts(props: {
 					? "Waiting. ↑/↓ navigate, Tab edit, Esc cancels turn"
 					: `Steered next. ↑/↓ navigate, Tab edit, ${escapeHint}`
 				: `↑/↓ navigate, Enter steer, Tab edit, ${escapeHint}`
-		: "↑ steer or edit messages";
+		: "Enter with empty input to steer first · ↑ select or edit";
 
 	return (
 		<box
@@ -117,7 +117,10 @@ function QueuedPromptRow(props: {
 					flexGrow={1}
 				/>
 			) : (
-				<text fg={selected ? theme.textOnSelection : undefined} flexGrow={1}>
+				<text
+					fg={selected ? theme.textOnSelection : theme.defaultForeground}
+					flexGrow={1}
+				>
 					{truncatePrompt(item.prompt)}
 				</text>
 			)}

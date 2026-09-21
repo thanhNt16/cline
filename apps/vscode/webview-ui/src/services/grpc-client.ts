@@ -187,6 +187,22 @@ export class CheckpointsServiceClient extends ProtoBusClient {
 			proto.cline.Empty.fromJSON,
 		)
 	}
+	static async checkpointViewLatestChanges(request: proto.cline.EmptyRequest): Promise<proto.cline.Empty> {
+		return CheckpointsServiceClient.makeUnaryRequest(
+			"checkpointViewLatestChanges",
+			request,
+			proto.cline.EmptyRequest.toJSON,
+			proto.cline.Empty.fromJSON,
+		)
+	}
+	static async checkpointLatestChangesCount(request: proto.cline.EmptyRequest): Promise<proto.cline.Int64> {
+		return CheckpointsServiceClient.makeUnaryRequest(
+			"checkpointLatestChangesCount",
+			request,
+			proto.cline.EmptyRequest.toJSON,
+			proto.cline.Int64.fromJSON,
+		)
+	}
 }
 export class CodebaseMemoryServiceClient extends ProtoBusClient {
 	static override serviceName: string = "cline.CodebaseMemoryService"
@@ -1212,11 +1228,13 @@ export class RemoteConfigServiceClient extends ProtoBusClient {
 			proto.cline.RemoteConfigSettingsResponse.fromJSON,
 		)
 	}
-	static async toggleRemoteConfigSetting(request: proto.cline.StringRequest): Promise<proto.cline.RemoteConfigSetting> {
+	static async toggleRemoteConfigSetting(
+		request: proto.cline.ToggleRemoteConfigSettingRequest,
+	): Promise<proto.cline.RemoteConfigSetting> {
 		return RemoteConfigServiceClient.makeUnaryRequest(
 			"toggleRemoteConfigSetting",
 			request,
-			proto.cline.StringRequest.toJSON,
+			proto.cline.ToggleRemoteConfigSettingRequest.toJSON,
 			proto.cline.RemoteConfigSetting.fromJSON,
 		)
 	}

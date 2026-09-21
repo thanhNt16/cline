@@ -1,5 +1,6 @@
-import { readFileSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { getGeneratedModelsForProvider, MODEL_COLLECTIONS_BY_PROVIDER_ID } from "@cline/llms"
+import type { CoreSpawnReason } from "@cline/shared"
 import { createFileReadExecutor } from "../../../../sdk/packages/core/src/extensions/tools/executors/file-read"
 
 export interface OAuthCredentials {
@@ -12,7 +13,10 @@ export interface StartSessionResult {
 	sessionId: string
 }
 
-export const MAX_COMMAND_OUTPUT_CHARS = 200_000
+export {
+	MAX_COMMAND_OUTPUT_CHARS,
+	truncateCommandOutput,
+} from "../../../../sdk/packages/core/src/extensions/tools/executors/output-limits"
 
 export interface StoredModelEntry {
 	id?: string
@@ -53,6 +57,7 @@ export function resolveModelsRegistryPath(): string {
 
 export function ensureCustomProvidersLoadedSync(): void {}
 
+export { isPrivateModelCatalogProvider } from "../../../../sdk/packages/core/src/services/llms/provider-defaults"
 // Real implementation re-exported from the sdk source (same pattern as the
 // apply-patch executors below) so store writes are reflected in the live
 // @cline/llms registry exactly as in production. Tests that touch it must
@@ -84,8 +89,27 @@ export function setCompactionStrategyGlobally(compactionStrategy: GlobalCompacti
 	}
 }
 
-export function truncateCommandOutput(output: string): string {
-	return output
+export type ModelToolName = "web_search"
+
+export function isModelToolEnabledGlobally(name: ModelToolName): boolean {
+	const filePath = process.env.CLINE_GLOBAL_SETTINGS_PATH ?? ""
+	try {
+		const settings = JSON.parse(readFileSync(filePath, "utf8"))
+		return settings.tools?.[name]?.enabled ?? true
+	} catch {
+		return !existsSync(filePath)
+	}
+}
+
+export function setModelToolEnabledGlobally(name: ModelToolName, enabled: boolean): void {
+	const filePath = process.env.CLINE_GLOBAL_SETTINGS_PATH
+	if (filePath) {
+		let settings: { tools?: Record<string, { enabled: boolean }> } = {}
+		try {
+			settings = JSON.parse(readFileSync(filePath, "utf8"))
+		} catch {}
+		writeFileSync(filePath, JSON.stringify({ ...settings, tools: { ...settings.tools, [name]: { enabled } } }))
+	}
 }
 
 export class CommandExitError extends Error {
@@ -119,6 +143,7 @@ export { PATCH_MARKERS, PatchActionType } from "../../../../sdk/packages/core/sr
 export { createEditorExecutor } from "../../../../sdk/packages/core/src/extensions/tools/executors/editor"
 export type { EditFileInput } from "../../../../sdk/packages/core/src/extensions/tools/schemas"
 export type { ApplyPatchExecutor, EditorExecutor, ToolExecutors } from "../../../../sdk/packages/core/src/extensions/tools/types"
+export { projectSessionMessagesForDisplay } from "../../../../sdk/packages/core/src/session/display-messages"
 
 // Real file-read executor (dependency-light: node:fs/node:path + @cline/shared/storage)
 // so the workspace read override and its tests exercise the actual read semantics.
@@ -203,6 +228,8 @@ export interface TelemetryMetadata {
 	os_type: string
 	os_version: string
 	is_dev?: string
+	core_spawn_ordinal?: number
+	core_spawn_reason?: CoreSpawnReason
 }
 
 export interface ITelemetryService {

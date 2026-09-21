@@ -13,6 +13,7 @@ export enum BUILT_IN_PROVIDER {
 	CLAUDE_CODE = "claude-code",
 	CLINE = "cline",
 	CLINE_PASS = "cline-pass",
+	ELEVENLABS = "elevenlabs",
 	// OpenAI variants
 	OPENAI_COMPATIBLE = "openai-compatible",
 	OPENAI_NATIVE = "openai-native",
@@ -37,6 +38,7 @@ export enum BUILT_IN_PROVIDER {
 	CEREBRAS = "cerebras",
 	SAMBANOVA = "sambanova",
 	NEBIUS = "nebius",
+	CRUSOE = "crusoe",
 	BASETEN = "baseten",
 	REQUESTY = "requesty",
 	LITELLM = "litellm",

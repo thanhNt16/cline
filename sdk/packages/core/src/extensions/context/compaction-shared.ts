@@ -15,9 +15,21 @@ export const DEFAULT_MAX_INPUT_TOKENS = 128_000;
 export const CONTEXT_WINDOW_INPUT_RATIO = 0.9;
 /** Compact once the transcript consumes this share of the usable input budget. */
 export const COMPACTION_TRIGGER_RATIO = 0.9;
+/**
+ * Upper bound on how far the provider's actual input count may scale the
+ * compaction budget down relative to the character-based estimate. Dense
+ * content realistically tokenizes ~2-3x denser than the 3-chars-per-token
+ * assumption; the cap stops a pathologically small estimate from collapsing
+ * the budget and compacting every turn.
+ */
+export const MAX_INPUT_UNDERESTIMATE_FACTOR = 4;
 export const DEFAULT_TARGET_RATIO = 0.7;
 export const DEFAULT_PRESERVE_RECENT_TOKENS = 20_000;
-export const DEFAULT_SUMMARY_MAX_OUTPUT_TOKENS = 1_024;
+// Headroom for the summarizer's output. Raised from 4096: models that reason
+// by default can spend part of a tight budget on thinking and return no
+// summary text at all, which skips compaction entirely. 8192 leaves room for a
+// real summary even when some reasoning slips through.
+export const DEFAULT_SUMMARY_MAX_OUTPUT_TOKENS = 8_192;
 export const TOOL_RESULT_CHAR_LIMIT = 2_000;
 export const FILE_CONTENT_CHAR_LIMIT = 2_000;
 export const MIN_TRUNCATED_MESSAGE_TOKENS = 8;
@@ -165,6 +177,11 @@ export function serializeMessage(message: MessageWithMetadata): string {
 			case "image":
 				lines.push(
 					`[${message.role === "user" ? "User" : "Bot"} image]: ${block.mediaType}`,
+				);
+				break;
+			case "media":
+				lines.push(
+					`[Bot generated ${block.media.modality}]: ${block.media.mediaType}`,
 				);
 				break;
 		}
@@ -685,6 +702,29 @@ Edited: ${options.fileOps.modifiedFiles.join(", ") || "none"}`,
 	return parts.join("\n\n");
 }
 
+/**
+ * The summarizer output budget is a cap, not a target: reasoning models need
+ * headroom beyond their thinking output or no summary text ever arrives and
+ * compaction is skipped. An explicit configuration wins as-is; otherwise the
+ * default applies, with model metadata (`maxTokens` is reported capability,
+ * not a product default) only ever lowering it.
+ */
+function resolveSummaryMaxOutputTokens(config: ProviderConfig): number {
+	if (isPositiveFiniteNumber(config.maxOutputTokens)) {
+		return Math.floor(config.maxOutputTokens);
+	}
+	const modelMaxTokens =
+		config.modelInfo?.maxTokens ??
+		config.knownModels?.[config.modelId]?.maxTokens;
+	if (isPositiveFiniteNumber(modelMaxTokens)) {
+		return Math.min(
+			DEFAULT_SUMMARY_MAX_OUTPUT_TOKENS,
+			Math.floor(modelMaxTokens),
+		);
+	}
+	return DEFAULT_SUMMARY_MAX_OUTPUT_TOKENS;
+}
+
 export function resolveSummarizerConfig(options: {
 	activeProviderConfig: ProviderConfig;
 	summarizer?: CoreCompactionSummarizerConfig;
@@ -700,8 +740,7 @@ export function resolveSummarizerConfig(options: {
 		}
 		return {
 			...config,
-			maxOutputTokens:
-				config.maxOutputTokens ?? DEFAULT_SUMMARY_MAX_OUTPUT_TOKENS,
+			maxOutputTokens: resolveSummaryMaxOutputTokens(config),
 			thinking: false,
 		};
 	};
@@ -722,7 +761,7 @@ export function resolveSummarizerConfig(options: {
 		modelInfo: summarizer.modelInfo ?? baseProviderConfig?.modelInfo,
 		knownModels: summarizer.knownModels ?? baseProviderConfig?.knownModels,
 		maxOutputTokens:
-			summarizer.maxOutputTokens ?? DEFAULT_SUMMARY_MAX_OUTPUT_TOKENS,
+			summarizer.maxOutputTokens ?? baseProviderConfig?.maxOutputTokens,
 	});
 }
 
