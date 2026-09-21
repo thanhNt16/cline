@@ -1299,6 +1299,45 @@ describe("listLocalProviders", () => {
 
 	afterEach(() => cleanup());
 
+	it("calls read() once across multiple providers while preserving cline-pass aliased auth", async () => {
+		await addLocalProvider(manager, {
+			providerId: "list-provider-a",
+			name: "Provider A",
+			baseUrl: "https://example.invalid/a",
+			models: ["ma1"],
+		});
+		await addLocalProvider(manager, {
+			providerId: "list-provider-b",
+			name: "Provider B",
+			baseUrl: "https://example.invalid/b",
+			models: ["mb1"],
+		});
+		manager.saveProviderSettings(
+			{
+				provider: "cline",
+				auth: {
+					accessToken: "shared-token",
+					refreshToken: "shared-refresh",
+				},
+			},
+			{ setLastUsed: false, tokenSource: "oauth" },
+		);
+		markLocalProviderEnabled(manager, "cline-pass", { tokenSource: "oauth" });
+
+		const readSpy = vi.spyOn(manager, "read");
+		const { providers } = await listLocalProviders(manager, {
+			isClinePassEnabled: true,
+		});
+
+		expect(readSpy).toHaveBeenCalledTimes(1);
+		expect(providers.map((p) => p.id)).toContain("list-provider-a");
+		expect(providers.map((p) => p.id)).toContain("list-provider-b");
+		expect(providers.find((p) => p.id === "cline-pass")).toMatchObject({
+			enabled: true,
+			oauthAccessTokenPresent: true,
+		});
+	});
+
 	it("includes all registered providers", async () => {
 		await addLocalProvider(manager, {
 			providerId: "list-provider-a",

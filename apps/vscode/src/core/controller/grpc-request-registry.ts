@@ -103,6 +103,21 @@ export class GrpcRequestRegistry {
 	}
 
 	/**
+	 * Cancel every active request and run its cleanup. Called when the webview
+	 * is torn down or re-resolved without sending per-request
+	 * `grpc_request_cancel` (view reload, OOM, sidebar move) — otherwise the
+	 * module-level subscription sets in subscribeTo* retain the old webview's
+	 * `responseStream` closures forever, leaking a postMessage handle per
+	 * teardown. Each request's cleanup also removes it from those sets, so
+	 * cancelling the registry drains them too.
+	 */
+	public cancelAll(): void {
+		for (const requestId of Array.from(this.activeRequests.keys())) {
+			this.cancelRequest(requestId)
+		}
+	}
+
+	/**
 	 * Clean up stale requests that have been active for too long
 	 * @param maxAgeMs Maximum age in milliseconds before a request is considered stale
 	 * @returns The number of requests that were cleaned up

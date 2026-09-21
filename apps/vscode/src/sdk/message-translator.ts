@@ -2115,6 +2115,24 @@ export function translateSessionEvent(event: CoreSessionEvent, state: MessageTra
 			break
 		}
 
+		case "session_snapshot": {
+			// Bulk state sync emitted by the SDK runtime alongside every status
+			// transition (local-runtime-host emitStatus -> emitSessionSnapshot).
+			// It carries the full session (messages, usage, lineage, checkpoint)
+			// — a redundant view of state this host already maintains via the
+			// incremental event stream + task history. Falling through to the
+			// default warn-spams the log on every status change during a long
+			// session, so no-op deliberately.
+			//
+			// ponytail: if a future flow needs to rehydrate from a snapshot
+			// (e.g. reconnecting to a hub-hosted session where incremental
+			// events were missed), map event.payload.snapshot.messages here via
+			// a coordinator-level reconcile against the live message array +
+			// task history — do NOT push the raw snapshot through the partial
+			// stream, that would flood the webview.
+			break
+		}
+
 		default: {
 			Logger.warn(`[MessageTranslator] Unhandled session event type: ${(event as CoreSessionEvent).type}`)
 			break

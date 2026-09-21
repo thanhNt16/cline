@@ -476,9 +476,7 @@ describe("Hook Management", () => {
 	})
 
 	describe("Edge Cases", () => {
-		it("should handle missing .cellockai/rules directory gracefully", async function (this: Mocha.Context) {
-			this.timeout(5000)
-
+		it("should handle missing .cellockai/rules directory gracefully", async () => {
 			// Remove workspace hooks directory
 			await fs.rm(path.dirname(workspaceHooksDir), { recursive: true, force: true })
 

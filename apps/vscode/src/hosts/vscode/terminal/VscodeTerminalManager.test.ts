@@ -464,7 +464,7 @@ describe("VscodeTerminalManager", () => {
 		}
 	})
 
-	it("preserves a markerless shell-integration terminal across the next terminal acquisition", async () => {
+	it("auto-closes a markerless shell-integration terminal at the next terminal acquisition", async () => {
 		setVscodeHostProviderMock()
 		const terminalInfo = TerminalRegistry.createTerminal()
 		sandbox.stub(terminalInfo.terminal, "shellIntegration").get(() => ({
@@ -485,9 +485,13 @@ describe("VscodeTerminalManager", () => {
 				source: "markerlessShellIntegration",
 				ownership: "managed",
 			})
-			nextTerminal = (await manager.getOrCreateTerminal("/tmp/cline-next-command")) as unknown as TerminalInfo
-			assert.equal(disposeSpy.called, false, "an SSH or nested-shell session remains user-owned")
+			// CellockAI: a markerless-managed terminal is evicted from reuse AND queued
+			// for cleanup, so the next acquisition disposes it instead of orphaning the
+			// tab. It must never be reused (its cwd can't be confirmed without markers).
 			assert.equal(TerminalRegistry.getTerminal(terminalInfo.id), undefined, "markerless terminals must not be reused")
+			nextTerminal = (await manager.getOrCreateTerminal("/tmp/cline-next-command")) as unknown as TerminalInfo
+			assert.equal(disposeSpy.called, true, "leftover markerless terminals are auto-closed at the next acquisition")
+			assert.notEqual(nextTerminal.id, terminalInfo.id, "a fresh terminal is created; markerless terminals are not reused")
 		} finally {
 			nextTerminal?.terminal.dispose()
 			if (nextTerminal) {

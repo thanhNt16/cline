@@ -28,8 +28,8 @@ describe("readGlobalStateFromStorage terminal execution mode", () => {
 		return state.vscodeTerminalExecutionMode
 	}
 
-	it("uses the VS Code terminal when no preference is stored", async () => {
-		expect(await readTerminalExecutionMode()).toBe("vscodeTerminal")
+	it("uses reuse-or-background when no preference is stored", async () => {
+		expect(await readTerminalExecutionMode()).toBe("reuseOrBackground")
 	})
 
 	it.each(["vscodeTerminal", "backgroundExec"] as const)("preserves a stored %s preference", async (storedValue) => {

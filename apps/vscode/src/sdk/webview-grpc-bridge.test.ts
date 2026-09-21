@@ -78,6 +78,41 @@ describe("WebviewGrpcBridge", () => {
 		})
 	})
 
+	describe("state update routing", () => {
+		it("routes done-event state pushes through the debounced postStateFn", async () => {
+			const { promise, resolve } = Promise.withResolvers<void>()
+			const postState = vi.fn(() => {
+				resolve()
+				return promise
+			})
+			bridge.setPostStateFn(postState)
+			const listener = bridge.createListener()
+
+			const event = {
+				type: "agent_event",
+				payload: { event: { type: "done" } },
+			}
+			listener([], event as unknown as Parameters<typeof listener>[1])
+			await promise
+
+			expect(postState).toHaveBeenCalledTimes(1)
+		})
+
+		it("does not push state on non-terminal agent events", async () => {
+			const postState = vi.fn().mockResolvedValue(undefined)
+			bridge.setPostStateFn(postState)
+			const listener = bridge.createListener()
+
+			const event = {
+				type: "agent_event",
+				payload: { event: { type: "content_update" } },
+			}
+			listener([], event as unknown as Parameters<typeof listener>[1])
+
+			expect(postState).not.toHaveBeenCalled()
+		})
+	})
+
 	describe("pushStateUpdateFromController", () => {
 		it("should push state from the provided getter", async () => {
 			const { sendStateUpdate } = await import("@core/controller/state/subscribeToState")

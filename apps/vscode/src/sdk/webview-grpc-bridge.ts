@@ -31,6 +31,8 @@ import type { SessionEventListener } from "./sdk-message-coordinator"
  * and task history. Without this, state updates would have empty messages.
  */
 export class WebviewGrpcBridge {
+	/** Function to post a full state update through the controller's debounced flush. */
+	private postStateFn?: () => Promise<void>
 	/** Function to get the full ExtensionState from the controller */
 	private getStateFn?: () => Promise<import("@shared/ExtensionMessage").ExtensionState>
 
@@ -40,9 +42,16 @@ export class WebviewGrpcBridge {
 	}
 
 	/**
+	 * Set the function used to trigger a debounced state flush. Preferred over setGetStateFn
+	 * because it shares SdkController's debouncer, capping, and serialization path.
+	 */
+	setPostStateFn(fn: () => Promise<void>): void {
+		this.postStateFn = fn
+	}
+
+	/**
 	 * Set the function used to get ExtensionState for state updates.
-	 * This should be called after the controller is fully initialized,
-	 * passing `controller.getStateToPostToWebview.bind(controller)`.
+	 * Fallback when setPostStateFn is not supplied.
 	 */
 	setGetStateFn(fn: () => Promise<import("@shared/ExtensionMessage").ExtensionState>): void {
 		this.getStateFn = fn
@@ -109,8 +118,10 @@ export class WebviewGrpcBridge {
 	 */
 	private async pushStateUpdate(): Promise<void> {
 		try {
-			if (this.getStateFn) {
-				// Use the controller's getStateToPostToWebview() which
+			if (this.postStateFn) {
+				await this.postStateFn()
+			} else if (this.getStateFn) {
+				// Fallback when only getStateFn is wired:
 				// includes messages, currentTaskItem, and task history
 				const state = await this.getStateFn()
 				await sendStateUpdate(state)

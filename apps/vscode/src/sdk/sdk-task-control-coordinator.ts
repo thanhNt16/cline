@@ -181,27 +181,34 @@ export class SdkTaskControlCoordinator {
 				return historyItem
 			}
 
-			const currentTask = this.options.getTask()
-			if (currentTask) {
-				currentTask.messageStateHandler.clear()
-			}
-
-			this.options.resetMessageTranslator()
-
-			// Load messages before installing the new task proxy so any concurrent
-			// postStateToWebview() caller never sees the new id with empty messages.
+			// Load the replacement transcript BEFORE touching the shared task view.
+			// Clearing the old proxy's messages + bumping the translator epoch first
+			// shipped new-epoch EMPTY snapshots on every debounced postStateToWebview()
+			// while these awaits were in flight, and the webview reducer's resetTo()
+			// wiped the visible transcript on any epoch advance — leaving a blank chat
+			// while the session kept running (and forever if a load below failed).
+			// The clear + epoch bump are synchronous and immediately followed by
+			// addMessages + setTask, so no post can interleave between them.
 			const isLegacyTask = await this.options.taskHistory.isLegacyTask(taskId)
 			const sessionStatus = isLegacyTask ? undefined : await this.options.taskHistory.getSessionStatus(taskId)
 			const rawMessages = await this.options.taskHistory.getClineMessages(taskId)
 			if (isSuperseded()) {
 				return historyItem
 			}
+
 			const messages = this.options.messages.finalizeMessagesForSave(rawMessages)
 			const cleanedMessages = isLegacyTask
 				? this.appendLegacyTaskWarningAndResumeMessage(messages)
 				: messages.length > 0
 					? this.appendFreshResumeMessage(messages, sessionStatus)
 					: []
+
+			const currentTask = this.options.getTask()
+			if (currentTask) {
+				currentTask.messageStateHandler.clear()
+			}
+
+			this.options.resetMessageTranslator()
 
 			const task = createTaskProxy(
 				taskId,

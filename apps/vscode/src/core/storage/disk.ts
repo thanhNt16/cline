@@ -330,6 +330,16 @@ export function getGlobalDocsIndexSettingsFilePath(): string {
 }
 
 /**
+ * CellockAI: <primaryWorkspaceRoot>/.cellockai/docs_index.json — the project-scoped
+ * docindex settings override. Falls back to the global path (same as
+ * getGlobalDocsIndexSettingsFilePath) when no workspace folder is open, so the
+ * service degrades to the pre-project-scoping single-file behavior.
+ */
+export async function getProjectDocsIndexSettingsFilePath(): Promise<string> {
+	return path.join(await getProjectSettingsDirectoryPath(), "docs_index.json")
+}
+
+/**
  * Atomic JSON write: mkdir -p the parent, write a temp file with flag "wx"
  * (create-exclusive), then rename it over the target. A crash or failure
  * leaves any previous file intact. Mirror of the MCP settings write pattern.

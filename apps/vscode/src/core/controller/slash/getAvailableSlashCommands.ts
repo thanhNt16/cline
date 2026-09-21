@@ -79,6 +79,31 @@ export async function getAvailableSlashCommands(controller: Controller, _request
 		}
 	}
 
+	// CellockAI: surface discovered skills (SDK user-instruction watcher) so
+	// they appear in the slash autocomplete. These are the same command names
+	// SdkController.resolveSlashCommands expands at send time, so selecting
+	// /skill-name here triggers that skill's SKILL.md instructions.
+	try {
+		const runtimeCommands = await controller.listAvailableRuntimeSlashCommands()
+		const seen = new Set(commands.map((command) => command.name))
+		for (const command of runtimeCommands) {
+			if (command.kind !== "skill" || seen.has(command.name)) {
+				continue
+			}
+			seen.add(command.name)
+			commands.push(
+				SlashCommandInfo.create({
+					name: command.name,
+					description: command.description?.trim() || `Skill: ${command.name}`,
+					section: "skill",
+					cliCompatible: true,
+				}),
+			)
+		}
+	} catch {
+		// Keep built-ins + workflows if the watcher is unavailable.
+	}
+
 	return SlashCommandsResponse.create({ commands })
 }
 

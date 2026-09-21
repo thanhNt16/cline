@@ -172,6 +172,24 @@ export function shouldShowSlashCommandsMenu(text: string, cursorPosition: number
 }
 
 /**
+ * Dedupe slash commands by name (case-insensitive); first occurrence wins so
+ * the deliberate section ordering (default → custom → skill → mcp) is preserved.
+ */
+function dedupeCommands(commands: SlashCommand[]): SlashCommand[] {
+	const seen = new Set<string>()
+	const result: SlashCommand[] = []
+	for (const command of commands) {
+		const key = command.name.toLowerCase()
+		if (seen.has(key)) {
+			continue
+		}
+		seen.add(key)
+		result.push(command)
+	}
+	return result
+}
+
+/**
  * Gets filtered slash commands that match the current input
  */
 export function getMatchingSlashCommands(
@@ -181,6 +199,7 @@ export function getMatchingSlashCommands(
 	remoteWorkflowToggles?: Record<string, boolean>,
 	remoteWorkflows?: any[],
 	mcpServers: McpServer[] = [],
+	extraCommands: SlashCommand[] = [],
 ): SlashCommand[] {
 	const workflowCommands = getWorkflowCommands(
 		localWorkflowToggles,
@@ -189,7 +208,9 @@ export function getMatchingSlashCommands(
 		remoteWorkflows,
 	)
 	const mcpPromptCommands = getMcpPromptCommands(mcpServers)
-	const allCommands = [...DEFAULT_SLASH_COMMANDS, ...workflowCommands, ...mcpPromptCommands]
+	// Order matters: sections must be contiguous for the menu's index offsets.
+	// CellockAI: extraCommands carries discovered skills (section "skill").
+	const allCommands = dedupeCommands([...DEFAULT_SLASH_COMMANDS, ...workflowCommands, ...extraCommands, ...mcpPromptCommands])
 
 	if (!query) {
 		return allCommands
@@ -233,6 +254,7 @@ export function validateSlashCommand(
 	remoteWorkflowToggles?: Record<string, boolean>,
 	remoteWorkflows?: any[],
 	mcpServers: McpServer[] = [],
+	extraCommands: SlashCommand[] = [],
 ): "full" | "partial" | null {
 	if (!command) {
 		return null
@@ -245,7 +267,7 @@ export function validateSlashCommand(
 		remoteWorkflows,
 	)
 	const mcpPromptCommands = getMcpPromptCommands(mcpServers)
-	const allCommands = [...DEFAULT_SLASH_COMMANDS, ...workflowCommands, ...mcpPromptCommands]
+	const allCommands = dedupeCommands([...DEFAULT_SLASH_COMMANDS, ...workflowCommands, ...extraCommands, ...mcpPromptCommands])
 
 	// case insensitive matching
 	const exactMatch = allCommands.some((cmd) => cmd.name.toLowerCase() === command.toLowerCase())

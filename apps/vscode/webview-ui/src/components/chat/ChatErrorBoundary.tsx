@@ -1,10 +1,13 @@
 import React from "react"
+import { reportWebviewError } from "@/utils/reportWebviewError"
 
 interface ChatErrorBoundaryProps {
 	children: React.ReactNode
 	errorTitle?: string
 	errorBody?: string
 	height?: string
+	/** When any of these values change, a caught error is cleared and children re-render. */
+	resetKeys?: unknown[]
 }
 
 interface ChatErrorBoundaryState {
@@ -29,6 +32,18 @@ class ChatErrorBoundary extends React.Component<ChatErrorBoundaryProps, ChatErro
 	componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
 		console.error("Error in ChatErrorBoundary:", error.message)
 		console.error("Component stack:", errorInfo.componentStack)
+		reportWebviewError("ChatErrorBoundary", error, errorInfo.componentStack ?? undefined)
+	}
+	componentDidUpdate(prevProps: ChatErrorBoundaryProps) {
+		if (!this.state.hasError || !this.props.resetKeys || !prevProps.resetKeys) {
+			return
+		}
+		const changed =
+			this.props.resetKeys.length !== prevProps.resetKeys.length ||
+			this.props.resetKeys.some((val, idx) => !Object.is(val, prevProps.resetKeys![idx]))
+		if (changed) {
+			this.setState({ hasError: false, error: null })
+		}
 	}
 
 	render() {

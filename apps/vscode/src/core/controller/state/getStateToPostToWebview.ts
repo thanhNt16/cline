@@ -13,8 +13,8 @@ import { ExtensionRegistryInfo } from "@/registry"
 import { BannerService } from "@/services/banner/BannerService"
 import { featureFlagsService } from "@/services/feature-flags"
 import { getDistinctId } from "@/services/logging/distinctId"
-import { belongsToWorkspace } from "@/services/workspace-history/WorkspaceHistoryIndex"
 import { getExtensionVariant } from "@/services/telemetry/rollout-metadata"
+import { belongsToWorkspace } from "@/services/workspace-history/WorkspaceHistoryIndex"
 import { Logger } from "@/shared/services/Logger"
 import { getLatestAnnouncementId } from "@/utils/announcements"
 import { getClineOnboardingModels } from "../models/getClineOnboardingModels"
@@ -94,7 +94,10 @@ async function buildState(controller: {
 	const currentTaskItem = controller.task?.taskId
 		? (taskHistory || []).find((item: any) => item.id === controller.task?.taskId)
 		: undefined
-	const clineMessages = [...(controller.task?.messageStateHandler?.getClineMessages?.() || [])]
+	// Cap at the reducer's own MAX_TRANSCRIPT_MESSAGES (messageReducer.ts) — the webview discards
+	// anything beyond 1000, so this is lossless and bounds every uncapped snapshot path
+	// (initial subscribeToState, task-switch posts, bridge push).
+	const clineMessages = (controller.task?.messageStateHandler?.getClineMessages?.() || []).slice(-1000)
 	const checkpointRestoreInput = controller.checkpointRestoreInput
 
 	const workspaceTaskIds = controller.workspaceHistoryIndex ? await controller.workspaceHistoryIndex.getTaskIds() : null

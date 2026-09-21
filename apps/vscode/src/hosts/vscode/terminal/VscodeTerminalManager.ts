@@ -319,8 +319,15 @@ export class VscodeTerminalManager {
 	 * earlier (e.g. when the model request was built) pass it here so a
 	 * settings change does not switch shells under an in-flight tool call.
 	 * The returned terminal is reserved until runCommand() takes ownership.
+	 * @param options.createIfNone When false, return undefined instead of
+	 * creating a new terminal when no reusable one is found. Default true.
 	 */
-	async getOrCreateTerminal(cwd: string, profileId: string = this.defaultTerminalProfile): Promise<ITerminalInfo> {
+	async getOrCreateTerminal(
+		cwd: string,
+		profileId: string = this.defaultTerminalProfile,
+		options?: { createIfNone?: boolean },
+	): Promise<ITerminalInfo | undefined> {
+		const createIfNone = options?.createIfNone ?? true
 		// A fallback terminal becomes cleanup-eligible when its unobserved-command
 		// outcome is emitted. Dispose the snapshot of eligible terminals before
 		// selecting a terminal for this acquisition.
@@ -388,6 +395,14 @@ export class VscodeTerminalManager {
 						// The user's command has not started. The failed setup command may
 						// still change this terminal later, so evict it and continue with a
 						// fresh terminal rooted at the requested cwd.
+						if (!createIfNone) {
+							// Don't evict — the terminal may be reusable for a later call.
+							// The finally block releases the busy flag.
+							Logger.log(
+								`[TerminalManager] Could not confirm terminal ${availableTerminal.id} changed to "${cwd}"; no-create mode — returning undefined`,
+							)
+							return
+						}
 						Logger.warn(
 							`[TerminalManager] Failed to prepare terminal ${availableTerminal.id} for "${cwd}"; creating a new terminal`,
 							error,
@@ -438,6 +453,11 @@ export class VscodeTerminalManager {
 			}
 		}
 
+		if (!createIfNone) {
+			Logger.log(`[TerminalManager] No reusable terminal found; no-create mode — returning undefined`)
+			return
+		}
+
 		// If all terminals are busy or don't match shell profile, create a new one with the configured shell
 		const newTerminalInfo = TerminalRegistry.createTerminal(cwd, expectedShellPath)
 		newTerminalInfo.busy = true
@@ -467,9 +487,17 @@ export class VscodeTerminalManager {
 	}
 
 	disposeAll() {
-		// for (const info of this.terminals) {
-		// 	//info.terminal.dispose() // dont want to dispose terminals when task is aborted
-		// }
+		for (const id of this.terminalIds) {
+			const info = TerminalRegistry.getTerminal(id)
+			if (info && !TerminalRegistry.isTerminalClosed(info.terminal)) {
+				try {
+					info.terminal.dispose()
+				} catch {
+					// already disposed or closing
+				}
+			}
+			TerminalRegistry.removeTerminal(id)
+		}
 		this.terminalIds.clear()
 		this.processes.clear()
 		this.disposables.forEach((disposable) => disposable.dispose())

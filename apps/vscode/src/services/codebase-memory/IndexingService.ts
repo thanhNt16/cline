@@ -30,6 +30,8 @@ export type ProgressHandler = (event: IndexProgressEvent) => void
 export class IndexingService {
 	private currentProcess: ChildProcess | undefined
 	private noOutputTimer: ReturnType<typeof setTimeout> | undefined
+	/** Set when we terminated the child (cancel/watchdog). Needed because on Windows kill() exits with code=1, signal=null — indistinguishable from a crash without this flag. */
+	private weKilled = false
 	private lastJsonLine: string | undefined
 	private lastPercent = 0
 	private currentPhase = ""
@@ -65,6 +67,7 @@ export class IndexingService {
 	cancel(): void {
 		this.clearNoOutputTimer()
 		if (this.currentProcess && !this.currentProcess.killed) {
+			this.weKilled = true
 			this.currentProcess.kill("SIGTERM")
 		}
 	}
@@ -117,6 +120,7 @@ export class IndexingService {
 				env: opts.supervised ? { ...process.env } : { ...process.env, CBM_INDEX_SUPERVISOR: "0" },
 			})
 			this.currentProcess = child
+			this.weKilled = false
 			this.resetNoOutputTimer()
 			child.stdin?.end(stdinJson)
 
@@ -167,9 +171,10 @@ export class IndexingService {
 						}),
 					)
 					resolve("clean")
-				} else if (signal) {
+				} else if (signal || this.weKilled) {
 					// Killed by us (cancel or watchdog) — the watchdog emits its own timeout error;
-					// a user cancel stays silent. Never retry.
+					// a user cancel stays silent. Never retry. On Windows kill() reports
+					// code=1/signal=null, so the weKilled flag is what catches it there.
 					resolve("cancelled")
 				} else {
 					if (opts.emitTerminalError) {

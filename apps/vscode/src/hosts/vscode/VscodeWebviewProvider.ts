@@ -1,7 +1,7 @@
 import { sendShowWebviewEvent } from "@core/controller/ui/subscribeToShowWebview"
 import { WebviewProvider } from "@core/webview"
 import * as vscode from "vscode"
-import { handleGrpcRequest, handleGrpcRequestCancel } from "@/core/controller/grpc-handler"
+import { getRequestRegistry, handleGrpcRequest, handleGrpcRequestCancel } from "@/core/controller/grpc-handler"
 import { HostProvider } from "@/hosts/host-provider"
 import { ExtensionRegistryInfo } from "@/registry"
 import { telemetryService } from "@/services/telemetry"
@@ -206,6 +206,12 @@ export class VscodeWebviewProvider extends WebviewProvider implements vscode.Web
 	 * when the user moves the view to the other sidebar).
 	 */
 	private disposeView() {
+		// The webview is going away without sending per-request grpc_request_cancel
+		// (reload, crash, sidebar move). Cancel every streaming subscription so the
+		// module-level subscribeTo* sets and the request registry don't retain this
+		// webview's responseStream closures (each one holds a postMessage handle to
+		// a dead webview). The next resolveWebviewView re-subscribes fresh.
+		getRequestRegistry().cancelAll()
 		// WebviewView doesn't have a dispose method, it's managed by VSCode
 		// We just need to clean up our disposables
 		while (this.disposables.length) {

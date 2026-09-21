@@ -422,4 +422,67 @@ describe("McpHub.callTool", () => {
 			result.content.should.have.length(0)
 		})
 	})
+
+	// ── CellockAI: docindex project arg-default ─────────────────────────
+
+	describe("docindex project arg-default", () => {
+		it("injects project when the model omits it", async () => {
+			const { hub, client } = createMcpHub({ serverName: "docindex" })
+			;(hub as any).docIndexProjectResolver = async () => "my-project"
+
+			await hub.callTool("docindex", "search", { query: "how to auth" }, "ulid-d1")
+
+			const requestArgs = client.request.firstCall.args[0]
+			requestArgs.params.arguments.should.deepEqual({ query: "how to auth", project: "my-project" })
+		})
+
+		it("injects project when toolArguments is undefined", async () => {
+			const { hub, client } = createMcpHub({ serverName: "docindex" })
+			;(hub as any).docIndexProjectResolver = async () => "my-project"
+
+			await hub.callTool("docindex", "search", undefined, "ulid-d2")
+
+			const requestArgs = client.request.firstCall.args[0]
+			requestArgs.params.arguments.should.deepEqual({ project: "my-project" })
+		})
+
+		it("does NOT override an explicit project", async () => {
+			const { hub, client } = createMcpHub({ serverName: "docindex" })
+			;(hub as any).docIndexProjectResolver = async () => "my-project"
+
+			await hub.callTool("docindex", "search", { project: "explicit", query: "x" }, "ulid-d3")
+
+			const requestArgs = client.request.firstCall.args[0]
+			requestArgs.params.arguments.should.deepEqual({ project: "explicit", query: "x" })
+		})
+
+		it("does not inject when no resolver is set", async () => {
+			const { hub, client } = createMcpHub({ serverName: "docindex" })
+
+			await hub.callTool("docindex", "search", { query: "x" }, "ulid-d4")
+
+			const requestArgs = client.request.firstCall.args[0]
+			requestArgs.params.arguments.should.deepEqual({ query: "x" })
+		})
+
+		it("does not inject for non-docindex servers", async () => {
+			const { hub, client } = createMcpHub({ serverName: "other-server" })
+			;(hub as any).docIndexProjectResolver = async () => "my-project"
+
+			await hub.callTool("other-server", "search", { query: "x" }, "ulid-d5")
+
+			const requestArgs = client.request.firstCall.args[0]
+			requestArgs.params.arguments.should.deepEqual({ query: "x" })
+		})
+
+		it("does not inject when resolver returns undefined", async () => {
+			const { hub, client } = createMcpHub({ serverName: "docindex" })
+			;(hub as any).docIndexProjectResolver = async () => undefined
+
+			await hub.callTool("docindex", "search", { query: "x" }, "ulid-d6")
+
+			const requestArgs = client.request.firstCall.args[0]
+			requestArgs.params.arguments.should.deepEqual({ query: "x" })
+		})
+	})
 })

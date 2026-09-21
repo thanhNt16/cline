@@ -78,7 +78,10 @@ const GLOBAL_STATE_FIELDS = {
 	vscodeTerminalExecutionMode: {
 		// Defaults only apply when no value is stored, so users who previously
 		// chose either mode keep their saved preference.
-		default: "vscodeTerminal" as "vscodeTerminal" | "backgroundExec",
+		// "reuseOrBackground" is the default: one visible CellockAI terminal is
+		// reused, and commands that arrive while it is unavailable run hidden in a
+		// child process instead of opening another visible terminal.
+		default: "reuseOrBackground" as "vscodeTerminal" | "backgroundExec" | "reuseOrBackground",
 	},
 	isNewUser: { default: true as boolean },
 	welcomeViewCompleted: { default: undefined as boolean | undefined },

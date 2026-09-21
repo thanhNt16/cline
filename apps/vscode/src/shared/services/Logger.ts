@@ -50,8 +50,12 @@ export class Logger {
 	static #output(level: string, message: string, error: Error | undefined, args: any[]) {
 		try {
 			let fullMessage = message
-			if (Logger.isVerbose && args.length > 0) {
-				fullMessage += ` ${args.map((arg) => JSON.stringify(arg)).join(" ")}`
+			// ERROR/WARN always carry their args: dropping them in non-dev builds is why error lines
+			// arrive with empty bodies.
+			if ((level === "ERROR" || level === "WARN" || Logger.isVerbose) && args.length > 0) {
+				// JSON.stringify(Error) is "{}", so Error args must carry their message
+				// explicitly or production ERROR lines lose the failure detail.
+				fullMessage += ` ${args.map((arg) => (arg instanceof Error ? arg.message : JSON.stringify(arg))).join(" ")}`
 			}
 			const errorSuffix = error?.message ? ` ${error.message}` : ""
 			const ts = new Date().toISOString()

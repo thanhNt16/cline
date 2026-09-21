@@ -1,4 +1,4 @@
-import { memo, useEffect } from "react"
+import { memo, useEffect, useMemo } from "react"
 import { useRemark } from "react-remark"
 import rehypeHighlight, { Options } from "rehype-highlight"
 import styled from "styled-components"
@@ -21,6 +21,27 @@ minWidth: "max-content",
 interface CodeBlockProps {
 	source?: string
 	forceWrap?: boolean
+}
+
+// Cap the number of lines rendered per code block. Unbounded file reads and
+// command output were materializing megabytes of DOM and running highlight.js
+// over the full payload, exhausting renderer memory in long sessions. Keep the
+// tail (the actionable part) and append a truncation marker.
+const MAX_CODE_BLOCK_LINES = 1500
+
+const truncateSource = (source: string): string => {
+	if (!source) return source
+	const lines = source.split("\n")
+	if (lines.length <= MAX_CODE_BLOCK_LINES + 2) return source
+	const opening = lines[0]
+	const closing = lines[lines.length - 1]
+	const contentTail = lines.slice(-(MAX_CODE_BLOCK_LINES - 1), -1)
+	return [
+		opening,
+		`<!-- [truncated] ${contentTail.length} of ${lines.length - 2} lines shown -->`,
+		...contentTail,
+		closing,
+	].join("\n")
 }
 
 const StyledMarkdown = styled.div<{ forceWrap: boolean }>`
@@ -114,6 +135,10 @@ const StyledPre = styled.pre<{ theme: any }>`
 `
 
 const CodeBlock = memo(({ source, forceWrap = false }: CodeBlockProps) => {
+	// Truncate once per source so the remark pipeline + highlight.js only ever see
+	// a bounded payload (large file reads / command output were the OOM source).
+	const truncatedSource = useMemo(() => truncateSource(source || ""), [source])
+
 	const [reactContent, setMarkdownSource] = useRemark({
 		remarkPlugins: [
 			() => {
@@ -143,8 +168,8 @@ const CodeBlock = memo(({ source, forceWrap = false }: CodeBlockProps) => {
 	})
 
 	useEffect(() => {
-		setMarkdownSource(source || "")
-	}, [source, setMarkdownSource])
+		setMarkdownSource(truncatedSource)
+	}, [truncatedSource, setMarkdownSource])
 
 	return (
 		<div

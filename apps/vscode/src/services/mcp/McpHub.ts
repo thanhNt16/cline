@@ -84,6 +84,18 @@ export class McpHub {
 	getMcpServersPath: () => Promise<string>
 	private getSettingsDirectoryPath: () => Promise<string>
 	private clientVersion: string
+	/**
+	 * CellockAI: optional resolver that returns the persisted docindex project name
+	 * for the active workspace. When set, callTool() auto-fills the `project` arg
+	 * of the docindex MCP `search` tool whenever the model omits it, so the agent
+	 * doesn't have to re-specify the project each turn. Wired by SdkController.
+	 */
+	private docIndexProjectResolver?: () => Promise<string | undefined>
+
+	setDocIndexProjectResolver(resolver: () => Promise<string | undefined>): void {
+		this.docIndexProjectResolver = resolver
+	}
+
 	private telemetryService: TelemetryService
 	private mcpOAuthManager: McpOAuthManager
 
@@ -1968,6 +1980,16 @@ export class McpHub {
 		if (!connection.client) {
 			const detail = connection.server.error ? ` Last error: ${connection.server.error}` : ""
 			throw new Error(`Server "${serverName}" is not connected and cannot be used.${detail}`)
+		}
+
+		// CellockAI: auto-default the docindex MCP `search` tool's `project` arg from
+		// the persisted workspace setting, so the agent doesn't re-specify it each turn.
+		// Only fills when the model omitted it; an explicit value always wins.
+		if (serverName === "docindex" && toolName === "search" && this.docIndexProjectResolver) {
+			const project = await this.docIndexProjectResolver()
+			if (project && (!toolArguments || toolArguments.project == null)) {
+				toolArguments = { ...(toolArguments ?? {}), project }
+			}
 		}
 
 		// The config is re-resolved on each call, so a changed timeout takes

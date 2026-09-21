@@ -54,7 +54,7 @@ export interface VscodeExtraToolsOptions {
 	 */
 	getTerminalManager?: () => VscodeTerminalManager
 	/** Current VS Code terminal execution mode, captured when the session tools are built. */
-	vscodeTerminalExecutionMode?: "vscodeTerminal" | "backgroundExec"
+	vscodeTerminalExecutionMode?: "vscodeTerminal" | "backgroundExec" | "reuseOrBackground"
 	/** Registry of in-flight foreground executions for "Proceed While Running". */
 	foregroundCommands?: SdkForegroundCommandCoordinator
 }

@@ -47,6 +47,25 @@ export interface DocInfo {
 	chunk_count: number
 	content_hash: string
 	url: string
+	/** Real crawled URL (absent for file uploads / legacy docs). */
+	source_url?: string
+	/** Crawl this page belongs to (absent for uploads). */
+	crawl_id?: string
+}
+
+export interface CrawlInfo {
+	crawl_id: string
+	root_url: string
+	status: string
+	max_depth: number
+	max_pages: number
+	page_count: number
+	created_at: string
+}
+
+export interface CrawlDetail {
+	crawl: CrawlInfo
+	pages: DocInfo[]
 }
 
 export class VesselIndexerClient {
@@ -94,7 +113,7 @@ export class VesselIndexerClient {
 		return await response.json()
 	}
 
-	async indexUrl(project: string, url: string): Promise<{ task_id: string }> {
+	async indexUrl(project: string, url: string): Promise<{ crawl_id: string; task_id: string }> {
 		const response = await fetch(`${this.serverUrl}/projects/${encodeURIComponent(project)}/urls`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -190,6 +209,58 @@ export class VesselIndexerClient {
 		const params = new URLSearchParams({ offset: String(offset), limit: String(limit) })
 		const response = await fetch(`${this.serverUrl}/projects/${encodeURIComponent(project)}/documents?${params}`)
 		if (!response.ok) throw new Error(`List documents failed: ${response.status} ${response.statusText}`)
+		return await response.json()
+	}
+
+	/** Same-domain BFS crawl. `maxDepth`/`maxPages` fall back to server defaults when omitted. */
+	async crawlUrl(
+		project: string,
+		url: string,
+		maxDepth?: number,
+		maxPages?: number,
+	): Promise<{ crawl_id: string; task_id: string }> {
+		const body: { url: string; max_depth?: number; max_pages?: number } = { url }
+		if (maxDepth != null) body.max_depth = maxDepth
+		if (maxPages != null) body.max_pages = maxPages
+		const response = await fetch(`${this.serverUrl}/projects/${encodeURIComponent(project)}/crawls`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		})
+		if (!response.ok) throw new Error(`Crawl URL failed: ${response.status} ${response.statusText}`)
+		return await response.json()
+	}
+
+	async listCrawls(project: string): Promise<CrawlInfo[]> {
+		const response = await fetch(`${this.serverUrl}/projects/${encodeURIComponent(project)}/crawls`)
+		if (!response.ok) throw new Error(`List crawls failed: ${response.status} ${response.statusText}`)
+		return await response.json()
+	}
+
+	async getCrawl(project: string, crawlId: string): Promise<CrawlDetail> {
+		const response = await fetch(
+			`${this.serverUrl}/projects/${encodeURIComponent(project)}/crawls/${encodeURIComponent(crawlId)}`,
+		)
+		if (!response.ok) throw new Error(`Get crawl failed: ${response.status} ${response.statusText}`)
+		return await response.json()
+	}
+
+	/** Re-crawl an existing crawl row. Returns a task id to poll. */
+	async refreshCrawl(project: string, crawlId: string): Promise<{ task_id: string }> {
+		const response = await fetch(
+			`${this.serverUrl}/projects/${encodeURIComponent(project)}/crawls/${encodeURIComponent(crawlId)}/refresh`,
+			{ method: "POST" },
+		)
+		if (!response.ok) throw new Error(`Refresh crawl failed: ${response.status} ${response.statusText}`)
+		return await response.json()
+	}
+
+	async deleteCrawl(project: string, crawlId: string): Promise<{ status: string }> {
+		const response = await fetch(
+			`${this.serverUrl}/projects/${encodeURIComponent(project)}/crawls/${encodeURIComponent(crawlId)}`,
+			{ method: "DELETE" },
+		)
+		if (!response.ok) throw new Error(`Delete crawl failed: ${response.status} ${response.statusText}`)
 		return await response.json()
 	}
 }

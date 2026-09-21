@@ -1,8 +1,12 @@
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { createReadStream } from "node:fs"
+import { createReadStream, createWriteStream } from "node:fs"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
+import { Readable, Transform } from "node:stream"
+import { pipeline } from "node:stream/promises"
+import type { ReadableStream as WebReadableStream } from "node:stream/web"
+import extractZip from "extract-zip"
 import { extract } from "tar"
 import { Logger } from "@/shared/services/Logger"
 import {
@@ -17,6 +21,9 @@ import type { Arch, DownloadProgress, Platform } from "./types"
 
 /** Hard wall-clock bound for --version probes. See getVersionOf() for why this can't just be execFile's `timeout` option. */
 const VERSION_PROBE_TIMEOUT_MS = 5000
+
+/** Delay before the second --version probe — see probeVersionWithRetry. */
+const VERSION_PROBE_RETRY_DELAY_MS = 2000
 
 interface GitHubRelease {
 	tag_name: string
@@ -45,7 +52,12 @@ export class BinaryManager {
 	) {}
 
 	getBinaryPath(): string | undefined {
-		return path.join(this.storageDir, BINARY_SUBDIR, BINARY_NAME)
+		return path.join(this.storageDir, BINARY_SUBDIR, this.binaryFileName(BINARY_NAME))
+	}
+
+	/** The shipped binaries are `<name>` on POSIX and `<name>.exe` on Windows. */
+	private binaryFileName(base: string): string {
+		return this.platform === "windows" ? `${base}.exe` : base
 	}
 
 	async isBinaryPresent(): Promise<boolean> {
@@ -99,23 +111,44 @@ export class BinaryManager {
 			throw new Error(`No checksum found for ${assetName} in checksums.txt`)
 		}
 		const archivePath = await this.downloadArchive(asset.browser_download_url, asset.name, onProgress)
-		await this.verifyChecksum(archivePath, expectedHash)
-		const binPath = await this.extractArchive(archivePath)
-		await fs.unlink(archivePath).catch(() => {})
+		let binPath: string
+		try {
+			await this.verifyChecksum(archivePath, expectedHash)
+			binPath = await this.extractArchive(archivePath)
+		} finally {
+			// Always drop the archive — on failure it would otherwise sit in storageDir forever
+			// (the windows zip is ~273MB).
+			await fs.unlink(archivePath).catch(() => {})
+		}
 
 		// The archive's checksum being valid doesn't guarantee the extracted file on disk is
 		// intact (e.g. extraction interrupted by a window reload, or — before the single-flight
 		// guard above — a concurrent extract racing the same destination path). Confirm the
 		// installed binary actually runs before declaring success, so a corrupt install fails
 		// loudly here instead of silently hanging the first real invocation later.
-		const version = await this.getVersionOf(binPath)
+		const version = await this.probeVersionWithRetry(binPath)
 		if (!version) {
 			await fs.unlink(binPath).catch(() => {})
 			throw new Error(
-				`Installed binary at ${binPath} did not respond to --version within ${VERSION_PROBE_TIMEOUT_MS}ms after extraction — install appears corrupt, removed it. Try again.`,
+				`Installed binary at ${binPath} did not respond to --version after extraction — install appears corrupt, removed it. Try again.`,
 			)
 		}
 		return binPath
+	}
+
+	/**
+	 * Probe the freshly installed binary, retrying once after a short delay. First exec of a
+	 * newly written large binary can exceed VERSION_PROBE_TIMEOUT_MS under antivirus
+	 * real-time scanning (Windows Defender) or heavy I/O — deleting a checksum-verified
+	 * install on a single slow probe turns a transient stall into a permanent retry loop.
+	 */
+	private async probeVersionWithRetry(binPath: string): Promise<string | undefined> {
+		const first = await this.getVersionOf(binPath)
+		if (first) return first
+		const { promise, resolve } = Promise.withResolvers<void>()
+		setTimeout(resolve, VERSION_PROBE_RETRY_DELAY_MS)
+		await promise
+		return this.getVersionOf(binPath)
 	}
 
 	/**
@@ -190,21 +223,25 @@ export class BinaryManager {
 	}
 
 	getArchiveAssetName(): string {
+		// Linux uses the -portable (statically linked) assets: the regular builds require
+		// GLIBC_2.38, which excludes Ubuntu 22.04/Debian 12/RHEL 9 and older.
+		const variant = this.platform === "linux" ? "-portable" : ""
 		if (this.platform === "windows") {
-			return `codebase-memory-mcp-${this.platform}-${this.arch}.zip`
+			return `codebase-memory-mcp-${this.platform}-${this.arch}${variant}.zip`
 		}
-		return `codebase-memory-mcp-${this.platform}-${this.arch}.tar.gz`
+		return `codebase-memory-mcp-${this.platform}-${this.arch}${variant}.tar.gz`
 	}
 
 	getUiArchiveAssetName(): string {
+		const variant = this.platform === "linux" ? "-portable" : ""
 		if (this.platform === "windows") {
-			return `codebase-memory-mcp-ui-${this.platform}-${this.arch}.zip`
+			return `codebase-memory-mcp-ui-${this.platform}-${this.arch}${variant}.zip`
 		}
-		return `codebase-memory-mcp-ui-${this.platform}-${this.arch}.tar.gz`
+		return `codebase-memory-mcp-ui-${this.platform}-${this.arch}${variant}.tar.gz`
 	}
 
 	getUiBinaryPath(): string | undefined {
-		return path.join(this.storageDir, UI_BINARY_SUBDIR, UI_BINARY_NAME)
+		return path.join(this.storageDir, UI_BINARY_SUBDIR, this.binaryFileName(UI_BINARY_NAME))
 	}
 
 	async isUiBinaryPresent(): Promise<boolean> {
@@ -249,16 +286,20 @@ export class BinaryManager {
 			throw new Error(`No checksum found for ${assetName} in checksums.txt`)
 		}
 		const archivePath = await this.downloadArchive(asset.browser_download_url, asset.name)
-		await this.verifyChecksum(archivePath, expectedHash)
-		const uiBinDir = path.join(this.storageDir, UI_BINARY_SUBDIR)
-		const binPath = await this.atomicExtract(archivePath, uiBinDir, UI_BINARY_NAME, "extractUiArchive")
-		await fs.unlink(archivePath).catch(() => {})
+		let binPath: string
+		try {
+			await this.verifyChecksum(archivePath, expectedHash)
+			const uiBinDir = path.join(this.storageDir, UI_BINARY_SUBDIR)
+			binPath = await this.atomicExtract(archivePath, uiBinDir, this.binaryFileName(UI_BINARY_NAME), "extractUiArchive")
+		} finally {
+			await fs.unlink(archivePath).catch(() => {})
+		}
 
-		const version = await this.getVersionOf(binPath)
+		const version = await this.probeVersionWithRetry(binPath)
 		if (!version) {
 			await fs.unlink(binPath).catch(() => {})
 			throw new Error(
-				`Installed UI binary at ${binPath} did not respond to --version within ${VERSION_PROBE_TIMEOUT_MS}ms after extraction — install appears corrupt, removed it. Try again.`,
+				`Installed UI binary at ${binPath} did not respond to --version after extraction — install appears corrupt, removed it. Try again.`,
 			)
 		}
 		return binPath
@@ -314,19 +355,17 @@ export class BinaryManager {
 		if (!resp.body) {
 			throw new Error("No response body for archive download")
 		}
-		const reader = resp.body.getReader()
-		const chunks: Buffer[] = []
+		// Stream to disk — buffering the whole archive in RAM peaks at ~2x its size in the
+		// extension host (the windows zip is ~273MB) and can OOM the host mid-download.
 		let bytesDownloaded = 0
-		for (;;) {
-			const { done, value } = await reader.read()
-			if (done) break
-			chunks.push(Buffer.from(value))
-			bytesDownloaded += value.byteLength
-			if (onProgress) {
-				onProgress({ bytesDownloaded, bytesTotal, pct: bytesTotal > 0 ? (bytesDownloaded / bytesTotal) * 100 : 0 })
-			}
-		}
-		await fs.writeFile(archivePath, Buffer.concat(chunks))
+		const counter = new Transform({
+			transform(chunk, _enc, cb) {
+				bytesDownloaded += chunk.byteLength
+				onProgress?.({ bytesDownloaded, bytesTotal, pct: bytesTotal > 0 ? (bytesDownloaded / bytesTotal) * 100 : 0 })
+				cb(null, chunk)
+			},
+		})
+		await pipeline(Readable.fromWeb(resp.body as unknown as WebReadableStream), counter, createWriteStream(archivePath))
 		return archivePath
 	}
 
@@ -345,13 +384,13 @@ export class BinaryManager {
 
 	private async extractArchive(archivePath: string): Promise<string> {
 		const binDir = path.join(this.storageDir, BINARY_SUBDIR)
-		return this.atomicExtract(archivePath, binDir, BINARY_NAME, "extractArchive")
+		return this.atomicExtract(archivePath, binDir, this.binaryFileName(BINARY_NAME), "extractArchive")
 	}
 
 	/**
 	 * Extracts `archivePath` into a temp sibling directory, then moves its contents into
 	 * `destDir` via fs.rename (atomic on the same filesystem) instead of extracting directly
-	 * into destDir. `tar.extract()` writes each entry in place (open+truncate+write), and if a
+	 * into destDir. In-place extraction writes each entry (open+truncate+write), and if a
 	 * previous install of this exact binary is still running (e.g. a live MCP server process —
 	 * confirmed present: the process keeps its own reference to the old inode's pages and is
 	 * unaffected, but a *new* `execve` of the path mid-write, or immediately after a partial
@@ -367,11 +406,17 @@ export class BinaryManager {
 		logTag: string,
 	): Promise<string> {
 		await fs.mkdir(destDir, { recursive: true })
+		await this.sweepOldFiles(destDir)
 		const tmpDir = `${destDir}.tmp-${process.pid}-${Date.now()}`
 		await fs.mkdir(tmpDir, { recursive: true })
 		try {
 			Logger.log(`[CBM-DIAG] ${logTag}: extracting ${archivePath} into staging dir ${tmpDir}`)
-			await extract({ file: archivePath, cwd: tmpDir })
+			// Windows releases ship .zip (tar can't parse it — TAR_BAD_ARCHIVE); POSIX ships .tar.gz.
+			if (archivePath.endsWith(".zip")) {
+				await extractZip(archivePath, { dir: tmpDir })
+			} else {
+				await extract({ file: archivePath, cwd: tmpDir })
+			}
 			const tmpContents = await fs.readdir(tmpDir)
 			Logger.log(`[CBM-DIAG] ${logTag}: staged contents=${JSON.stringify(tmpContents)}`)
 			if (!tmpContents.includes(expectedBinaryName)) {
@@ -384,13 +429,50 @@ export class BinaryManager {
 			// Move every extracted file into place with a single rename() each (atomic replace
 			// of any existing file at that name) rather than extracting straight into destDir.
 			for (const name of tmpContents) {
-				await fs.rename(path.join(tmpDir, name), path.join(destDir, name))
+				await this.moveIntoPlace(path.join(tmpDir, name), path.join(destDir, name), logTag)
 			}
 			const binPath = path.join(destDir, expectedBinaryName)
 			Logger.log(`[CBM-DIAG] ${logTag}: moved into place, binPath=${binPath}`)
 			return binPath
 		} finally {
 			await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+		}
+	}
+
+	/**
+	 * rename() `src` onto `dest`. On Windows, renaming over a RUNNING executable (e.g. the
+	 * live MCP server during a version-bump reinstall) fails EPERM/EBUSY — but renaming the
+	 * running image itself aside is allowed, so move the old file to a `.old-*` sibling and
+	 * retry. Stale `.old-*` files are swept on the next install (they can't be deleted while
+	 * the process holds them, which is fine — they're inert).
+	 */
+	private async moveIntoPlace(src: string, dest: string, logTag: string): Promise<void> {
+		try {
+			await fs.rename(src, dest)
+			return
+		} catch (e) {
+			const code = (e as NodeJS.ErrnoException).code
+			if (code !== "EPERM" && code !== "EBUSY") throw e
+		}
+		const aside = `${dest}.old-${process.pid}-${Date.now()}`
+		try {
+			await fs.rename(dest, aside)
+			Logger.log(`[CBM-DIAG] ${logTag}: dest locked (running process?), moved aside to ${aside}`)
+		} catch (e) {
+			const code = (e as NodeJS.ErrnoException).code
+			if (code !== "ENOENT") throw e
+		}
+		await fs.rename(src, dest)
+		await fs.unlink(aside).catch(() => {})
+	}
+
+	/** Best-effort sweep of `.old-*` leftovers from previous locked-file installs. */
+	private async sweepOldFiles(dir: string): Promise<void> {
+		const entries = await fs.readdir(dir).catch(() => [] as string[])
+		for (const name of entries) {
+			if (name.includes(".old-")) {
+				await fs.unlink(path.join(dir, name)).catch(() => {})
+			}
 		}
 	}
 }

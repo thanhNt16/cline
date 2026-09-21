@@ -1,5 +1,5 @@
 import { mentionRegex, mentionRegexGlobal } from "@shared/context-mentions"
-import { StringRequest } from "@shared/proto/cline/common"
+import { EmptyRequest, StringRequest } from "@shared/proto/cline/common"
 import { FileSearchRequest, FileSearchType, RelativePathsRequest } from "@shared/proto/cline/file"
 import { PlanActMode, TogglePlanActModeRequest } from "@shared/proto/cline/state"
 import { type SlashCommand } from "@shared/slashCommands"
@@ -20,7 +20,7 @@ import { useExtensionState } from "@/context/ExtensionStateContext"
 import { usePlatform } from "@/context/PlatformContext"
 import { useNormalizedApiConfiguration } from "@/hooks/useNormalizedApiConfiguration"
 import { cn } from "@/lib/utils"
-import { FileServiceClient, StateServiceClient } from "@/services/grpc-client"
+import { FileServiceClient, SlashServiceClient, StateServiceClient } from "@/services/grpc-client"
 import {
 	ContextMenuOptionType,
 	getContextMenuOptionIndex,
@@ -233,6 +233,10 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 		const [showSlashCommandsMenu, setShowSlashCommandsMenu] = useState(false)
 		const [selectedSlashCommandsIndex, setSelectedSlashCommandsIndex] = useState(0)
 		const [slashCommandsQuery, setSlashCommandsQuery] = useState("")
+		// CellockAI: discovered skills (SDK user-instruction watcher) fetched from
+		// the host so typing / suggests skill names like /aws-deploy. Sourced from
+		// the same runtime-command list resolveSlashCommands expands at send time.
+		const [skillSlashCommands, setSkillSlashCommands] = useState<SlashCommand[]>([])
 		const slashCommandsMenuContainerRef = useRef<HTMLDivElement>(null)
 
 		const [thumbnailsHeight, setThumbnailsHeight] = useState(0)
@@ -262,6 +266,37 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 		const [searchLoading, setSearchLoading] = useState(false)
 		const [, metaKeyChar] = useMetaKeyDetection(platform)
 		const { selectedProvider, selectedModelId } = useNormalizedApiConfiguration(mode)
+
+		// CellockAI: reload discovered skills whenever the slash menu opens so
+		// newly installed or edited skills appear without remounting the chat UI.
+		// Mirrors the desktop app's menu-open runtime-command fetch (#12894).
+		useEffect(() => {
+			if (!showSlashCommandsMenu) {
+				return
+			}
+			let cancelled = false
+			SlashServiceClient.getAvailableSlashCommands(EmptyRequest.create())
+				.then((response) => {
+					if (cancelled) {
+						return
+					}
+					setSkillSlashCommands(
+						(response.commands ?? [])
+							.filter((command) => command.section === "skill")
+							.map((command) => ({
+								name: command.name,
+								description: command.description,
+								section: "skill" as const,
+							})),
+					)
+				})
+				.catch(() => {
+					// Keep the previous skill list on error.
+				})
+			return () => {
+				cancelled = true
+			}
+		}, [showSlashCommandsMenu])
 
 		// Fetch git commits when Git is selected or when typing a hash
 		useEffect(() => {
@@ -491,6 +526,7 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 								remoteWorkflowToggles,
 								remoteConfigSettings?.remoteGlobalWorkflows,
 								mcpServers,
+								skillSlashCommands,
 							)
 
 							if (allCommands.length === 0) {
@@ -516,6 +552,7 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 							remoteWorkflowToggles,
 							remoteConfigSettings?.remoteGlobalWorkflows,
 							mcpServers,
+							skillSlashCommands,
 						)
 						if (commands.length > 0) {
 							handleSlashCommandsSelect(commands[selectedSlashCommandsIndex])
@@ -990,6 +1027,8 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					globalWorkflowToggles,
 					remoteWorkflowToggles,
 					remoteConfigSettings?.remoteGlobalWorkflows,
+					mcpServers,
+					skillSlashCommands,
 				)
 
 				if (isValidCommand) {
@@ -1003,7 +1042,7 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			highlightLayerRef.current.innerHTML = processedText
 			highlightLayerRef.current.scrollTop = textAreaRef.current.scrollTop
 			highlightLayerRef.current.scrollLeft = textAreaRef.current.scrollLeft
-		}, [localWorkflowToggles, globalWorkflowToggles, remoteWorkflowToggles, remoteConfigSettings])
+		}, [localWorkflowToggles, globalWorkflowToggles, remoteWorkflowToggles, remoteConfigSettings, skillSlashCommands])
 
 		useLayoutEffect(() => {
 			updateHighlights()
@@ -1443,6 +1482,7 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 								remoteWorkflowToggles={remoteWorkflowToggles}
 								selectedIndex={selectedSlashCommandsIndex}
 								setSelectedIndex={setSelectedSlashCommandsIndex}
+								skillCommands={skillSlashCommands}
 							/>
 						</div>
 					)}

@@ -41,13 +41,21 @@ import type { SdkForegroundCommandCoordinator } from "./sdk-foreground-command-c
 // ---------------------------------------------------------------------------
 
 type ShellCommand = string | StructuredCommandInput
-type VscodeTerminalExecutionMode = "vscodeTerminal" | "backgroundExec"
+type VscodeTerminalExecutionMode = "vscodeTerminal" | "backgroundExec" | "reuseOrBackground"
 
 /** Foreground VS Code terminals cannot be forcibly terminated; give long-running commands room to finish. */
 export const VSCODE_FOREGROUND_RUN_COMMANDS_TIMEOUT_MS = 60 * 60 * 1000
 
-/** Release the agent turn if a foreground command is still running after 300 seconds. */
-export const FOREGROUND_COMMAND_AUTO_PROCEED_MS = 300 * 1000
+/**
+ * Release the agent turn if a foreground command is still running after this
+ * delay (auto "Proceed While Running"), so the visible-terminal path never
+ * stalls the turn on the button. On detach the agent receives the output so far
+ * plus the log-file path it is told to read for the remainder, so shortening
+ * this does not lose output — it only trades a blocking wait for a follow-up
+ * log read. Keep small to avoid the "Proceed While Running" prompt lingering;
+ * raise it if agents act on incomplete output too often.
+ */
+export const FOREGROUND_COMMAND_AUTO_PROCEED_MS = 5 * 1000
 
 /**
  * Cap on the "Proceed While Running" log file. A detached devserver can log
@@ -280,7 +288,10 @@ export async function executeForeground(
 	}
 
 	try {
-		const terminalPromise = terminalManager.getOrCreateTerminal(cwd, terminalProfileId)
+		// Default createIfNone=true never returns undefined.
+		const terminalPromise = terminalManager.getOrCreateTerminal(cwd, terminalProfileId) as Promise<
+			NonNullable<Awaited<ReturnType<VscodeTerminalManager["getOrCreateTerminal"]>>>
+		>
 		const startDetached = (terminalInfo: Awaited<typeof terminalPromise>, log: DetachedCommandLog): void => {
 			try {
 				const process = terminalManager.runCommand(terminalInfo, terminalCommand)
@@ -549,6 +560,38 @@ function createVscodeShellExecutor(options: VscodeRunCommandsToolOptions, state:
 	// Lazy-init terminal manager reference
 	let terminalManager: VscodeTerminalManager | undefined
 
+	const runBackground = async (
+		command: ShellCommand,
+		commandCwd: string | undefined,
+		shell: string,
+		context: Parameters<ShellExecutor>[2],
+	): Promise<string> => {
+		if (!bgExecutor || bgExecutorShell !== shell) {
+			bgExecutorShell = shell
+			bgExecutor = createShellExecutor({
+				shell,
+				env: { SHELL: shell },
+			})
+			Logger.log(`[VscodeRunCommands] Background executor using shell: ${shell}`)
+		}
+		const telemetryMode: "vscodeTerminal" | "backgroundExec" =
+			executionMode === "reuseOrBackground" ? "backgroundExec" : executionMode
+		try {
+			const result = await bgExecutor(command, commandCwd || cwd, context)
+			telemetryService.captureTerminalExecution(true, "vscode", "child_process", {
+				exitCode: 0,
+				terminalExecutionMode: telemetryMode,
+			})
+			return result
+		} catch (error) {
+			telemetryService.captureTerminalExecution(false, "vscode", "child_process", {
+				...(error instanceof CommandExitError && { exitCode: error.exitCode }),
+				terminalExecutionMode: telemetryMode,
+			})
+			throw error
+		}
+	}
+
 	return async (command, commandCwd, context): Promise<string> => {
 		Logger.log(`[VscodeRunCommands] Executing command in ${executionMode} mode`)
 
@@ -557,34 +600,28 @@ function createVscodeShellExecutor(options: VscodeRunCommandsToolOptions, state:
 		const { profileId, shell } = state.snapshot
 
 		if (executionMode === "backgroundExec") {
-			// Background path — use SDK's createShellExecutor.
-			// Recreate the executor if the shell has changed
-			if (!bgExecutor || bgExecutorShell !== shell) {
-				bgExecutorShell = shell
-				bgExecutor = createShellExecutor({
-					shell,
-					// Set SHELL env to match the shell we're spawning so child
-					// processes see the correct value instead of the inherited parent's.
-					env: { SHELL: shell },
-				})
-				Logger.log(`[VscodeRunCommands] Background executor using shell: ${shell}`)
+			return runBackground(command, commandCwd, shell, context)
+		}
+
+		if (executionMode === "reuseOrBackground") {
+			if (!terminalManager) {
+				terminalManager = getTerminalManager()
 			}
-			// Record execution outcomes so background mode is comparable with
-			// foreground mode in the same task.terminal_execution event.
-			try {
-				const result = await bgExecutor(command, commandCwd || cwd, context)
-				telemetryService.captureTerminalExecution(true, "vscode", "child_process", {
-					exitCode: 0,
-					terminalExecutionMode: "backgroundExec",
-				})
-				return result
-			} catch (error) {
-				telemetryService.captureTerminalExecution(false, "vscode", "child_process", {
-					...(error instanceof CommandExitError && { exitCode: error.exitCode }),
-					terminalExecutionMode: "backgroundExec",
-				})
-				throw error
+			const terminalInfo = await terminalManager.getOrCreateTerminal(cwd, profileId, { createIfNone: false })
+			if (terminalInfo) {
+				Logger.log(`[VscodeRunCommands] reuseOrBackground: reusing visible terminal`)
+				return await executeForeground(
+					command,
+					commandCwd || cwd,
+					terminalManager,
+					MAX_COMMAND_OUTPUT_CHARS,
+					context.signal,
+					options.foregroundCommands,
+					profileId,
+				)
 			}
+			Logger.log(`[VscodeRunCommands] reuseOrBackground: no reusable terminal, running background`)
+			return runBackground(command, commandCwd, shell, context)
 		}
 
 		// Foreground path — use VscodeTerminalManager

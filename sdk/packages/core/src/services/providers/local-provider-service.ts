@@ -701,7 +701,10 @@ export async function listLocalProviders(
 				]);
 				const modelList = toSortedProviderModels(registeredModels);
 				const directSettings = state.providers[id]?.settings;
-				const persistedSettings = manager.getProviderSettings(id);
+				// Resolve from the already-loaded `state` instead of manager.getProviderSettings(id),
+				// which re-runs the uncached read() (existsSync + readFileSync + JSON.parse + zod)
+				// once per provider id — ~60 file reads per listing. Same alias-auth merge semantics.
+				const persistedSettings = manager.resolveProviderSettings(state, id);
 				const name = info?.name ?? titleCaseFromId(id);
 				const capabilities = resolveProviderCapabilities(
 					info?.capabilities,

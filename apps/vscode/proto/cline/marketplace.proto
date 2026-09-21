@@ -16,6 +16,9 @@ service MarketplaceService {
   rpc uninstallMarketplaceEntry(MarketplaceEntryRequest) returns (MarketplaceInstallResult);
   rpc toggleMarketplaceLocalInstalledEntry(ToggleMarketplaceLocalInstalledEntryRequest) returns (MarketplaceLocalInstalledEntries);
   rpc uninstallMarketplaceLocalInstalledEntry(MarketplaceLocalInstalledEntryRequest) returns (MarketplaceInstallResult);
+  // CellockAI: search the public skill ecosystem (skills.sh, the same backend
+  // the `skills` CLI uses) so users can discover skills by name from the UI.
+  rpc searchGithubSkills(SearchGithubSkillsRequest) returns (SearchGithubSkillsResponse);
 }
 
 message MarketplaceTag {
@@ -103,4 +106,22 @@ message MarketplaceInstallResult {
   string status = 3;
   string message = 4;
   optional string output = 5;
+}
+
+// CellockAI: skill-search request/response (skills.sh /api/search).
+message SearchGithubSkillsRequest {
+  string query = 1;
+  optional string owner = 2;
+}
+
+message SearchGithubSkillsResult {
+  string name = 1;
+  string source = 2; // owner/repo
+  string url = 3; // https://github.com/<source>
+  optional string description = 4;
+  optional int64 installs = 5;
+}
+
+message SearchGithubSkillsResponse {
+  repeated SearchGithubSkillsResult results = 1;
 }

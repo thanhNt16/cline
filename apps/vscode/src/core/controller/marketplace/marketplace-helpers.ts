@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { existsSync } from "node:fs"
-import { homedir, platform } from "node:os"
-import { isAbsolute, join, relative, resolve } from "node:path"
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs"
+import { homedir, platform, tmpdir } from "node:os"
+import { basename, isAbsolute, join, relative, resolve } from "node:path"
 import {
 	disablePluginMcpServersInSettings,
 	discoverPluginModulePaths,
@@ -21,10 +21,12 @@ import {
 	uninstallMarketplaceEntry as uninstallCoreMarketplaceEntry,
 	uninstallPlugin,
 } from "@cline/core"
+import { parseYamlFrontmatter } from "@core/context/instructions/user-instructions/frontmatter"
 import { deleteSkillFile } from "@core/controller/file/deleteSkillFile"
 import { refreshSkills } from "@core/controller/file/refreshSkills"
 import { toggleSkill } from "@core/controller/file/toggleSkill"
 import { resolveActiveModelIdFromApiConfiguration } from "@core/controller/models/taskApiModel"
+import { getClineSkillsDirectoryPath } from "@core/storage/skill-directories"
 import { DeleteSkillRequest, ToggleSkillRequest } from "@shared/proto/cline/file"
 import {
 	MarketplaceCatalog,
@@ -34,6 +36,8 @@ import {
 	MarketplaceLocalInstalledEntries,
 	MarketplaceLocalInstalledEntry,
 	MarketplaceLocalInstalledEntryRequest,
+	SearchGithubSkillsResponse,
+	SearchGithubSkillsResult,
 	ToggleMarketplaceLocalInstalledEntryRequest,
 } from "@shared/proto/cline/marketplace"
 import { HostProvider } from "@/hosts/host-provider"
@@ -121,6 +125,43 @@ export async function fetchMarketplaceCatalog(): Promise<MarketplaceCatalog> {
 		? json.entries.map(sanitizeEntry).filter((entry): entry is MarketplaceEntry => entry !== undefined)
 		: []
 	return MarketplaceCatalog.create({ entries })
+}
+
+// CellockAI: skills.sh is the public skill-search backend used by the `skills`
+// CLI (SEARCH_API_BASE in its cli.mjs). Undocumented but public; no auth, no
+// catalog import. ponytail: if the endpoint changes/disappears, the webview
+// surfaces the error and the manual URL-paste install path still works.
+const SKILLS_SEARCH_API = "https://skills.sh/api/search"
+
+export async function fetchGithubSkills(query: string, owner?: string): Promise<SearchGithubSkillsResponse> {
+	const q = query.trim()
+	if (!q) return SearchGithubSkillsResponse.create({ results: [] })
+	const params = new URLSearchParams({ q, limit: "20" })
+	if (owner?.trim()) params.set("owner", owner.trim())
+	const response = await fetch(`${SKILLS_SEARCH_API}?${params.toString()}`, {
+		headers: { Accept: "application/json" },
+	})
+	if (!response.ok) {
+		throw new Error(`Skill search failed: ${response.status} ${response.statusText}`.trim())
+	}
+	const json = (await response.json()) as { skills?: Array<Record<string, unknown>> }
+	const skills = Array.isArray(json.skills) ? json.skills : []
+	const results: SearchGithubSkillsResult[] = []
+	for (const skill of skills) {
+		const source = typeof skill.source === "string" ? skill.source : ""
+		if (!source) continue
+		const name = typeof skill.name === "string" ? skill.name : source.split("/").pop() || source
+		results.push(
+			SearchGithubSkillsResult.create({
+				name,
+				source,
+				url: `https://github.com/${source}`,
+				description: typeof skill.description === "string" ? skill.description : undefined,
+				installs: typeof skill.installs === "number" ? skill.installs : undefined,
+			}),
+		)
+	}
+	return SearchGithubSkillsResponse.create({ results })
 }
 
 function normalizeMatchValue(value: string | undefined): string {
@@ -330,35 +371,185 @@ async function installPluginMarketplaceEntry(entry: MarketplaceEntry, args: stri
 	})
 }
 
-async function installSkillMarketplaceEntry(entry: MarketplaceEntry, args: string[]): Promise<MarketplaceInstallResult> {
-	const command = "npx"
-	const commandArgs = ["-y", "skills@latest", "add", ...args, "-g", "-a", "cline", "-y"]
-	const displayCommand = formatCommand(command, commandArgs)
-	let result: SpawnResult
+/**
+ * Resolve a skill-install source to a cloneable `https://github.com/owner/repo.git` URL.
+ *
+ * Accepts:
+ *  - `https://github.com/owner/repo` (optionally with `.git`, trailing `/`, subpaths, query)
+ *  - `git+https://github.com/owner/repo[.git]`
+ *  - `git@github.com:owner/repo[.git]`
+ *  - shorthand `owner/repo`
+ *
+ * Throws if the input cannot be confidently resolved to a GitHub repository.
+ * Exported for unit tests.
+ */
+export function resolveGitHubCloneUrl(raw: string): { url: string; repoName: string } {
+	const trimmed = raw.trim()
+	if (!trimmed) throw new Error("Empty skill source.")
+
+	const sshMatch = trimmed.match(/^git@github\.com:([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i)
+	if (sshMatch) {
+		const ownerRepo = sshMatch[1]
+		return { url: `https://github.com/${ownerRepo}.git`, repoName: repoNameFromPath(ownerRepo) }
+	}
+
+	const normalized = trimmed.replace(/^git\+/, "")
+	if (/^https?:\/\//i.test(normalized)) {
+		const parsed = (() => {
+			try {
+				return new URL(normalized)
+			} catch {
+				return null
+			}
+		})()
+		if (!parsed) throw new Error(`Invalid URL: ${raw}`)
+		if (!/^(?:www\.)?github\.com$/i.test(parsed.hostname)) {
+			throw new Error(`Not a GitHub URL: ${raw}`)
+		}
+		const parts = parsed.pathname.split("/").filter(Boolean)
+		if (parts.length < 2) throw new Error(`Cannot derive owner/repo from ${raw}`)
+		const ownerRepo = `${parts[0]}/${parts[1].replace(/\.git$/i, "")}`
+		return { url: `https://github.com/${ownerRepo}.git`, repoName: repoNameFromPath(ownerRepo) }
+	}
+
+	const shorthandMatch = trimmed.match(/^([A-Za-z0-9][A-Za-z0-9.-]*)\/([A-Za-z0-9._-]+?)(?:\.git)?\/?$/)
+	if (shorthandMatch) {
+		const ownerRepo = `${shorthandMatch[1]}/${shorthandMatch[2]}`
+		return { url: `https://github.com/${ownerRepo}.git`, repoName: repoNameFromPath(ownerRepo) }
+	}
+
+	throw new Error(`Could not resolve GitHub repository from: ${raw}`)
+}
+
+function repoNameFromPath(ownerRepo: string): string {
+	return ownerRepo.split("/")[1]?.replace(/\.git$/i, "") || ownerRepo
+}
+
+/**
+ * Walk a cloned repo and return every directory that directly contains a
+ * `SKILL.md` (case-insensitive). Deduped. The `.git` directory is skipped.
+ */
+function discoverSkillFolders(cloneRoot: string): string[] {
+	const found = new Set<string>()
+	const stack = [cloneRoot]
+	while (stack.length > 0) {
+		const dir = stack.pop() ?? ""
+		let entries: ReturnType<typeof readdirSync>
+		try {
+			entries = readdirSync(dir, { withFileTypes: true })
+		} catch {
+			continue
+		}
+		for (const ent of entries) {
+			if (ent.name === ".git") continue
+			const fullPath = join(dir, ent.name)
+			if (ent.isDirectory()) {
+				stack.push(fullPath)
+			} else if (ent.isFile() && /^skill\.md$/i.test(ent.name)) {
+				found.add(dir)
+			}
+		}
+	}
+	return [...found]
+}
+
+/**
+ * Derive a filesystem-safe skill folder name. Prefers the `name` field of the
+ * SKILL.md YAML frontmatter when present and sane; otherwise falls back to the
+ * skill folder's basename.
+ */
+function deriveSkillName(skillFolder: string): string {
+	const skillMdPath = join(skillFolder, "SKILL.md")
+	let declared: string | undefined
 	try {
-		result = await runCommand(command, commandArgs)
-	} catch (error) {
-		throw new Error(
-			`Failed to start ${entry.name || entry.id} install command:\n${displayCommand}\n${
-				error instanceof Error ? error.message : String(error)
-			}`,
-		)
+		const text = readFileSync(skillMdPath, "utf8")
+		const { data } = parseYamlFrontmatter(text)
+		if (typeof data.name === "string" && data.name.trim()) {
+			declared = data.name.trim()
+		}
+	} catch {
+		// Fall back to folder basename below.
 	}
-	const output = commandOutput(result)
-	if (result.exitCode !== 0) {
-		throw new Error(
-			`${entry.name || entry.id} install failed with exit code ${result.exitCode}.\nCommand:\n${displayCommand}${
-				output ? `\n\n${output}` : ""
-			}`,
-		)
+	const base = declared ?? basename(skillFolder)
+	const sanitized = base
+		.trim()
+		.replace(/[^a-zA-Z0-9._-]+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.slice(0, 80)
+	return sanitized || basename(skillFolder)
+}
+
+async function installSkillMarketplaceEntry(entry: MarketplaceEntry, args: string[]): Promise<MarketplaceInstallResult> {
+	const [rawSource] = args
+	if (!rawSource) throw new Error("Skill install requires a GitHub URL or owner/repo as the first arg.")
+	// ponytail: args[1:] from the catalog are ignored today. The previous
+	// `npx skills` flow accepted CLI flags; the new git-clone installer has no
+	// use for them. Revisit if a catalog entry ever needs version/ref pinning —
+	// at that point, parse `--ref <sha>` here and pass it to `git checkout`.
+
+	const { url: cloneUrl, repoName } = resolveGitHubCloneUrl(rawSource)
+	const cloneDisplay = formatCommand("git", ["clone", "--depth", "1", cloneUrl, "<tmp>"])
+
+	let cloneResult: SpawnResult
+	const tmpDir = mkdtempSync(join(tmpdir(), "cellockai-skill-"))
+	try {
+		try {
+			cloneResult = await runCommand("git", ["clone", "--depth", "1", cloneUrl, tmpDir])
+		} catch (error) {
+			throw new Error(
+				`Failed to start git clone for ${entry.name || entry.id}:\n${cloneDisplay}\n${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			)
+		}
+		if (cloneResult.exitCode !== 0) {
+			const cloneOutput = commandOutput(cloneResult)
+			throw new Error(
+				`git clone failed for ${entry.name || entry.id} (exit ${cloneResult.exitCode}).\nCommand:\n${cloneDisplay}${
+					cloneOutput ? `\n\n${cloneOutput}` : ""
+				}`,
+			)
+		}
+
+		const skillFolders = discoverSkillFolders(tmpDir)
+		if (skillFolders.length === 0) {
+			throw new Error(`No SKILL.md found in ${repoName}.`)
+		}
+
+		const globalSkillsDir = getClineSkillsDirectoryPath()
+		mkdirSync(globalSkillsDir, { recursive: true })
+
+		const installed: { name: string; path: string }[] = []
+		for (const folder of skillFolders) {
+			const skillName = deriveSkillName(folder)
+			const dest = join(globalSkillsDir, skillName)
+			if (existsSync(dest)) {
+				rmSync(dest, { recursive: true, force: true })
+			}
+			cpSync(folder, dest, { recursive: true })
+			installed.push({ name: skillName, path: dest })
+		}
+
+		const names = installed.map((s) => s.name)
+		const message =
+			names.length === 1
+				? `Installed skill ${names[0]} from ${repoName}.`
+				: `Installed ${names.length} skills from ${repoName}: ${names.join(", ")}.`
+		const output = installed.map((s) => `${s.name}\t${s.path}`).join("\n")
+		return MarketplaceInstallResult.create({
+			id: entry.id,
+			type: entry.type,
+			status: "installed",
+			message,
+			output,
+		})
+	} finally {
+		try {
+			rmSync(tmpDir, { recursive: true, force: true })
+		} catch {
+			// Best-effort cleanup; OS tmp reaper handles the rest.
+		}
 	}
-	return MarketplaceInstallResult.create({
-		id: entry.id,
-		type: entry.type,
-		status: "installed",
-		message: `Installed ${entry.name || entry.id}.`,
-		output,
-	})
 }
 
 export async function installMarketplaceEntryFromCatalog(entry: MarketplaceEntry): Promise<MarketplaceInstallResult> {

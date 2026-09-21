@@ -1,16 +1,20 @@
+import { EmptyRequest } from "@shared/proto/cline/common"
 import { render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { EmptyRequest } from "@shared/proto/cline/common"
 
 const mocks = vi.hoisted(() => ({
 	getDocsIndexSettings: vi.fn(),
 	updateDocsIndexSettings: vi.fn(),
+	ping: vi.fn(),
+	registerMcpServer: vi.fn(),
 }))
 
 vi.mock("@/services/grpc-client", () => ({
 	DocsIndexServiceClient: {
 		getDocsIndexSettings: mocks.getDocsIndexSettings,
 		updateDocsIndexSettings: mocks.updateDocsIndexSettings,
+		ping: mocks.ping,
+		registerMcpServer: mocks.registerMcpServer,
 	},
 	StateServiceClient: {},
 }))
@@ -31,12 +35,12 @@ vi.mock("@/context/ClineAuthContext", () => ({
 vi.mock("@/shared/internal/account", () => ({ isClineInternalTester: () => false }))
 
 // DocsIndexSection surfaces the props SettingsView threads so we can assert
-// initialization from the persisted settings RPC. Other sections are stubbed.
+// initialization from the persisted settings RPC and connected state.
 vi.mock("./sections/DocsIndexSection", () => ({
 	__esModule: true,
-	default: (props: { serverUrl: string; selectedProject: string }) => (
+	default: (props: { serverUrl: string; selectedProject: string; connected: boolean }) => (
 		<div data-testid="docs">
-			{props.serverUrl}|{props.selectedProject}
+			{props.serverUrl}|{props.selectedProject}|{props.connected ? 1 : 0}
 		</div>
 	),
 }))
@@ -57,6 +61,10 @@ describe("SettingsView docs-index init from global settings", () => {
 		mocks.getDocsIndexSettings.mockReset()
 		mocks.updateDocsIndexSettings.mockReset()
 		mocks.updateDocsIndexSettings.mockResolvedValue({})
+		mocks.ping.mockReset()
+		mocks.registerMcpServer.mockReset()
+		// Default: auto-connect no-ops in tests that don't care
+		mocks.ping.mockResolvedValue({ connected: false })
 		vi.useRealTimers()
 	})
 
@@ -64,9 +72,7 @@ describe("SettingsView docs-index init from global settings", () => {
 		mocks.getDocsIndexSettings.mockResolvedValue({ serverUrl: "http://persisted:9", lastSelectedProject: "myrepo" })
 		render(<SettingsView onDone={() => {}} targetSection="docs-index" />)
 		expect(mocks.getDocsIndexSettings).toHaveBeenCalledWith(EmptyRequest.create())
-		await waitFor(() =>
-			expect(screen.getByTestId("docs").textContent).toBe("http://persisted:9|myrepo"),
-		)
+		await waitFor(() => expect(screen.getByTestId("docs").textContent).toBe("http://persisted:9|myrepo|0"))
 	})
 
 	it("does not persist the server URL before the initial read resolves", () => {
@@ -81,5 +87,80 @@ describe("SettingsView docs-index init from global settings", () => {
 		} finally {
 			vi.useRealTimers()
 		}
+	})
+})
+
+describe("SettingsView docs-index auto-connect", () => {
+	beforeEach(() => {
+		mocks.getDocsIndexSettings.mockReset()
+		mocks.updateDocsIndexSettings.mockReset()
+		mocks.updateDocsIndexSettings.mockResolvedValue({})
+		mocks.ping.mockReset()
+		mocks.registerMcpServer.mockReset()
+		vi.useRealTimers()
+	})
+
+	it("auto-connects on load when a serverUrl is persisted and ping succeeds", async () => {
+		mocks.getDocsIndexSettings.mockResolvedValue({ serverUrl: "http://localhost:8080", lastSelectedProject: "" })
+		mocks.ping.mockResolvedValue({ connected: true })
+		mocks.registerMcpServer.mockResolvedValue({})
+
+		render(<SettingsView onDone={() => {}} targetSection="docs-index" />)
+
+		await waitFor(() => {
+			expect(mocks.ping).toHaveBeenCalledWith(expect.objectContaining({ serverUrl: "http://localhost:8080" }))
+		})
+		await waitFor(() => {
+			expect(mocks.registerMcpServer).toHaveBeenCalledWith(expect.objectContaining({ serverUrl: "http://localhost:8080" }))
+		})
+		await waitFor(() => {
+			expect(screen.getByTestId("docs").textContent).toBe("http://localhost:8080||1")
+		})
+	})
+
+	it("does NOT auto-connect when ping fails", async () => {
+		mocks.getDocsIndexSettings.mockResolvedValue({ serverUrl: "http://localhost:8080", lastSelectedProject: "" })
+		mocks.ping.mockResolvedValue({ connected: false })
+
+		render(<SettingsView onDone={() => {}} targetSection="docs-index" />)
+
+		await waitFor(() => {
+			expect(mocks.ping).toHaveBeenCalledTimes(1)
+		})
+		await waitFor(() => {
+			expect(screen.getByTestId("docs").textContent).toBe("http://localhost:8080||0")
+		})
+		expect(mocks.registerMcpServer).not.toHaveBeenCalled()
+	})
+
+	it("does NOT auto-connect when no serverUrl", async () => {
+		mocks.getDocsIndexSettings.mockResolvedValue({ serverUrl: "", lastSelectedProject: "" })
+
+		render(<SettingsView onDone={() => {}} targetSection="docs-index" />)
+
+		// Wait for settings load
+		await waitFor(() => {
+			expect(mocks.getDocsIndexSettings).toHaveBeenCalled()
+		})
+		expect(mocks.ping).not.toHaveBeenCalled()
+		expect(mocks.registerMcpServer).not.toHaveBeenCalled()
+	})
+
+	it("auto-connect runs only once", async () => {
+		mocks.getDocsIndexSettings.mockResolvedValue({ serverUrl: "http://localhost:8080", lastSelectedProject: "" })
+		mocks.ping.mockResolvedValue({ connected: true })
+		mocks.registerMcpServer.mockResolvedValue({})
+
+		render(<SettingsView onDone={() => {}} targetSection="docs-index" />)
+
+		await waitFor(() => {
+			expect(screen.getByTestId("docs").textContent).toBe("http://localhost:8080||1")
+		})
+
+		// Give React a chance to re-render if it were going to fire again
+		await new Promise((r) => setTimeout(r, 50))
+
+		expect(mocks.ping).toHaveBeenCalledTimes(1)
+		expect(mocks.registerMcpServer).toHaveBeenCalledTimes(1)
 	})
 })

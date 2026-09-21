@@ -9,7 +9,7 @@ export type SkillsScanDirectory = {
 // Must mirror resolveGlobalSkillsConfigDirPath() in @cline/shared/storage.
 // The shared SDK build does not regenerate type declarations reliably, so the
 // literal is duplicated here rather than imported across the package boundary.
-function getClineSkillsDirectoryPath(): string {
+export function getClineSkillsDirectoryPath(): string {
 	return path.join(os.homedir(), ".cellockai", "skills")
 }
 

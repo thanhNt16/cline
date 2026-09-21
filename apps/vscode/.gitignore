@@ -1,1 +1,6 @@
 src/config/cellockai-default-key.local.ts
+
+# Stray compiled artifacts (emitted by ad-hoc tsc runs); real sources are .ts
+src/**/*.js
+src/**/*.js.map
+!webview-ui/**/*.js

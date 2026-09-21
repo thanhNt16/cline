@@ -4,6 +4,7 @@
 
 import rehypeParse from "rehype-parse"
 import rehypeRemark from "rehype-remark"
+import remarkGfm from "remark-gfm"
 import remarkStringify from "remark-stringify"
 import { unified } from "unified"
 
@@ -36,9 +37,10 @@ function cleanupMarkdownEscapes(markdown: string): string {
 export async function convertHtmlToMarkdown(html: string): Promise<string> {
 	// Process the HTML to Markdown
 	const result = await unified()
-		.use(rehypeParse as any, { fragment: true }) // Parse HTML fragments
-		.use(rehypeRemark as any) // Convert HTML to Markdown AST
-		.use(remarkStringify as any, {
+		.use(rehypeParse, { fragment: true }) // Parse HTML fragments
+		.use(rehypeRemark) // Convert HTML to Markdown AST
+		.use(remarkGfm) // Serialize GFM nodes (tables, strikethrough) produced by rehypeRemark
+		.use(remarkStringify, {
 			// Convert Markdown AST to text
 			bullet: "-", // Use - for unordered lists
 			emphasis: "*", // Use * for emphasis
@@ -47,8 +49,6 @@ export async function convertHtmlToMarkdown(html: string): Promise<string> {
 			rule: "-", // Use - for horizontal rules
 			ruleSpaces: false, // No spaces in horizontal rules
 			fences: true,
-			escape: false,
-			entities: false,
 		})
 		.process(html)
 

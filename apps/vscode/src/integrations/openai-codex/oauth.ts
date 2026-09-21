@@ -446,8 +446,13 @@ function isTokenExpired(credentials: OpenAiCodexCredentials): boolean {
 /**
  * OpenAiCodexOAuthManager - Handles OAuth flow and token management
  */
-class OpenAiCodexOAuthManager {
+export class OpenAiCodexOAuthManager {
 	private credentials: OpenAiCodexCredentials | null = null
+	// When credentials are absent, loadCredentials reads providers.json from disk on every call.
+	// getStateToPostToWebview calls isAuthenticated() on every ~50ms state flush, so a user
+	// without Codex credentials pays a sync disk read per flush. Coalesce absent-credential
+	// lookups to at most one read per window; saveCredentials/clearCredentials reset it.
+	private lastAbsentLoadAt = 0
 	private refreshPromise: Promise<OpenAiCodexCredentials> | null = null
 	private pendingAuth: {
 		codeVerifier: string
@@ -494,6 +499,13 @@ class OpenAiCodexOAuthManager {
 	 */
 	async loadCredentials(): Promise<OpenAiCodexCredentials | null> {
 		try {
+			// Cooldown gate: when we recently found no credentials anywhere, skip the disk hit.
+			// External changes (login/logout) always flow through saveCredentials/clearCredentials,
+			// which reset lastAbsentLoadAt, so a short window is safe.
+			const absentCooldownMs = 10_000
+			if (!this.credentials && Date.now() - this.lastAbsentLoadAt < absentCooldownMs) {
+				return null
+			}
 			const stateManager = StateManager.get()
 			const credentialsJson = stateManager.getSecretKey("openai-codex-oauth-credentials")
 
@@ -504,6 +516,9 @@ class OpenAiCodexOAuthManager {
 			}
 
 			this.credentials = await loadCredentialsFromProviderSettings()
+			if (!this.credentials) {
+				this.lastAbsentLoadAt = Date.now()
+			}
 			return this.credentials
 		} catch (error) {
 			Logger.error("[openai-codex-oauth] Failed to load credentials:", error)
@@ -520,17 +535,16 @@ class OpenAiCodexOAuthManager {
 		await stateManager.flushPendingState()
 		await saveCredentialsToProviderSettings(credentials)
 		this.credentials = credentials
+		this.lastAbsentLoadAt = 0
 	}
 
-	/**
-	 * Clear credentials from storage
-	 */
 	async clearCredentials(): Promise<void> {
 		const stateManager = StateManager.get()
 		stateManager.setSecret("openai-codex-oauth-credentials", undefined)
 		await stateManager.flushPendingState()
 		await clearCredentialsFromProviderSettings()
 		this.credentials = null
+		this.lastAbsentLoadAt = 0
 	}
 
 	/**

@@ -33,6 +33,8 @@ export const DEFAULT_AUTO_APPROVAL_SETTINGS: AutoApprovalSettings = {
 	actions: {
 		readFiles: true,
 		readFilesExternally: true,
+		// Auto-apply all edits by default (no approval prompt). Turning this off
+		// in the auto-approve bar falls back to ask-once-per-chat (editsAutoApprovedThisSession).
 		editFiles: true,
 		editFilesExternally: true,
 		executeSafeCommands: false,

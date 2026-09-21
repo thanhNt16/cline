@@ -28,6 +28,13 @@ export interface ReplicaState {
 	/** Highest state snapshot version applied. Older snapshots are ignored wholesale. */
 	stateVersion: number
 	/**
+	 * Highest `ts` dropped by a cap prune. Once the transcript is capped, any
+	 * same-epoch message at or below this ts has already been dropped from the
+	 * webview and must not be re-appended by a later full-snapshot merge (which
+	 * re-sends the whole transcript).
+	 */
+	prunedThroughTs?: number
+	/**
 	 * The authoritative UI mode for the current turn. Moves forward by `turnState.seq` only, so a
 	 * late/out-of-order snapshot carrying an older phase (e.g. "idle") can never revert a newer
 	 * phase (e.g. "streaming"). `undefined` for classic/legacy state with no turnState.
@@ -52,6 +59,35 @@ function seqOf(message: ClineMessage): number {
 	return message.seq ?? 0
 }
 
+/**
+ * Upper bound on the number of messages the webview retains for the current
+ * task/epoch. The host re-posts the FULL transcript on every state update and
+ * every streamed partial appends another entry, so without a bound a long
+ * session grows the renderer's message array and seq map without limit and can
+ * OOM the webview (blank screen). Keeping the newest messages preserves the
+ * live conversation and the streaming tail the UI renders.
+ */
+const MAX_TRANSCRIPT_MESSAGES = 1000
+
+/** Drop the oldest messages so the transcript stays within MAX_TRANSCRIPT_MESSAGES. */
+function pruneToCap(state: ReplicaState): ReplicaState {
+	if (state.messages.length <= MAX_TRANSCRIPT_MESSAGES) {
+		return state
+	}
+	const dropped = state.messages.length - MAX_TRANSCRIPT_MESSAGES
+	const messages = state.messages.slice(dropped)
+	// Track the newest ts we discarded so a later full-snapshot merge cannot
+	// re-append already-pruned messages.
+	const prunedThroughTs = state.messages[dropped - 1].ts
+	// Prune the seq high-water marks in lockstep so the map cannot outgrow the
+	// transcript it indexes.
+	const seqByTs = new Map<number, number>()
+	for (const m of messages) {
+		seqByTs.set(m.ts, seqOf(m))
+	}
+	return { ...state, messages, seqByTs, prunedThroughTs }
+}
+
 /** Replace the replica's transcript wholesale at a new epoch (new task / history load). */
 function resetTo(epoch: number, messages: ClineMessage[], stateVersion: number, turnState?: TurnState): ReplicaState {
 	const seqByTs = new Map<number, number>()
@@ -61,7 +97,7 @@ function resetTo(epoch: number, messages: ClineMessage[], stateVersion: number, 
 			seqByTs.set(m.ts, seqOf(m))
 		}
 	}
-	return { messages: [...messages], epoch, seqByTs, stateVersion, turnState }
+	return pruneToCap({ messages: [...messages], epoch, seqByTs, stateVersion, turnState })
 }
 
 /**
@@ -113,8 +149,16 @@ export function applyMessage(state: ReplicaState, incoming: ClineMessage): Repli
 			seqByTs: new Map(state.seqByTs),
 			stateVersion: state.stateVersion,
 			turnState: state.turnState,
+			prunedThroughTs: state.prunedThroughTs,
 		}
 		return applyMessage(advanced, incoming)
+	}
+
+	// A same-epoch message at or below the prune floor was already dropped from the
+	// webview (its slot freed). Re-inserting it would re-grow the transcript past the
+	// cap on every full-snapshot merge, so treat it as stale.
+	if (state.prunedThroughTs !== undefined && incoming.ts <= state.prunedThroughTs) {
+		return state
 	}
 
 	// Same epoch: merge by ts, keep highest seq.
@@ -137,7 +181,10 @@ export function applyMessage(state: ReplicaState, incoming: ClineMessage): Repli
 	const messages = [...state.messages, incoming]
 	const seqByTs = new Map(state.seqByTs)
 	seqByTs.set(incoming.ts, seqOf(incoming))
-	return { ...state, messages, seqByTs }
+	// Bound the transcript: streaming partials and full-snapshot merges both land
+	// here, so this is the single funnel that keeps long sessions from growing the
+	// webview's message array without limit.
+	return pruneToCap({ ...state, messages, seqByTs })
 }
 
 /**
@@ -169,6 +216,23 @@ export function applyStateSnapshot(
 	}
 
 	if (snapshotEpoch > state.epoch) {
+		if (
+			snapshotMessages.length === 0 &&
+			state.messages.length > 0 &&
+			(state.turnState?.phase === "streaming" || state.turnState?.phase === "awaiting_approval")
+		) {
+			// Poisoned epoch advance: an EMPTY snapshot at a newer epoch can never be a
+			// legitimate replacement for a populated, live transcript — a streaming turn
+			// always has at least its task message. The only known producer was
+			// showTaskWithId clearing the old proxy's messages + bumping the epoch before
+			// its async history loads (fixed host-side); keep this guard so a new producer
+			// of the same race can never wipe a live conversation and strand the webview
+			// on an invisible-but-running session. Ignore the snapshot; the real
+			// replacement snapshot (non-empty, e.g. history open, new task with its task
+			// message) applies normally. A deliberate clearTask empties at an idle phase,
+			// which never enters this branch.
+			return state
+		}
 		// New task/render: replace transcript AND adopt the snapshot's turnState wholesale.
 		return resetTo(snapshotEpoch, snapshotMessages, snapshotVersion, snapshotTurnState)
 	}

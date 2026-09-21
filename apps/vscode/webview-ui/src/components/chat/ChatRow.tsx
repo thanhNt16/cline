@@ -43,6 +43,7 @@ import { useExtensionState } from "@/context/ExtensionStateContext"
 import { cn } from "@/lib/utils"
 import { FileServiceClient, UiServiceClient } from "@/services/grpc-client"
 import { findMatchingResourceOrTemplate } from "@/utils/mcp"
+import { safeJsonParse } from "@/utils/safeJsonParse"
 import CodeAccordian, { cleanPathPrefix } from "../common/CodeAccordian"
 import { CommandOutputContent, CommandOutputRow } from "./CommandOutputRow"
 import CompactionRow from "./CompactionRow"
@@ -191,8 +192,8 @@ export const ChatRowContent = memo(
 
 		const [cost, apiReqCancelReason, apiReqStreamingFailedMessage] = useMemo(() => {
 			if (message.text != null && message.say === "api_req_started") {
-				const info: ClineApiReqInfo = JSON.parse(message.text)
-				return [info.cost, info.cancelReason, info.streamingFailedMessage]
+				const info = safeJsonParse<ClineApiReqInfo>(message.text)
+				return [info?.cost, info?.cancelReason, info?.streamingFailedMessage]
 			}
 			return [undefined, undefined, undefined]
 		}, [message.text, message.say])
@@ -307,7 +308,7 @@ export const ChatRowContent = memo(
 						<span className="font-bold text-foreground">CellockAI wants to execute this command:</span>,
 					]
 				case "use_mcp_server":
-					const mcpServerUse = JSON.parse(message.text || "{}") as ClineAskUseMcpServer
+					const mcpServerUse = safeJsonParse<ClineAskUseMcpServer>(message.text) ?? ({} as ClineAskUseMcpServer)
 					return [
 						isMcpServerResponding ? (
 							<ProgressIndicator />
@@ -344,7 +345,7 @@ export const ChatRowContent = memo(
 
 		const tool = useMemo(() => {
 			if (message.ask === "tool" || message.say === "tool") {
-				return JSON.parse(message.text || "{}") as ClineSayTool
+				return safeJsonParse<ClineSayTool>(message.text ?? "{}") ?? ({} as ClineSayTool)
 			}
 			return null
 		}, [message.ask, message.say, message.text])
@@ -751,7 +752,7 @@ export const ChatRowContent = memo(
 		}
 
 		if (message.ask === "use_mcp_server" || message.say === "use_mcp_server") {
-			const useMcpServer = JSON.parse(message.text || "{}") as ClineAskUseMcpServer
+			const useMcpServer = safeJsonParse<ClineAskUseMcpServer>(message.text) ?? ({} as ClineAskUseMcpServer)
 			const server = mcpServers.find((server) => server.name === useMcpServer.serverName)
 			return (
 				<div>
@@ -899,7 +900,7 @@ export const ChatRowContent = memo(
 							/>
 						)
 					case "user_feedback_diff":
-						const tool = JSON.parse(message.text || "{}") as ClineSayTool
+						const tool = safeJsonParse<ClineSayTool>(message.text) ?? ({} as ClineSayTool)
 						return (
 							<div className="w-full -mt-2.5">
 								<CodeAccordian
@@ -1103,7 +1104,9 @@ export const ChatRowContent = memo(
 							<div>
 								<div className={HEADER_CLASSNAMES}>
 									<FilePlus2Icon className="size-2" />
-									<span className="text-foreground font-bold">CellockAI wants to condense your conversation:</span>
+									<span className="text-foreground font-bold">
+										CellockAI wants to condense your conversation:
+									</span>
 								</div>
 								<NewTaskPreview context={message.text || ""} />
 							</div>

@@ -7,6 +7,7 @@ export async function getDocsIndexSettings(
 	_request: EmptyRequest,
 ): Promise<GetDocsIndexSettingsResponse> {
 	const workspacePath = await controller.docsIndex.getWorkspacePath()
-	const { serverUrl, lastSelectedProject } = await controller.docsIndex.getDocsIndexSettings(workspacePath)
-	return GetDocsIndexSettingsResponse.create({ serverUrl, lastSelectedProject })
+	const { serverUrl, lastSelectedProject, crawlMaxDepth, crawlMaxPages } =
+		await controller.docsIndex.getDocsIndexSettings(workspacePath)
+	return GetDocsIndexSettingsResponse.create({ serverUrl, lastSelectedProject, crawlMaxDepth, crawlMaxPages })
 }

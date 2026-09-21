@@ -1,6 +1,6 @@
 import type { DocsIndexTool } from "@shared/proto/cline/docs_index"
 
-export const MCP_SERVER_KEY = "vessel-indexer"
+export const MCP_SERVER_KEY = "docindex"
 
 export const DEFAULT_SERVER_URL = "http://localhost:8080"
 

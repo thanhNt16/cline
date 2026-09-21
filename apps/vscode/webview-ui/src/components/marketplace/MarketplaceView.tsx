@@ -5,6 +5,8 @@ import {
 	MarketplaceEntryRequest,
 	type MarketplaceLocalInstalledEntry,
 	MarketplaceLocalInstalledEntryRequest,
+	SearchGithubSkillsRequest,
+	type SearchGithubSkillsResult,
 	ToggleMarketplaceLocalInstalledEntryRequest,
 } from "@shared/proto/cline/marketplace"
 import { VSCodeButton, VSCodeLink, VSCodeProgressRing, VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
@@ -1009,6 +1011,11 @@ const MarketplaceView = ({ initialType = "skill", onDone }: MarketplaceViewProps
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
 	const [githubUrl, setGithubUrl] = useState("")
+	// CellockAI: GitHub skill search (skills.sh backend).
+	const [githubQuery, setGithubQuery] = useState("")
+	const [githubResults, setGithubResults] = useState<SearchGithubSkillsResult[]>([])
+	const [searchingGithub, setSearchingGithub] = useState(false)
+	const [searchError, setSearchError] = useState<string | null>(null)
 
 	const refresh = useCallback(async () => {
 		setLoading(true)
@@ -1157,29 +1164,63 @@ const MarketplaceView = ({ initialType = "skill", onDone }: MarketplaceViewProps
 		[refresh],
 	)
 
-	/** Install a skill from a raw GitHub URL by constructing a synthetic marketplace entry. */
-	const handleInstallFromUrl = useCallback(async () => {
-		const trimmed = githubUrl.trim()
-		if (!trimmed) return
-		setInstallingId(`url-${trimmed}`)
-		setError(null)
-		try {
-			const syntheticEntry = MarketplaceEntry.create({
-				id: `url-${Date.now()}`,
-				type: "skill",
-				name: trimmed,
-				install: { args: [trimmed] },
-			})
-			await MarketplaceServiceClient.installMarketplaceEntry(MarketplaceEntryRequest.create({ entry: syntheticEntry }))
-			setGithubUrl("")
-			await refresh()
-			setActiveSection("installed")
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err))
-		} finally {
-			setInstallingId(null)
+	/** Install a skill from a GitHub URL by constructing a synthetic marketplace entry. */
+	const installGithubSkillByUrl = useCallback(
+		async (rawUrl: string) => {
+			const trimmed = rawUrl.trim()
+			if (!trimmed) return
+			setInstallingId(`url-${trimmed}`)
+			setError(null)
+			setSearchError(null)
+			try {
+				const syntheticEntry = MarketplaceEntry.create({
+					id: `url-${Date.now()}`,
+					type: "skill",
+					name: trimmed,
+					install: { args: [trimmed] },
+				})
+				await MarketplaceServiceClient.installMarketplaceEntry(MarketplaceEntryRequest.create({ entry: syntheticEntry }))
+				setGithubUrl("")
+				setGithubQuery("")
+				setGithubResults([])
+				await refresh()
+				setActiveSection("installed")
+			} catch (err) {
+				setError(err instanceof Error ? err.message : String(err))
+			} finally {
+				setInstallingId(null)
+			}
+		},
+		[refresh],
+	)
+
+	const handleInstallFromUrl = useCallback(() => installGithubSkillByUrl(githubUrl), [githubUrl, installGithubSkillByUrl])
+
+	// Debounced GitHub skill search (min 2 chars). skills.sh is the backend the
+	// `skills` CLI uses; the host RPC proxies the fetch (no CORS in the webview).
+	useEffect(() => {
+		const q = githubQuery.trim()
+		if (q.length < 2) {
+			setGithubResults([])
+			setSearchingGithub(false)
+			setSearchError(null)
+			return
 		}
-	}, [githubUrl, refresh])
+		setSearchingGithub(true)
+		setSearchError(null)
+		const handle = setTimeout(async () => {
+			try {
+				const response = await MarketplaceServiceClient.searchGithubSkills(SearchGithubSkillsRequest.create({ query: q }))
+				setGithubResults(response.results ?? [])
+			} catch (err) {
+				setGithubResults([])
+				setSearchError(err instanceof Error ? err.message : String(err))
+			} finally {
+				setSearchingGithub(false)
+			}
+		}, 300)
+		return () => clearTimeout(handle)
+	}, [githubQuery])
 
 	const handleUninstallMarketplace = useCallback(
 		async (entry: MarketplaceEntry) => {
@@ -1331,6 +1372,62 @@ const MarketplaceView = ({ initialType = "skill", onDone }: MarketplaceViewProps
 								{/* Install skill from GitHub URL */}
 								{activeType === "skill" && currentSection === "installed" && (
 									<div className="flex flex-col gap-1.5 p-1 pb-2">
+										{/* CellockAI: search the public skill ecosystem by name (skills.sh). */}
+										<div className="flex flex-col gap-1">
+											<div className="flex items-center gap-1.5">
+												<VSCodeTextField
+													className="flex-1"
+													onInput={(e: any) => setGithubQuery((e.target as HTMLInputElement).value)}
+													placeholder="Search skills by name (e.g. deploy, pr-review)"
+													style={{ fontSize: "12px" }}
+													value={githubQuery}
+												/>
+												{searchingGithub && (
+													<LoaderCircleIcon className="w-3.5 h-3.5 animate-spin shrink-0" />
+												)}
+											</div>
+											{searchError && (
+												<div className="text-[11px] text-(--vscode-errorForeground)">
+													Search unavailable: {searchError}
+												</div>
+											)}
+											{githubResults.length > 0 && (
+												<div className="flex flex-col border border-(--vscode-editorGroup-border) rounded-[3px] max-h-[180px] overflow-y-auto">
+													{githubResults.map((result) => {
+														const installing = installingId === `url-${result.url}`
+														return (
+															<div
+																className="flex items-center gap-2 px-2 py-1.5 border-b border-(--vscode-editorGroup-border) last:border-b-0"
+																key={`${result.source}/${result.name}`}>
+																<div className="flex flex-col min-w-0 flex-1">
+																	<span className="text-[12px] font-bold truncate">
+																		{result.name}
+																	</span>
+																	<span className="text-[11px] text-(--vscode-descriptionForeground) truncate">
+																		{result.source}
+																		{typeof result.installs === "number"
+																			? ` · ${result.installs.toLocaleString()} installs`
+																			: ""}
+																	</span>
+																</div>
+																<VSCodeButton
+																	appearance="secondary"
+																	disabled={installingId != null}
+																	onClick={() => installGithubSkillByUrl(result.url)}
+																	style={{ fontSize: "11px", padding: "1px 8px" }}>
+																	{installing ? (
+																		<LoaderCircleIcon className="w-3 h-3 animate-spin" />
+																	) : (
+																		<DownloadIcon className="w-3 h-3" />
+																	)}
+																	Install
+																</VSCodeButton>
+															</div>
+														)
+													})}
+												</div>
+											)}
+										</div>
 										<div className="flex items-center gap-1.5">
 											<VSCodeTextField
 												className="flex-1"

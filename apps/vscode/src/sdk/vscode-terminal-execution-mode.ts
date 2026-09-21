@@ -14,7 +14,7 @@
  * whenever this is not the real VS Code extension host, rather than trusting the
  * saved value.
  */
-export type VscodeTerminalExecutionMode = "vscodeTerminal" | "backgroundExec"
+export type VscodeTerminalExecutionMode = "vscodeTerminal" | "backgroundExec" | "reuseOrBackground"
 
 /**
  * True when running as the standalone (JetBrains/CLI) build. Statically rewritten
@@ -28,9 +28,12 @@ function isStandaloneHost(): boolean {
 /**
  * Clamps a requested terminal execution mode to `backgroundExec` when the current
  * host cannot support real VS Code terminals (i.e. the standalone build).
+ *
+ * `"reuseOrBackground"` reuses one visible terminal when possible, otherwise
+ * runs hidden via child process. Clamped to `backgroundExec` on standalone.
  */
 export function getEffectiveTerminalExecutionMode(requested: VscodeTerminalExecutionMode): VscodeTerminalExecutionMode {
-	if (requested === "vscodeTerminal" && isStandaloneHost()) {
+	if (isStandaloneHost() && (requested === "vscodeTerminal" || requested === "reuseOrBackground")) {
 		return "backgroundExec"
 	}
 	return requested

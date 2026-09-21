@@ -5,8 +5,8 @@
 // cancelTask, …) to the Cline SDK (@cline/core) and bridges SDK events to
 // the webview's gRPC streams.
 import * as fs from "node:fs/promises"
-import * as path from "node:path"
 import {
+	type AvailableRuntimeCommand,
 	createRestoredCheckpointMetadata,
 	createUserInstructionConfigService,
 	type PreparedRemoteConfigCoreIntegration,
@@ -37,11 +37,12 @@ import { VscodeTerminalManager } from "@/hosts/vscode/terminal/VscodeTerminalMan
 import { ExtensionRegistryInfo } from "@/registry"
 import { OcaAuthService } from "@/services/auth/oca/OcaAuthService"
 import { UrlContentFetcher } from "@/services/browser/UrlContentFetcher"
+import { CodebaseMemoryFacade } from "@/services/codebase-memory/CodebaseMemoryFacade"
+import { DocsIndexFacade } from "@/services/docs-index/DocsIndexFacade"
+import { DocsIndexSettingsService } from "@/services/docs-index/DocsIndexSettingsService"
 import { ClineError } from "@/services/error/ClineError"
 import { McpHub } from "@/services/mcp/McpHub"
 import { telemetryService } from "@/services/telemetry"
-import { CodebaseMemoryFacade } from "@/services/codebase-memory/CodebaseMemoryFacade"
-import { DocsIndexFacade } from "@/services/docs-index/DocsIndexFacade"
 import { belongsToWorkspace, WorkspaceHistoryIndex } from "@/services/workspace-history/WorkspaceHistoryIndex"
 import type { ClineExtensionContext } from "@/shared/cline"
 import { toLegacyApiProvider } from "@/shared/model-catalog/provider-helpers"
@@ -88,7 +89,7 @@ import { SdkTaskHistory, sessionHistoryRecordToHistoryItem } from "./sdk-task-hi
 import { SdkTaskStartCoordinator } from "./sdk-task-start-coordinator"
 import { createVscodeSdkTelemetryHandle, type VscodeSdkTelemetryHandle } from "./sdk-telemetry"
 import { SdkTerminalExecutionModeCoordinator } from "./sdk-terminal-execution-mode-coordinator"
-import { isToolAutoApproved } from "./sdk-tool-policies"
+import { isEditTool, isToolAutoApproved } from "./sdk-tool-policies"
 import {
 	extractSdkUserText,
 	findSdkUserMessageIndexByOrdinal,
@@ -228,6 +229,7 @@ export class Controller {
 	private backgroundCommandRunning = false
 	private backgroundCommandTaskId?: string
 	private pendingClineAuthRetryPrompt?: string
+	private editsAutoApprovedThisSession = false
 	checkpointRestoreInput?: ExtensionState["checkpointRestoreInput"]
 
 	// Timer for periodic remote config fetching (enterprise policy enforcement)
@@ -310,6 +312,13 @@ export class Controller {
 		this.accountService = ClineAccountService.getInstance()
 		this.codebaseMemory = new CodebaseMemoryFacade(this.context, this.mcpHub)
 		this.docsIndex = new DocsIndexFacade(this.mcpHub)
+		// CellockAI: auto-scope docindex `search` calls to the persisted workspace project.
+		this.mcpHub.setDocIndexProjectResolver(async () => {
+			const workspacePath = await this.docsIndex.getWorkspacePath()
+			if (!workspacePath) return undefined
+			const settings = await new DocsIndexSettingsService().get()
+			return settings.lastProjects[workspacePath] || undefined
+		})
 		this.workspaceHistoryIndex = new WorkspaceHistoryIndex()
 
 		// Initialize message translator state. The mode getter styles the inferred turn-final
@@ -358,7 +367,13 @@ export class Controller {
 				// manual Reject and clearPending (task cancel/abort) in one place.
 				void this.diffEdits.discardPreview(toolCallId)
 			},
+			onEditToolApproved: () => {
+				this.editsAutoApprovedThisSession = true
+			},
 			shouldAutoApproveTool: (request) => {
+				if (isEditTool(request.toolName) && this.editsAutoApprovedThisSession) {
+					return true
+				}
 				const autoApprovalSettings = this.stateManager.getGlobalSettingsKey("autoApprovalSettings")
 				return autoApprovalSettings ? isToolAutoApproved(request.toolName, autoApprovalSettings, this.mcpHub) : false
 			},
@@ -629,9 +644,10 @@ export class Controller {
 		// Initialize gRPC bridge
 		this.grpcBridge = new WebviewGrpcBridge(this.messageTranslatorState)
 
-		// Wire the bridge to the controller's getStateToPostToWebview()
-		// so state updates include messages, currentTaskItem, and task history
-		this.grpcBridge.setGetStateFn(() => this.getStateToPostToWebview())
+		// Route bridge state pushes through the debounced flush (debouncer + transcript cap +
+		// single serialization path) instead of building and shipping an uncapped snapshot per
+		// done/error event, which duplicated work racing the ~50ms cadence.
+		this.grpcBridge.setPostStateFn(() => this.postStateToWebview())
 
 		// Register the bridge as a session event listener
 		this.onSessionEvent(this.grpcBridge.createListener())
@@ -684,6 +700,12 @@ export class Controller {
 
 	private handleSessionBecameIdle(): void {
 		this.sessionRebuilds?.sessionBecameIdle()
+		try {
+			this._terminalManager?.disposeAll()
+			this._terminalManager = undefined
+		} catch (error) {
+			Logger.warn("[SdkController] Failed to dispose terminal manager on session idle:", error)
+		}
 	}
 
 	private isSelectionForActiveModeProvider(event: Extract<ProviderConfigChange, { kind: "selection" }>): boolean {
@@ -786,6 +808,11 @@ export class Controller {
 		this.mcpHub?.clearToolListChangeCallback()
 		await this.diffEdits.discardAllPreviews("controller dispose")
 		await this.clearTask()
+		try {
+			this._terminalManager?.disposeAll()
+		} catch (error) {
+			Logger.warn("[SdkController] Failed to dispose terminal manager on shutdown:", error)
+		}
 		await this.sessions.dispose("SdkController.dispose")
 		await this.taskHistory.dispose()
 		this.mcpHub?.dispose?.()
@@ -878,6 +905,26 @@ export class Controller {
 		} catch (error) {
 			Logger.warn("[SdkController] Slash command resolution failed, using raw text:", error)
 			return text
+		}
+	}
+
+	/**
+	 * Exposes the SDK user-instruction watcher's runtime commands (skills +
+	 * workflows) so the webview slash autocomplete can suggest the same names
+	 * {@link resolveSlashCommands} expands at send time. Used by the
+	 * `getAvailableSlashCommands` handler to surface discovered skills.
+	 * CellockAI: enables /skill-name suggestions in the chat slash menu.
+	 */
+	public async listAvailableRuntimeSlashCommands(): Promise<AvailableRuntimeCommand[]> {
+		if (this.isDisposed) {
+			return []
+		}
+		try {
+			const workspaceRoot = await this.getWorkspaceRoot()
+			const service = await this.ensureUserInstructionService(workspaceRoot)
+			return service.listRuntimeCommands()
+		} catch {
+			return []
 		}
 	}
 
@@ -1174,6 +1221,8 @@ export class Controller {
 		// policies like yoloModeAllowed, allowedMCPServers, etc.) without
 		// blocking the UI.
 		this.refreshRemoteConfig().catch((err) => Logger.error("[SdkController] Remote config refresh before task failed:", err))
+		// Reset per-chat edit approval: new chat must ask again.
+		this.editsAutoApprovedThisSession = false
 		// A new task is starting — the agent is about to stream.
 		this.turnStateTracker.set("streaming")
 		// Clear the previous turn's completion signal so this turn's phase is computed fresh.
@@ -1908,6 +1957,14 @@ export class Controller {
 		// Import dynamically to avoid circular deps
 		const { sendStateUpdate } = await import("@core/controller/state/subscribeToState")
 		const state = await this.getStateToPostToWebview()
+		// CellockAI: this is the single hot-path state route (every debounced ~50ms flush AND
+		// epoch-bump posts like history-open/checkpoint-restore). No transcript cap here:
+		// getStateToPostToWebview already bounds clineMessages (last 1000), per-message text is
+		// clamped, and a cap below the replica's full set would TRUNCATE a wholesale
+		// resetTo(epoch) on task switch — the webview replaces its transcript with whatever
+		// this post carries.
+		// ponytail: a host-side changed-fields diff would bound re-serialization further; add
+		// when the debounce cadence proves insufficient.
 		await sendStateUpdate(state)
 	}
 

@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "cognee": {
+      "type": "stdio",
+      "command": "/Users/harry/Desktop/cognee/.venv/bin/cognee-mcp",
+      "args": ["--transport", "stdio"],
+      "env": {
+        "SYSTEM_ROOT_DIRECTORY": "/Users/harry/Desktop/cognee/.cognee_system",
+        "DATA_ROOT_DIRECTORY": "/Users/harry/Desktop/cognee/.data_storage",
+        "ENABLE_BACKEND_ACCESS_CONTROL": "false",
+        "AUTO_FEEDBACK": "false"
+      }
+    }
+  }
+}

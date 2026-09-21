@@ -184,7 +184,7 @@ export class ProviderSettingsManager {
 		return next;
 	}
 
-	private resolveProviderSettings(
+	resolveProviderSettings(
 		state: StoredProviderSettings,
 		providerId: string,
 	): ProviderSettings | undefined {

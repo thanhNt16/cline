@@ -27,6 +27,7 @@ import {
 	applyStateSnapshot as reducerApplyStateSnapshot,
 } from "../components/chat/chat-view/messageReducer"
 import { McpServiceClient, ModelsServiceClient, StateServiceClient, UiServiceClient } from "../services/grpc-client"
+import { clampMessageForDisplay } from "../utils/clampMessage"
 
 export type ProviderId = string
 
@@ -440,6 +441,10 @@ export const ExtensionStateContextProvider: React.FC<{
 	// snapshots both feed this reducer so the transcript converges correctly regardless of
 	// arrival order, duplication, or loss. See messageReducer.ts.
 	const replicaRef = useRef<ReplicaState>(createReplicaState())
+	// Liveness signal: refreshed on every state snapshot or partial message received from
+	// the host. The stuck-turn watchdog only fires when this goes stale while a turn is
+	// active, so ANY incoming traffic suppresses the reload.
+	const lastActivityRef = useRef<number>(Date.now())
 
 	// Subscribe to state updates and UI events using the gRPC streaming API
 	useEffect(() => {
@@ -448,6 +453,7 @@ export const ExtensionStateContextProvider: React.FC<{
 			EmptyRequest.create({}),
 			{
 				onResponse: (response: any) => {
+					lastActivityRef.current = Date.now()
 					if (response.stateJson) {
 						try {
 							const stateData = JSON.parse(response.stateJson) as ExtensionState
@@ -463,7 +469,11 @@ export const ExtensionStateContextProvider: React.FC<{
 								// state defaults to epoch 0 / version 0, which merges.
 								replicaRef.current = reducerApplyStateSnapshot(
 									replicaRef.current,
-									stateData.clineMessages ?? [],
+									// Clamp oversized text BEFORE it enters the display replica so a few
+									// multi-MB messages (large file reads / command output) can't OOM the
+									// renderer. The webview replica is display-only; the host transcript
+									// is unaffected. See utils/clampMessage.ts.
+									(stateData.clineMessages ?? []).map(clampMessageForDisplay),
 									stateData.epoch ?? 0,
 									stateData.stateVersion ?? 0,
 									stateData.turnState,
@@ -628,6 +638,7 @@ export const ExtensionStateContextProvider: React.FC<{
 			EmptyRequest.create({}),
 			{
 				onResponse: (protoMessage: any) => {
+					lastActivityRef.current = Date.now()
 					try {
 						// Validate critical fields
 						if (!protoMessage.ts || protoMessage.ts <= 0) {
@@ -635,7 +646,7 @@ export const ExtensionStateContextProvider: React.FC<{
 							return
 						}
 
-						const partialMessage = convertProtoToClineMessage(protoMessage)
+						const partialMessage = clampMessageForDisplay(convertProtoToClineMessage(protoMessage))
 						setState((prevState) => {
 							// Route through the convergent-replica reducer: merge by ts keeping the
 							// higher seq, fence stale epochs, never let an out-of-order or duplicate
@@ -1020,31 +1031,51 @@ export const ExtensionStateContextProvider: React.FC<{
 		setExpandTaskHeader,
 	}
 
-	// Stuck-streaming watchdog: if turnState has been "streaming" for longer than
-	// STUCK_THRESHOLD_MS without any partial message or state update, force a
-	// page reload to re-establish the gRPC subscriptions and get fresh state.
-	// This is a last-resort safety net — the autoReconnect option on streaming
-	// subscriptions handles most disconnections transparently.
+	// Stuck-streaming watchdog: if a live turn (streaming / awaiting approval) goes longer
+	// than STUCK_THRESHOLD_MS with NO incoming traffic (lastActivityRef is refreshed by
+	// every state snapshot and partial message), verify the host bridge is actually dead
+	// with a one-shot state probe before reloading. A long quiet turn — e.g. a background
+	// command running for many minutes — produces no events by design; reloading on
+	// silence alone used to wipe a healthy webview mid-turn (the recurring ~10-minute
+	// "crash" while the session kept running host-side).
 	const STUCK_THRESHOLD_MS = 10 * 60 * 1000 // 10 minutes
-	const lastActivityRef = useRef<number>(Date.now())
-	useEffect(() => {
-		const turnPhase = contextValue.turnState?.phase
-		if (turnPhase === "streaming" || turnPhase === "awaiting_approval") {
-			lastActivityRef.current = Date.now()
-		}
-	}, [contextValue.turnState?.phase])
-
+	const probeInFlightRef = useRef(false)
 	useEffect(() => {
 		const interval = setInterval(() => {
 			const phase = contextValue.turnState?.phase
-			if (phase === "streaming" || phase === "awaiting_approval") {
-				if (Date.now() - lastActivityRef.current > STUCK_THRESHOLD_MS) {
-					console.error(
-						`[ExtensionState] Stuck "${phase}" for >${STUCK_THRESHOLD_MS / 1000}s with no state update — reloading webview to recover`,
-					)
-					window.location.reload()
-				}
+			if (phase !== "streaming" && phase !== "awaiting_approval") {
+				return
 			}
+			if (Date.now() - lastActivityRef.current <= STUCK_THRESHOLD_MS || probeInFlightRef.current) {
+				return
+			}
+			probeInFlightRef.current = true
+			let settled = false
+			let cancelProbe: (() => void) | undefined
+			cancelProbe = StateServiceClient.subscribeToState(EmptyRequest.create({}), {
+				onResponse: () => {
+					settled = true
+					lastActivityRef.current = Date.now()
+					cancelProbe?.()
+				},
+				onError: () => {
+					settled = true
+				},
+				onComplete: () => {
+					settled = true
+				},
+			})
+			setTimeout(() => {
+				probeInFlightRef.current = false
+				if (settled) {
+					return
+				}
+				cancelProbe?.()
+				console.error(
+					`[ExtensionState] Stuck "${phase}" for >${STUCK_THRESHOLD_MS / 1000}s with no state update and unresponsive host — reloading webview to recover`,
+				)
+				window.location.reload()
+			}, 10_000)
 		}, 30_000) // check every 30s
 		return () => clearInterval(interval)
 	}, [contextValue.turnState?.phase])

@@ -140,32 +140,36 @@ export const CommandOutputRow = memo(
 		setIsOutputFullyExpanded: (expanded: boolean) => void
 		onOutputChange?: () => void
 	}) => {
+		const escapeTerminalControls = (text: string): string =>
+			text
+				.split("")
+				.map((char) => {
+					switch (char) {
+						case "\t":
+							return "→   "
+						case "\b":
+							return "⌫"
+						case "\f":
+							return "⏏"
+						case "\v":
+							return "⇳"
+						default:
+							return char
+					}
+				})
+				.join("")
+
 		const splitMessage = (text: string) => {
 			const outputIndex = text.indexOf(COMMAND_OUTPUT_STRING)
 			if (outputIndex === -1) {
 				return { command: text, output: "" }
 			}
+			// Escape control characters once per full message instead of once per
+			// streaming partial (row re-renders on every token, so doing this here
+			// was O(n²) on the message length).
 			return {
 				command: text.slice(0, outputIndex).trim(),
-				output: text
-					.slice(outputIndex + COMMAND_OUTPUT_STRING.length)
-					.trim()
-					.split("")
-					.map((char) => {
-						switch (char) {
-							case "\t":
-								return "→   "
-							case "\b":
-								return "⌫"
-							case "\f":
-								return "⏏"
-							case "\v":
-								return "⇳"
-							default:
-								return char
-						}
-					})
-					.join(""),
+				output: escapeTerminalControls(text.slice(outputIndex + COMMAND_OUTPUT_STRING.length).trim()),
 			}
 		}
 
@@ -239,8 +243,8 @@ export const CommandOutputRow = memo(
 						<CommandOutputContent
 							isContainerExpanded={true}
 							isOutputFullyExpanded={isOutputFullyExpanded}
-							onToggle={() => setIsOutputFullyExpanded(!isOutputFullyExpanded)}
 							onOutputChange={onOutputChange}
+							onToggle={() => setIsOutputFullyExpanded(!isOutputFullyExpanded)}
 							output={output}
 						/>
 					)}

@@ -1,4 +1,3 @@
-import { getProviderAuthStorageId } from "@cline/core"
 import { createModeSwitchNoticeTracker, type ModeSwitchNotice, type ModeSwitchNoticeTracker } from "@cline/shared"
 import type { ChatContent } from "@shared/ChatContent"
 import type { ClineMessage, TurnPhase } from "@shared/ExtensionMessage"

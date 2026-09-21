@@ -401,7 +401,7 @@ describe("executeForeground", () => {
 		}
 	})
 
-	it("says markerless terminals will be preserved when completion cannot be observed", async () => {
+	it("says markerless terminals will be auto-closed when completion cannot be observed", async () => {
 		const process = createFakeTerminalProcess({
 			completionDetails: {
 				unobservedCommand: { source: "markerlessShellIntegration", ownership: "managed" },
@@ -414,9 +414,9 @@ describe("executeForeground", () => {
 		} catch (error) {
 			expect(error).toBeInstanceOf(CommandExitError)
 			expect((error as InstanceType<typeof CommandExitError>).output).toContain(
-				"left open and will not be closed automatically",
+				"starting another foreground command will attempt to close it",
 			)
-			expect((error as InstanceType<typeof CommandExitError>).output).not.toContain("next foreground command")
+			expect((error as InstanceType<typeof CommandExitError>).output).toContain("must not be assumed to have succeeded")
 		}
 	})
 
@@ -499,7 +499,7 @@ describe("executeForeground", () => {
 })
 
 describe("executeForeground — Proceed While Running", () => {
-	it("automatically proceeds after 300 seconds instead of blocking the agent turn", async () => {
+	it("automatically proceeds after the configured timeout instead of blocking the agent turn", async () => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
 		const coordinator = new SdkForegroundCommandCoordinator()
 		const { process, emitLine, complete } = createControllableTerminalProcess()
@@ -527,7 +527,7 @@ describe("executeForeground — Proceed While Running", () => {
 		await vi.advanceTimersByTimeAsync(1)
 		const result = await resultPromise
 		expect(result).toContain("automatically proceeded")
-		expect(result).toContain("after 300 seconds")
+		expect(result).toContain(`after ${FOREGROUND_COMMAND_AUTO_PROCEED_MS / 1000} seconds`)
 		expect(result).not.toContain("The user chose")
 		expect(result).toContain("listening on :3000")
 		expect(coordinator.isRunning).toBe(false)
@@ -1163,5 +1163,56 @@ describe("executeForeground — Proceed While Running", () => {
 		expect(log).toContain("before detach")
 		expect(log).toContain("after detach")
 		fs.rmSync(logFilePath!, { force: true })
+	})
+})
+
+describe("createVscodeShellExecutor — reuseOrBackground mode", () => {
+	it("runs foreground when getOrCreateTerminal returns a terminal", async () => {
+		const process = createFakeTerminalProcess({ lines: ["fg-output"] })
+		const getOrCreateTerminal = vi.fn(async () => ({ terminal: { show: () => {} } }) as never)
+		const runCommand = vi.fn(() => process)
+		const terminalManager = {
+			getOrCreateTerminal,
+			runCommand,
+		} as unknown as VscodeTerminalManager
+		const getTerminalManager = vi.fn(() => terminalManager)
+
+		const tool = createVscodeRunCommandsTool({
+			cwd: "/workspace",
+			getTerminalManager,
+			vscodeTerminalExecutionMode: "reuseOrBackground",
+		})
+
+		const results = await tool.execute(
+			{ commands: ["echo fg-output"] },
+			{ agentId: "agent-1", conversationId: "conversation-1", iteration: 1 },
+		)
+
+		expect(getTerminalManager).toHaveBeenCalledOnce()
+		expect(getOrCreateTerminal).toHaveBeenCalledWith("/workspace", "default", { createIfNone: false })
+		expect(results).toEqual([expect.objectContaining({ result: "fg-output", success: true })])
+	})
+
+	it("runs background when getOrCreateTerminal returns undefined", async () => {
+		const getOrCreateTerminal = vi.fn(async () => undefined)
+		const terminalManager = {
+			getOrCreateTerminal,
+		} as unknown as VscodeTerminalManager
+		const getTerminalManager = vi.fn(() => terminalManager)
+
+		const tool = createVscodeRunCommandsTool({
+			cwd: "/workspace",
+			getTerminalManager,
+			vscodeTerminalExecutionMode: "reuseOrBackground",
+		})
+
+		const results = await tool.execute(
+			{ commands: ["echo hello"] },
+			{ agentId: "agent-1", conversationId: "conversation-1", iteration: 1 },
+		)
+
+		expect(getOrCreateTerminal).toHaveBeenCalledWith("/workspace", "default", { createIfNone: false })
+		// Background mode ran
+		expect(results).toEqual([expect.objectContaining({ success: true })])
 	})
 })

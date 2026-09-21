@@ -5,6 +5,7 @@ import { Logger } from "@/shared/services/Logger"
 import { MessageIdMinter } from "./message-id-minter"
 import { buildToolApprovalAskMessage } from "./message-translator"
 import type { SdkMessageCoordinator } from "./sdk-message-coordinator"
+import { isEditTool } from "./sdk-tool-policies"
 import { buildToolApprovalDenialReason } from "./tool-approval-denial"
 
 export interface ToolApprovalRequest {
@@ -47,6 +48,11 @@ export interface SdkInteractionCoordinatorOptions {
 	 * shown in tool-approval asks (display only). Optional for tests.
 	 */
 	getCwd?: () => string | undefined
+	/**
+	 * Invoked once when the user manually approves an edit tool, so subsequent
+	 * edit tools in the same chat can be auto-approved.
+	 */
+	onEditToolApproved?: () => void
 }
 
 export class SdkInteractionCoordinator {
@@ -182,6 +188,9 @@ export class SdkInteractionCoordinator {
 		Logger.log(`[SdkController] Resolving pending tool approval: approved=${approved} (responseType=${responseType})`)
 		if (approved && pendingMessage) {
 			this.options.recordApprovedToolMessage?.(pendingMessage.toolCallId, pendingMessage.messageTs)
+			if (isEditTool(pendingMessage.toolName)) {
+				this.options.onEditToolApproved?.()
+			}
 		}
 
 		// Approved or rejected by approval controls, the agent resumes its turn and returns to streaming.

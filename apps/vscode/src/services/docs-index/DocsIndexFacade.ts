@@ -3,18 +3,24 @@ import {
 	CodebaseToolCatalog,
 	CodebaseToolInfo,
 	CodebaseWatchStatus,
+	CrawlInfo as CrawlInfoProto,
+	CrawlUrlResponse,
 	CreateProjectResponse,
+	DeleteCrawlResponse,
 	DeleteDocumentResponse,
 	DocsIndexTools,
 	DocumentInfo,
+	GetCrawlResponse,
 	IndexBatchResponse,
 	IndexCodebaseResponse,
 	IndexUrlResponse,
+	ListCrawlsResponse,
 	ListDocumentsResponse,
 	ListProjectsResponse,
 	PingResponse,
 	ProjectInfo,
 	ProjectMutationResponse,
+	RefreshCrawlResponse,
 	SearchDocumentsResponse,
 	SearchResult,
 	TaskStatusResponse,
@@ -113,6 +119,93 @@ export class DocsIndexFacade {
 		} catch (err) {
 			Logger.error("[DocsIndex] indexUrl failed:", err)
 			return IndexUrlResponse.create({ taskId: "", project, status: "error" })
+		}
+	}
+
+	async crawlUrl(
+		serverUrl: string,
+		project: string,
+		url: string,
+		maxDepth: number,
+		maxPages: number,
+	): Promise<CrawlUrlResponse> {
+		try {
+			const client = new VesselIndexerClient(serverUrl)
+			const depth = maxDepth > 0 ? maxDepth : undefined
+			const pages = maxPages > 0 ? maxPages : undefined
+			const result = await client.crawlUrl(project, url, depth, pages)
+			return CrawlUrlResponse.create({
+				crawlId: result.crawl_id || "",
+				taskId: result.task_id || "",
+				project,
+				status: "accepted",
+			})
+		} catch (err) {
+			Logger.error("[DocsIndex] crawlUrl failed:", err)
+			return CrawlUrlResponse.create({ crawlId: "", taskId: "", project, status: "error" })
+		}
+	}
+
+	async listCrawls(serverUrl: string, project: string): Promise<ListCrawlsResponse> {
+		try {
+			const client = new VesselIndexerClient(serverUrl)
+			const crawls = (await client.listCrawls(project)).map((c) =>
+				CrawlInfoProto.create({
+					crawlId: c.crawl_id || "",
+					rootUrl: c.root_url || "",
+					status: c.status || "",
+					maxDepth: c.max_depth || 0,
+					maxPages: c.max_pages || 0,
+					pageCount: c.page_count || 0,
+					createdAt: c.created_at || "",
+				}),
+			)
+			return ListCrawlsResponse.create({ crawls })
+		} catch (err) {
+			Logger.error("[DocsIndex] listCrawls failed:", err)
+			return ListCrawlsResponse.create({ crawls: [] })
+		}
+	}
+
+	async getCrawl(serverUrl: string, project: string, crawlId: string): Promise<GetCrawlResponse> {
+		try {
+			const client = new VesselIndexerClient(serverUrl)
+			const detail = await client.getCrawl(project, crawlId)
+			const crawl = CrawlInfoProto.create({
+				crawlId: detail.crawl.crawl_id || "",
+				rootUrl: detail.crawl.root_url || "",
+				status: detail.crawl.status || "",
+				maxDepth: detail.crawl.max_depth || 0,
+				maxPages: detail.crawl.max_pages || 0,
+				pageCount: detail.crawl.page_count || 0,
+				createdAt: detail.crawl.created_at || "",
+			})
+			return GetCrawlResponse.create({ crawl })
+		} catch (err) {
+			Logger.error("[DocsIndex] getCrawl failed:", err)
+			return GetCrawlResponse.create({})
+		}
+	}
+
+	async refreshCrawl(serverUrl: string, project: string, crawlId: string): Promise<RefreshCrawlResponse> {
+		try {
+			const client = new VesselIndexerClient(serverUrl)
+			const result = await client.refreshCrawl(project, crawlId)
+			return RefreshCrawlResponse.create({ taskId: result.task_id || "" })
+		} catch (err) {
+			Logger.error("[DocsIndex] refreshCrawl failed:", err)
+			return RefreshCrawlResponse.create({ taskId: "" })
+		}
+	}
+
+	async deleteCrawl(serverUrl: string, project: string, crawlId: string): Promise<DeleteCrawlResponse> {
+		try {
+			const client = new VesselIndexerClient(serverUrl)
+			const result = await client.deleteCrawl(project, crawlId)
+			return DeleteCrawlResponse.create({ status: result.status || "ok" })
+		} catch (err) {
+			Logger.error("[DocsIndex] deleteCrawl failed:", err)
+			return DeleteCrawlResponse.create({ status: "error" })
 		}
 	}
 
@@ -260,6 +353,8 @@ export class DocsIndexFacade {
 					chunkCount: d.chunk_count || 0,
 					contentHash: d.content_hash || "",
 					url: d.url || "",
+					sourceUrl: d.source_url || "",
+					crawlId: d.crawl_id || "",
 				}),
 			)
 			return ListDocumentsResponse.create({ documents, total: result.total || 0, offset: safeOffset, limit: safeLimit })
@@ -294,8 +389,8 @@ export class DocsIndexFacade {
 		return DocsIndexTools.create({ tools: toProtoTools() })
 	}
 
-	async registerMcpServer(serverUrl: string): Promise<void> {
-		await this.mcpRegistration.register(serverUrl)
+	async registerMcpServer(serverUrl: string, selectedProject?: string): Promise<void> {
+		await this.mcpRegistration.register(serverUrl, selectedProject)
 	}
 
 	async unregisterMcpServer(): Promise<void> {
@@ -306,11 +401,20 @@ export class DocsIndexFacade {
 		return getWorkspacePath()
 	}
 
-	async getDocsIndexSettings(workspacePath: string): Promise<{ serverUrl: string; lastSelectedProject: string }> {
+	async getDocsIndexSettings(
+		workspacePath: string,
+	): Promise<{ serverUrl: string; lastSelectedProject: string; crawlMaxDepth: number; crawlMaxPages: number }> {
 		const settings = await new DocsIndexSettingsService().get()
+		let mcpProject: string | undefined
+		try {
+			mcpProject = await this.mcpRegistration.getSelectedProject()
+		} catch {}
+		const lastSelectedProject = mcpProject ?? settings.lastProjects[workspacePath] ?? ""
 		return {
 			serverUrl: settings.serverUrl,
-			lastSelectedProject: settings.lastProjects[workspacePath] ?? "",
+			lastSelectedProject,
+			crawlMaxDepth: settings.crawlMaxDepth,
+			crawlMaxPages: settings.crawlMaxPages,
 		}
 	}
 
@@ -318,6 +422,8 @@ export class DocsIndexFacade {
 		workspacePath: string,
 		serverUrl: string | undefined,
 		selectedProject: string | undefined,
+		crawlMaxDepth?: number,
+		crawlMaxPages?: number,
 	): Promise<{ serverUrl: string; lastSelectedProject: string }> {
 		const svc = new DocsIndexSettingsService()
 		const patch: Partial<DocsIndexSettings> = {}
@@ -326,7 +432,16 @@ export class DocsIndexFacade {
 			const current = await svc.get()
 			patch.lastProjects = { ...current.lastProjects, [workspacePath]: selectedProject }
 		}
+		if (crawlMaxDepth !== undefined) patch.crawlMaxDepth = crawlMaxDepth
+		if (crawlMaxPages !== undefined) patch.crawlMaxPages = crawlMaxPages
 		const next = await svc.update(patch)
+		if (selectedProject && workspacePath) {
+			try {
+				await this.mcpRegistration.setSelectedProject(selectedProject)
+			} catch (err) {
+				Logger.warn("[DocsIndex] failed to persist selectedProject to MCP settings:", err)
+			}
+		}
 		return { serverUrl: next.serverUrl, lastSelectedProject: next.lastProjects[workspacePath] ?? "" }
 	}
 

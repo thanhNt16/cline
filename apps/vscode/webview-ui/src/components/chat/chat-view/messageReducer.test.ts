@@ -233,5 +233,79 @@ describe("messageReducer — deterministic", () => {
 			expect(tsList(s)).toContain(1)
 			expect(tsList(s)).toContain(2)
 		})
+		it("a newer-epoch EMPTY snapshot does NOT wipe a populated transcript during a live turn", () => {
+			// A new-epoch empty snapshot was only ever produced by showTaskWithId clearing
+			// the old proxy before its async loads. resetTo() would wipe the visible
+			// conversation while the session kept running. Deliberate clears (clearTask)
+			// empty at an idle phase, so the guard is scoped to live phases.
+			let s = createReplicaState()
+			s = applyStateSnapshot(s, [msg(1, 1, 1, false, "task"), msg(2, 2, 1, false, "answer")], 1, 5, {
+				phase: "streaming",
+				seq: 6,
+			})
+			s = applyStateSnapshot(s, [], 2, 7, { phase: "streaming", seq: 7 })
+			expect(tsList(s)).toEqual([1, 2])
+			expect(s.epoch).toBe(1)
+
+			// The real replacement snapshot for the new task still applies normally.
+			s = applyStateSnapshot(s, [msg(3, 1, 2, false, "task2")], 2, 8, { phase: "streaming", seq: 8 })
+			expect(tsList(s)).toEqual([3])
+			expect(s.epoch).toBe(2)
+		})
+
+		it("a newer-epoch EMPTY snapshot at an idle phase still clears (deliberate clearTask)", () => {
+			let s = createReplicaState()
+			s = applyStateSnapshot(s, [msg(1, 1, 1, false, "task")], 1, 5, { phase: "completed", seq: 6 })
+			s = applyStateSnapshot(s, [], 2, 7, { phase: "idle", seq: 7 })
+			expect(tsList(s)).toEqual([])
+			expect(s.epoch).toBe(2)
+		})
+	})
+
+	describe("messageReducer — transcript cap bounds a long session", () => {
+		const MAX = 1000
+
+		it("streamed partials are bounded: the transcript keeps the newest MAX messages", () => {
+			let s = createReplicaState()
+			for (let ts = 1; ts <= MAX + 5; ts++) {
+				s = applyMessage(s, msg(ts, ts, 1, true, `m${ts}`))
+			}
+			expect(s.messages).toHaveLength(MAX)
+			expect(s.messages[0].ts).toBe(6)
+			expect(s.messages[MAX - 1].ts).toBe(MAX + 5)
+			// The seq high-water map is pruned in lockstep so it cannot outgrow the transcript.
+			expect(s.seqByTs.size).toBeLessThanOrEqual(MAX)
+		})
+
+		it("a later full-snapshot merge cannot re-append already-pruned messages", () => {
+			let s = createReplicaState()
+			for (let ts = 1; ts <= MAX + 5; ts++) {
+				s = applyMessage(s, msg(ts, ts, 1, false, `m${ts}`))
+			}
+			expect(s.messages).toHaveLength(MAX)
+
+			// The host re-posts the FULL transcript on the next state update. The oldest
+			// messages were already dropped; merging the whole array again must not re-grow.
+			const fullSnapshot: ClineMessage[] = []
+			for (let ts = 1; ts <= MAX + 5; ts++) {
+				fullSnapshot.push(msg(ts, ts + 100, 1, false, `m${ts}`))
+			}
+			s = applyStateSnapshot(s, fullSnapshot, 1, 999)
+			expect(s.messages).toHaveLength(MAX)
+			expect(s.messages[0].ts).toBe(6)
+			// The newest retained messages were updated in place with the higher seqs.
+			expect(s.messages[MAX - 1].text).toBe(`m${MAX + 5}`)
+		})
+
+		it("a newer-epoch snapshot (new task) is still bounded", () => {
+			let s = createReplicaState()
+			const largeTask: ClineMessage[] = []
+			for (let ts = 1; ts <= MAX + 20; ts++) {
+				largeTask.push(msg(ts, ts, 2, false, `m${ts}`))
+			}
+			s = applyStateSnapshot(s, largeTask, 2, 1)
+			expect(s.messages).toHaveLength(MAX)
+			expect(s.messages[0].ts).toBe(21)
+		})
 	})
 })

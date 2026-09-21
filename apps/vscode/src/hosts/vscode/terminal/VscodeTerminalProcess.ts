@@ -472,8 +472,11 @@ export class VscodeTerminalProcess extends EventEmitter<TerminalProcessEvents> i
 
 			// A terminal whose shell isn't emitting completion markers (e.g. it
 			// is inside an ssh session) must not be reused for later commands:
-			// tell the manager to evict it without conflating this path with the
-			// sendText fallback, which has different cleanup semantics.
+			// tell the manager to evict it from the reuse pool. CellockAI then
+			// auto-closes such markerless-managed terminals at the next
+			// acquisition (same disposition as the sendText fallback) so they
+			// don't accumulate as orphan tabs; continued/detached unobserved
+			// commands are preserved in case a user-owned session is still running.
 			if (completedWithoutMarkers) {
 				this.markCommandUnobserved("markerlessShellIntegration")
 			}

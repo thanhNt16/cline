@@ -10,6 +10,7 @@ import type {
 	ClineSayTool,
 } from "@shared/ExtensionMessage"
 import { FileIcon, FolderOpenDotIcon, FolderOpenIcon, SearchIcon, ShapesIcon, WrenchIcon } from "lucide-react"
+import { safeJsonParse } from "@/utils/safeJsonParse"
 
 /**
  * Low-stakes tool types that should be grouped together
@@ -225,7 +226,7 @@ export function groupMessages(visibleMessages: ClineMessage[]): (ClineMessage | 
 				// get last api_req_started in currentGroup to check if it's cancelled
 				const lastApiReqStarted = [...currentGroup].reverse().find((m) => m.say === "api_req_started")
 				if (lastApiReqStarted?.text != null) {
-					const info = JSON.parse(lastApiReqStarted.text)
+					const info = safeJsonParse<{ cancelReason?: string }>(lastApiReqStarted.text) ?? {}
 					const isCancelled = info.cancelReason != null
 					if (isCancelled) {
 						endBrowserSession()
@@ -240,8 +241,8 @@ export function groupMessages(visibleMessages: ClineMessage[]): (ClineMessage | 
 
 				// Check if this is a close action
 				if (message.say === "browser_action") {
-					const browserAction = JSON.parse(message.text || "{}") as ClineSayBrowserAction
-					if (browserAction.action === "close") {
+					const browserAction = safeJsonParse<ClineSayBrowserAction>(message.text)
+					if (browserAction?.action === "close") {
 						endBrowserSession()
 					}
 				}

@@ -16,6 +16,11 @@ service DocsIndexService {
   rpc deleteProject(DeleteProjectRequest) returns (ProjectMutationResponse);
   rpc uploadFile(UploadFileRequest) returns (UploadFileResponse);
   rpc indexUrl(IndexUrlRequest) returns (IndexUrlResponse);
+  rpc crawlUrl(CrawlUrlRequest) returns (CrawlUrlResponse);
+  rpc listCrawls(ListCrawlsRequest) returns (ListCrawlsResponse);
+  rpc getCrawl(GetCrawlRequest) returns (GetCrawlResponse);
+  rpc refreshCrawl(RefreshCrawlRequest) returns (RefreshCrawlResponse);
+  rpc deleteCrawl(DeleteCrawlRequest) returns (DeleteCrawlResponse);
   rpc indexBatch(IndexBatchRequest) returns (IndexBatchResponse);
   rpc getTask(TaskStatusRequest) returns (TaskStatusResponse);
   rpc searchDocuments(SearchDocumentsRequest) returns (SearchDocumentsResponse);
@@ -166,6 +171,8 @@ message DocumentInfo {
   int32 chunk_count = 4;
   string content_hash = 5;
   string url = 6;
+  optional string source_url = 7;
+  optional string crawl_id = 8;
 }
 
 message ListDocumentsResponse {
@@ -254,15 +261,84 @@ message CodebaseToolCatalog {
 message GetDocsIndexSettingsResponse {
   string server_url = 1;
   string last_selected_project = 2;
+  int32 crawl_max_depth = 3;
+  int32 crawl_max_pages = 4;
 }
 
 message UpdateDocsIndexSettingsRequest {
   string workspace_path = 1;
   optional string server_url = 2;
   optional string selected_project = 3;
+  optional int32 crawl_max_depth = 4;
+  optional int32 crawl_max_pages = 5;
 }
 
 message UpdateDocsIndexSettingsResponse {
   string server_url = 1;
   string last_selected_project = 2;
+}
+
+message CrawlUrlRequest {
+  string server_url = 1;
+  string project = 2;
+  string url = 3;
+  int32 max_depth = 4;
+  int32 max_pages = 5;
+}
+
+message CrawlUrlResponse {
+  string crawl_id = 1;
+  string task_id = 2;
+  string project = 3;
+  string status = 4;
+}
+
+message ListCrawlsRequest {
+  string server_url = 1;
+  string project = 2;
+}
+
+message CrawlInfo {
+  string crawl_id = 1;
+  string root_url = 2;
+  string status = 3;
+  int32 max_depth = 4;
+  int32 max_pages = 5;
+  int32 page_count = 6;
+  string created_at = 7;
+}
+
+message ListCrawlsResponse {
+  repeated CrawlInfo crawls = 1;
+}
+
+message GetCrawlRequest {
+  string server_url = 1;
+  string project = 2;
+  string crawl_id = 3;
+}
+
+message GetCrawlResponse {
+  CrawlInfo crawl = 1;
+  repeated DocumentInfo pages = 2;
+}
+
+message RefreshCrawlRequest {
+  string server_url = 1;
+  string project = 2;
+  string crawl_id = 3;
+}
+
+message RefreshCrawlResponse {
+  string task_id = 1;
+}
+
+message DeleteCrawlRequest {
+  string server_url = 1;
+  string project = 2;
+  string crawl_id = 3;
+}
+
+message DeleteCrawlResponse {
+  string status = 1;
 }

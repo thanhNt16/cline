@@ -1,13 +1,26 @@
-import { getGlobalDocsIndexSettingsFilePath, writeJsonConfigFileAtomic } from "@core/storage/disk"
+import {
+	getGlobalDocsIndexSettingsFilePath,
+	getProjectDocsIndexSettingsFilePath,
+	writeJsonConfigFileAtomic,
+} from "@core/storage/disk"
 import { readJsonConfigFile } from "@core/storage/readJsonConfig"
 import { DEFAULT_SERVER_URL } from "./constants"
 
 export interface DocsIndexSettings {
 	serverUrl: string
 	lastProjects: Record<string, string>
+	crawlMaxDepth: number
+	crawlMaxPages: number
 }
 
-const DEFAULTS: DocsIndexSettings = { serverUrl: DEFAULT_SERVER_URL, lastProjects: {} }
+const DEFAULTS: DocsIndexSettings = {
+	serverUrl: DEFAULT_SERVER_URL,
+	lastProjects: {},
+	crawlMaxDepth: 3,
+	crawlMaxPages: 50,
+}
+
+const numOrDefault = (v: unknown, d: number): number => (typeof v === "number" && Number.isFinite(v) ? v : d)
 
 export function isValidServerUrl(url: string): boolean {
 	try {
@@ -27,15 +40,40 @@ export function selectProject(projectNames: string[], workspaceBasename: string,
 }
 
 export class DocsIndexSettingsService {
-	private file(): string {
-		return getGlobalDocsIndexSettingsFilePath()
-	}
-
+	/**
+	 * CellockAI: project-scoped docindex config. Reads MERGE the global
+	 * ~/.cellockai/docs_index.json (base) with <workspace>/.cellockai/docs_index.json
+	 * (override — workspace wins per key). Writes go to the workspace file so each
+	 * project carries its own serverUrl + selected project. When no workspace is
+	 * open, getProjectDocsIndexSettingsFilePath() falls back to the global path,
+	 * preserving the original single-file behavior.
+	 */
 	async get(): Promise<DocsIndexSettings> {
-		const raw = await readJsonConfigFile<Partial<DocsIndexSettings>>(this.file())
+		const globalRaw = await readJsonConfigFile<Partial<DocsIndexSettings>>(getGlobalDocsIndexSettingsFilePath())
+		const serverUrl = typeof globalRaw?.serverUrl === "string" ? globalRaw.serverUrl : DEFAULTS.serverUrl
+		const lastProjects =
+			globalRaw?.lastProjects && typeof globalRaw.lastProjects === "object" ? { ...globalRaw.lastProjects } : {}
+
+		const wsPath = await getProjectDocsIndexSettingsFilePath()
+		if (wsPath !== getGlobalDocsIndexSettingsFilePath()) {
+			const wsRaw = await readJsonConfigFile<Partial<DocsIndexSettings>>(wsPath)
+			if (wsRaw) {
+				if (wsRaw.lastProjects && typeof wsRaw.lastProjects === "object") {
+					Object.assign(lastProjects, wsRaw.lastProjects)
+				}
+				return {
+					serverUrl: typeof wsRaw.serverUrl === "string" ? wsRaw.serverUrl : serverUrl,
+					lastProjects,
+					crawlMaxDepth: numOrDefault(wsRaw.crawlMaxDepth, DEFAULTS.crawlMaxDepth),
+					crawlMaxPages: numOrDefault(wsRaw.crawlMaxPages, DEFAULTS.crawlMaxPages),
+				}
+			}
+		}
 		return {
-			serverUrl: typeof raw?.serverUrl === "string" ? raw.serverUrl : DEFAULTS.serverUrl,
-			lastProjects: raw?.lastProjects && typeof raw.lastProjects === "object" ? raw.lastProjects : {},
+			serverUrl,
+			lastProjects,
+			crawlMaxDepth: DEFAULTS.crawlMaxDepth,
+			crawlMaxPages: DEFAULTS.crawlMaxPages,
 		}
 	}
 
@@ -43,13 +81,44 @@ export class DocsIndexSettingsService {
 		if (patch.serverUrl !== undefined && !isValidServerUrl(patch.serverUrl)) {
 			throw new Error(`Invalid server URL: ${patch.serverUrl}`)
 		}
-		const current = await this.get()
-		const next = {
-			serverUrl: patch.serverUrl != null ? patch.serverUrl : current.serverUrl,
-			lastProjects: patch.lastProjects != null ? patch.lastProjects : current.lastProjects,
+		const globalPath = getGlobalDocsIndexSettingsFilePath()
+		const wsPath = await getProjectDocsIndexSettingsFilePath()
+		if (wsPath !== globalPath) {
+			// Project-scoped write: merge the patch onto the WORKSPACE file only,
+			// so the workspace file holds just this project's keys and never shadows
+			// the global file's other-workspace entries with stale copies.
+			const wsRaw = await readJsonConfigFile<Partial<DocsIndexSettings>>(wsPath)
+			const next: DocsIndexSettings = {
+				serverUrl:
+					patch.serverUrl != null
+						? patch.serverUrl
+						: typeof wsRaw?.serverUrl === "string"
+							? wsRaw.serverUrl
+							: DEFAULTS.serverUrl,
+				lastProjects: { ...(wsRaw?.lastProjects ?? {}), ...(patch.lastProjects ?? {}) },
+				crawlMaxDepth:
+					patch.crawlMaxDepth != null
+						? patch.crawlMaxDepth
+						: numOrDefault(wsRaw?.crawlMaxDepth, DEFAULTS.crawlMaxDepth),
+				crawlMaxPages:
+					patch.crawlMaxPages != null
+						? patch.crawlMaxPages
+						: numOrDefault(wsRaw?.crawlMaxPages, DEFAULTS.crawlMaxPages),
+			}
+			await writeJsonConfigFileAtomic(wsPath, next)
+		} else {
+			// No workspace open → write the global file (original behavior).
+			const current = await this.get()
+			const next: DocsIndexSettings = {
+				serverUrl: patch.serverUrl != null ? patch.serverUrl : current.serverUrl,
+				lastProjects:
+					patch.lastProjects != null ? { ...current.lastProjects, ...patch.lastProjects } : current.lastProjects,
+				crawlMaxDepth: patch.crawlMaxDepth != null ? patch.crawlMaxDepth : current.crawlMaxDepth,
+				crawlMaxPages: patch.crawlMaxPages != null ? patch.crawlMaxPages : current.crawlMaxPages,
+			}
+			await writeJsonConfigFileAtomic(globalPath, next)
 		}
-		await writeJsonConfigFileAtomic(this.file(), next)
-		return next
+		return this.get()
 	}
 
 	async setServerUrl(url: string): Promise<DocsIndexSettings> {
@@ -57,7 +126,6 @@ export class DocsIndexSettingsService {
 	}
 
 	async setSelectedProject(workspacePath: string, project: string): Promise<DocsIndexSettings> {
-		const current = await this.get()
-		return this.update({ lastProjects: { ...current.lastProjects, [workspacePath]: project } })
+		return this.update({ lastProjects: { [workspacePath]: project } })
 	}
 }

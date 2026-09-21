@@ -35,6 +35,9 @@ describe("getAvailableSlashCommands", () => {
 
 		mockController = {
 			stateManager: mockStateManager as any,
+			// CellockAI: listAvailableRuntimeSlashCommands surfaces discovered
+			// skills from the SDK user-instruction watcher. Default to none.
+			listAvailableRuntimeSlashCommands: sinon.stub().resolves([]),
 		}
 	})
 
@@ -279,6 +282,56 @@ describe("getAvailableSlashCommands", () => {
 			const response = await getAvailableSlashCommands(mockController as Controller, EmptyRequest.create())
 
 			// Should not throw, just return base commands
+			response.commands.length.should.be.greaterThanOrEqual(BASE_SLASH_COMMANDS.length)
+		})
+	})
+
+	// CellockAI: skills discovered by the SDK user-instruction watcher are
+	// surfaced as slash suggestions so typing / offers /skill-name entries.
+	describe("Skills (runtime commands)", () => {
+		it("should include discovered skills with a skill section", async () => {
+			;(mockController.listAvailableRuntimeSlashCommands as sinon.SinonStub).resolves([
+				{ kind: "skill", name: "aws-deploy", description: "Deploys to AWS", id: "aws-deploy" },
+				{ kind: "skill", name: "pr-review", description: "", id: "pr-review" },
+				{ kind: "workflow", name: "legacy-flow", description: "old", id: "legacy-flow" },
+			])
+
+			const response = await getAvailableSlashCommands(mockController as Controller, EmptyRequest.create())
+
+			const aws = response.commands.find((cmd) => cmd.name === "aws-deploy")
+			aws!.should.not.be.undefined()
+			aws!.section.should.equal("skill")
+			aws!.description.should.equal("Deploys to AWS")
+			aws!.cliCompatible.should.equal(true)
+
+			// Empty descriptions fall back to "Skill: <name>".
+			const prReview = response.commands.find((cmd) => cmd.name === "pr-review")
+			prReview!.description.should.equal("Skill: pr-review")
+
+			// Workflows from the watcher are NOT injected here (the webview still
+			// sources workflows from toggle state); only kind === "skill" is added.
+			response.commands.should.not.containEql({ name: "legacy-flow" })
+			const legacy = response.commands.find((cmd) => cmd.name === "legacy-flow")
+			;(legacy === undefined).should.be.true()
+		})
+
+		it("should not duplicate a skill whose name collides with a base command", async () => {
+			;(mockController.listAvailableRuntimeSlashCommands as sinon.SinonStub).resolves([
+				{ kind: "skill", name: BASE_SLASH_COMMANDS[0].name, description: "collision", id: "x" },
+			])
+
+			const response = await getAvailableSlashCommands(mockController as Controller, EmptyRequest.create())
+
+			const matches = response.commands.filter((cmd) => cmd.name === BASE_SLASH_COMMANDS[0].name)
+			matches.length.should.equal(1)
+			matches[0].section.should.equal("default")
+		})
+
+		it("should keep base + workflow commands when the watcher throws", async () => {
+			;(mockController.listAvailableRuntimeSlashCommands as sinon.SinonStub).rejects(new Error("boom"))
+
+			const response = await getAvailableSlashCommands(mockController as Controller, EmptyRequest.create())
+
 			response.commands.length.should.be.greaterThanOrEqual(BASE_SLASH_COMMANDS.length)
 		})
 	})

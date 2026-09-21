@@ -345,3 +345,31 @@ After connecting, your agent has these tools:
 | Document Index not connecting | Ensure Vessel Indexer server is running on the configured port |
 | Indexing very slow | Use "fast" index mode for initial pass; full mode for targeted analysis |
 | Agent not using MCP tools | Ensure `mcpServerRegistered` shows as registered in Codebase Index status card |
+
+curl -X POST \
+    https://api.z.ai/api/coding/paas/v4/chat/completions \
+    -H "Authorization: Bearer $ZAI_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{
+        "model": "glm-5v-turbo",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                        "url": "https://cloudcovert-1305175928.cos.ap-guangzhou.myqcloud.com/%E5%9B%BE%E7%89%87grounding.PNG"
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "text": "Where is the second bottle of beer from the right on the table?  Provide coordinates in [[xmin,ymin,xmax,ymax]] format"
+                    }
+                ]
+            }
+        ],
+        "thinking": {
+            "type":"enabled"
+        }
+    }'

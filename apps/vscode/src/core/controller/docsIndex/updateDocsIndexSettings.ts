@@ -9,6 +9,8 @@ export async function updateDocsIndexSettings(
 		request.workspacePath,
 		request.serverUrl,
 		request.selectedProject,
+		request.crawlMaxDepth,
+		request.crawlMaxPages,
 	)
 	return UpdateDocsIndexSettingsResponse.create({ serverUrl, lastSelectedProject })
 }

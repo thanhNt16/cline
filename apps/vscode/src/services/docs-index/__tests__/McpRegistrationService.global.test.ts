@@ -1,11 +1,11 @@
-import { strict as assert } from "node:assert"
 import { afterEach, beforeEach, describe, it } from "bun:test"
+import { strict as assert } from "node:assert"
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
 import { McpRegistrationService } from "../McpRegistrationService"
 
-describe("McpRegistrationService writes to global", () => {
+describe("McpRegistrationService writes to the workspace file", () => {
 	let tempHome: string
 	let tempWorkspace: string
 	let globalPath: string
@@ -21,9 +21,9 @@ describe("McpRegistrationService writes to global", () => {
 		globalPath = path.join(tempHome, ".cellockai", "mcp_settings.json")
 		wsPath = path.join(tempWorkspace, ".cellockai", "mcp_settings.json")
 		const fakeHub = {
-			// The legacy default points at workspace; owner resolution must win.
 			getMcpSettingsFilePath: async () => wsPath,
-			resolveMcpWriteFilePath: async (_name?: string) => globalPath,
+			// projectLevel=true → workspace; otherwise global. Mirrors McpHub.resolveMcpWriteFilePath.
+			resolveMcpWriteFilePath: async (_name?: string, projectLevel?: boolean) => (projectLevel ? wsPath : globalPath),
 		}
 		svc = new McpRegistrationService(fakeHub as any)
 	})
@@ -35,22 +35,34 @@ describe("McpRegistrationService writes to global", () => {
 		await fs.rm(tempWorkspace, { recursive: true, force: true })
 	})
 
-	it("register writes the vessel-indexer entry to the global file", async () => {
+	it("register writes the docindex entry to the workspace file", async () => {
 		await svc.register("http://localhost:20130")
-		const global = JSON.parse(await fs.readFile(globalPath, "utf8"))
-		assert.equal(global.mcpServers["vessel-indexer"].url, "http://localhost:20130/mcp")
-		await assert.rejects(() => fs.access(wsPath))
+		const ws = JSON.parse(await fs.readFile(wsPath, "utf8"))
+		assert.equal(ws.mcpServers["docindex"].url, "http://localhost:20130/mcp")
 	})
 
-	it("isRegistered reads the owning global file", async () => {
+	it("register removes a legacy vessel-indexer entry from the global file", async () => {
+		// seed a legacy global entry
+		await fs.mkdir(path.dirname(globalPath), { recursive: true })
+		await fs.writeFile(
+			globalPath,
+			JSON.stringify({ mcpServers: { "vessel-indexer": { type: "streamableHttp", url: "http://old/mcp" } } }),
+		)
+		await svc.register("http://localhost:20130")
+		const global = JSON.parse(await fs.readFile(globalPath, "utf8"))
+		assert.ok(!global.mcpServers["vessel-indexer"], "legacy vessel-indexer must be removed")
+		assert.equal(global.mcpServers["docindex"]?.url, undefined, "docindex must live in the workspace file, not global")
+	})
+
+	it("isRegistered reads the workspace file", async () => {
 		await svc.register("http://localhost:20130")
 		assert.equal(await svc.isRegistered("http://localhost:20130"), true)
 	})
 
-	it("unregister removes the entry from the owning global file", async () => {
+	it("unregister removes the entry from the workspace file", async () => {
 		await svc.register("http://localhost:20130")
 		await svc.unregister()
-		const global = JSON.parse(await fs.readFile(globalPath, "utf8"))
-		assert.ok(!global.mcpServers["vessel-indexer"])
+		const ws = JSON.parse(await fs.readFile(wsPath, "utf8"))
+		assert.ok(!ws.mcpServers["docindex"])
 	})
 })

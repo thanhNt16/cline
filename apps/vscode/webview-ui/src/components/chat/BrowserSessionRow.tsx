@@ -13,6 +13,7 @@ import CodeBlock, { CODE_BLOCK_BG_COLOR } from "@/components/common/CodeBlock"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { cn } from "@/lib/utils"
 import { FileServiceClient } from "@/services/grpc-client"
+import { safeJsonParse } from "@/utils/safeJsonParse"
 
 interface BrowserSessionRowProps {
 	messages: ClineMessage[]
@@ -115,8 +116,8 @@ const BrowserSessionRow = memo((props: BrowserSessionRowProps) => {
 		// Check if last api_req_started is cancelled
 		const lastApiReqStarted = [...messages].reverse().find((m) => m.say === "api_req_started")
 		if (lastApiReqStarted?.text != null) {
-			const info = JSON.parse(lastApiReqStarted.text)
-			if (info.cancelReason != null) {
+			const info = safeJsonParse<{ cancelReason?: string }>(lastApiReqStarted.text)
+			if (info?.cancelReason != null) {
 				return true
 			}
 		}
@@ -166,7 +167,7 @@ const BrowserSessionRow = memo((props: BrowserSessionRowProps) => {
 				}
 				// Complete current state
 				currentStateMessages.push(message)
-				const resultData = JSON.parse(message.text || "{}") as BrowserActionResult
+				const resultData = safeJsonParse<BrowserActionResult>(message.text, {} as BrowserActionResult)!
 
 				// Add page with current state and previous next actions
 				result.push({
@@ -323,7 +324,7 @@ const BrowserSessionRow = memo((props: BrowserSessionRowProps) => {
 		for (let i = actions.length - 1; i >= 0; i--) {
 			const message = actions[i]
 			if (message.say === "browser_action") {
-				const browserAction = JSON.parse(message.text || "{}") as ClineSayBrowserAction
+				const browserAction = safeJsonParse<ClineSayBrowserAction>(message.text, {} as ClineSayBrowserAction)!
 				if (browserAction.action === "click" && browserAction.coordinate) {
 					return browserAction.coordinate
 				}
@@ -545,7 +546,7 @@ const BrowserSessionRowContent = memo(
 						)
 
 					case "browser_action":
-						const browserAction = JSON.parse(message.text || "{}") as ClineSayBrowserAction
+						const browserAction = safeJsonParse<ClineSayBrowserAction>(message.text, {} as ClineSayBrowserAction)!
 						return (
 							<BrowserActionBox
 								action={browserAction.action}

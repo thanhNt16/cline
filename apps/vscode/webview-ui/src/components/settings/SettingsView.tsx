@@ -1,7 +1,7 @@
 import type { ExtensionMessage } from "@shared/ExtensionMessage"
 import { isClineInternalTester } from "@shared/internal/account"
 import { EmptyRequest } from "@shared/proto/cline/common"
-import { type ProjectInfo, UpdateDocsIndexSettingsRequest } from "@shared/proto/cline/docs_index"
+import { PingRequest, type ProjectInfo, RegisterMcpRequest, UpdateDocsIndexSettingsRequest } from "@shared/proto/cline/docs_index"
 import { ResetStateRequest } from "@shared/proto/cline/state"
 import type { UserOrganization } from "@shared/proto/index.cline"
 import {
@@ -17,7 +17,7 @@ import {
 	SquareTerminal,
 	Wrench,
 } from "lucide-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useEvent } from "react-use"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { type ClineUser, useClineAuth } from "@/context/ClineAuthContext"
@@ -29,15 +29,15 @@ import { Tab, TabContent, TabList, TabTrigger } from "../common/Tab"
 import ViewHeader from "../common/ViewHeader"
 import SectionHeader from "./SectionHeader"
 import ApiConfigurationSection from "./sections/ApiConfigurationSection"
-import DebugSection from "./sections/DebugSection"
-import FeatureSettingsSection from "./sections/FeatureSettingsSection"
-import GeneralSettingsSection from "./sections/GeneralSettingsSection"
-import { RemoteConfigSection } from "./sections/RemoteConfigSection"
-import TerminalSettingsSection from "./sections/TerminalSettingsSection"
 import CodebaseMemorySection from "./sections/CodebaseMemorySection"
 import DatabaseSection from "./sections/DatabaseSection"
+import DebugSection from "./sections/DebugSection"
 import DocsIndexSection from "./sections/DocsIndexSection"
+import FeatureSettingsSection from "./sections/FeatureSettingsSection"
+import GeneralSettingsSection from "./sections/GeneralSettingsSection"
 import { ProjectConfigSection } from "./sections/ProjectConfigSection"
+import { RemoteConfigSection } from "./sections/RemoteConfigSection"
+import TerminalSettingsSection from "./sections/TerminalSettingsSection"
 
 const IS_DEV = process.env.IS_DEV
 
@@ -257,7 +257,7 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 		DocsIndexServiceClient.getDocsIndexSettings(EmptyRequest.create())
 			.then((res) => {
 				if (cancelled) return
-				if (res.serverUrl) setDocsServerUrl(res.serverUrl)
+				setDocsServerUrl(res.serverUrl ?? "")
 				if (res.lastSelectedProject) setDocsSelectedProject(res.lastSelectedProject)
 				setDocsSettingsLoaded(true)
 			})
@@ -270,6 +270,26 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 			cancelled = true
 		}
 	}, [])
+
+	// Auto-connect to the docs-index MCP server once after settings load.
+	const autoConnectRan = useRef(false)
+	useEffect(() => {
+		if (!docsSettingsLoaded || !docsServerUrl || autoConnectRan.current) return
+		autoConnectRan.current = true
+		let cancelled = false
+		DocsIndexServiceClient.ping(PingRequest.create({ serverUrl: docsServerUrl }))
+			.then(async (result) => {
+				if (cancelled || !result.connected) return
+				await DocsIndexServiceClient.registerMcpServer(RegisterMcpRequest.create({ serverUrl: docsServerUrl }))
+				if (!cancelled) setDocsConnected(true)
+			})
+			.catch((err) => {
+				if (!cancelled) console.error("Docs-index auto-connect failed:", err)
+			})
+		return () => {
+			cancelled = true
+		}
+	}, [docsSettingsLoaded, docsServerUrl])
 
 	// Persist the Document Index server URL (debounced). Server URL is global, so
 	// it does not depend on a workspace path; only gate on the initial read.
@@ -340,7 +360,19 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 		}
 
 		return <Component {...props} />
-	}, [activeTab, handleResetState, settingsInitialModelTab, version, TAB_CONTENT_MAP, docsServerUrl, docsConnected, docsProjects, docsSelectedProject, docsWorkspacePath, docsWorkspaceBasename])
+	}, [
+		activeTab,
+		handleResetState,
+		settingsInitialModelTab,
+		version,
+		TAB_CONTENT_MAP,
+		docsServerUrl,
+		docsConnected,
+		docsProjects,
+		docsSelectedProject,
+		docsWorkspacePath,
+		docsWorkspaceBasename,
+	])
 
 	return (
 		<Tab>

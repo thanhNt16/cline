@@ -2,6 +2,7 @@ import type { ClineMessage } from "@shared/ExtensionMessage"
 import type React from "react"
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import { Virtuoso } from "react-virtuoso"
+import ChatErrorBoundary from "@/components/chat/ChatErrorBoundary"
 import ChatRow from "@/components/chat/ChatRow"
 import { StickyUserMessage } from "@/components/chat/task-header/StickyUserMessage"
 import { useExtensionState } from "@/context/ExtensionStateContext"
@@ -53,6 +54,7 @@ export const MessagesArea: React.FC<MessagesAreaProps> = ({
 		scrollContainerRef,
 		toggleRowExpansion,
 		handleRowHeightChange,
+		isAtBottom,
 		setIsAtBottom,
 		disableAutoScrollRef,
 		handleRangeChanged,
@@ -222,19 +224,21 @@ export const MessagesArea: React.FC<MessagesAreaProps> = ({
 				    already warm when the first real row arrives. */}
 				{showEmptyListLoader && (
 					<div className="absolute inset-0 overflow-hidden">
-						<ChatRow
-							inputValue={inputValue}
-							isExpanded={false}
-							isLast={true}
-							lastModifiedMessage={modifiedMessages.at(-1)}
-							message={WAITING_ROW}
-							onCancelCommand={() => messageHandlers.executeButtonAction("cancel")}
-							onHeightChange={handleRowHeightChange}
-							onLastRowContentChange={handleLastRowContentChange}
-							onSetQuote={setActiveQuote}
-							onToggleExpand={toggleRowExpansion}
-							sendMessageFromChatRow={messageHandlers.handleSendMessage}
-						/>
+						<ChatErrorBoundary>
+							<ChatRow
+								inputValue={inputValue}
+								isExpanded={false}
+								isLast={true}
+								lastModifiedMessage={modifiedMessages.at(-1)}
+								message={WAITING_ROW}
+								onCancelCommand={() => messageHandlers.executeButtonAction("cancel")}
+								onHeightChange={handleRowHeightChange}
+								onLastRowContentChange={handleLastRowContentChange}
+								onSetQuote={setActiveQuote}
+								onToggleExpand={toggleRowExpansion}
+								sendMessageFromChatRow={messageHandlers.handleSendMessage}
+							/>
+						</ChatErrorBoundary>
 					</div>
 				)}
 				<Virtuoso
@@ -248,11 +252,15 @@ export const MessagesArea: React.FC<MessagesAreaProps> = ({
 					className="scrollable grow overflow-y-scroll"
 					components={virtuosoComponents}
 					data={displayedGroupedMessages}
-					// increasing top by 3_000 to prevent jumping around when user collapses a row
+					// Both directions are bounded: an unbounded bottom pre-mounts the entire transcript
+					// tail, which during a long streaming session OOMs the webview renderer (VS Code
+					// then shows a permanent solid-black frame). Gating it on isAtBottom did not help —
+					// while streaming the user IS pinned to the bottom, which is exactly the bug.
+					// Virtuoso always renders the anchor row, so scroll-to-bottom still animates.
 					increaseViewportBy={{
 						top: 3_000,
-						bottom: Number.MAX_SAFE_INTEGER,
-					}} // hack to make sure the last message is always rendered to get truly perfect scroll to bottom animation when new messages are added (Number.MAX_SAFE_INTEGER is safe for arithmetic operations, which is all virtuoso uses this value for in src/sizeRangeSystem.ts)
+						bottom: 3_000,
+					}}
 					initialTopMostItemIndex={displayedGroupedMessages.length - 1} // messages is the raw format returned by extension, modifiedMessages is the manipulated structure that combines certain messages of related type, and visibleMessages is the filtered structure that removes messages that should not be rendered
 					itemContent={itemContent}
 					key={task.ts}

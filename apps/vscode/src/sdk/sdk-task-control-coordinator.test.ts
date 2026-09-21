@@ -406,6 +406,63 @@ describe("SdkTaskControlCoordinator", () => {
 		expect(state.task?.taskId).toBe("task-1")
 		expect(options.postStateToWebview).toHaveBeenCalledOnce()
 	})
+
+	it("does not clear the current task's transcript until the replacement messages are loaded", async () => {
+		// Regression: clearing the old proxy's messages + bumping the translator epoch
+		// BEFORE the async history reads shipped new-epoch EMPTY snapshots on every
+		// debounced postStateToWebview() while the loads were in flight. The webview
+		// wipes its transcript on any epoch advance, so the chat went blank while the
+		// session kept running — and stayed blank if a load failed (no healing post).
+		const existingTask = makeTask("old-task", [{ ts: 1, type: "say", say: "task", text: "old" }])
+		const { coordinator, options, state } = makeCoordinator({
+			task: existingTask,
+			hasHistoryItem: true,
+			clineMessages: [{ ts: 2, type: "say", say: "task", text: "new" }],
+		})
+
+		let resolveLoad: ((messages: ClineMessage[]) => void) | undefined
+		options.taskHistory.getClineMessages.mockReturnValueOnce(
+			new Promise<ClineMessage[]>((resolve) => {
+				resolveLoad = resolve
+			}),
+		)
+
+		const inFlight = coordinator.showTaskWithId("task-1")
+		await Promise.resolve()
+		await Promise.resolve()
+
+		// While the reads are pending, the shared view must still hold the OLD task intact.
+		expect(existingTask.messageStateHandler.clear).not.toHaveBeenCalled()
+		expect(options.resetMessageTranslator).not.toHaveBeenCalled()
+		expect(state.task?.taskId).toBe("old-task")
+		expect(state.task?.messageStateHandler.getClineMessages()).toHaveLength(1)
+
+		resolveLoad?.([{ ts: 2, type: "say", say: "task", text: "new" }])
+		await inFlight
+
+		expect(existingTask.messageStateHandler.clear).toHaveBeenCalledOnce()
+		expect(options.resetMessageTranslator).toHaveBeenCalledOnce()
+		expect(state.task?.taskId).toBe("task-1")
+		expect(state.task?.messageStateHandler.getClineMessages().at(-1)).toEqual(
+			expect.objectContaining({ type: "ask", ask: "resume_task" }),
+		)
+	})
+
+	it("leaves the current task intact when loading the replacement messages fails", async () => {
+		const existingTask = makeTask("old-task", [{ ts: 1, type: "say", say: "task", text: "old" }])
+		const { coordinator, options, state } = makeCoordinator({
+			task: existingTask,
+			hasHistoryItem: true,
+		})
+		options.taskHistory.getClineMessages.mockRejectedValueOnce(new Error("read failed"))
+
+		await coordinator.showTaskWithId("task-1")
+
+		expect(existingTask.messageStateHandler.clear).not.toHaveBeenCalled()
+		expect(options.resetMessageTranslator).not.toHaveBeenCalled()
+		expect(state.task?.taskId).toBe("old-task")
+		expect(state.task?.messageStateHandler.getClineMessages()).toHaveLength(1)
+	})
 })
 
 function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {

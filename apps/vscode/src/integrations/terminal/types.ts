@@ -25,11 +25,21 @@ export interface UnobservedTerminalCommand {
 
 export type UnobservedTerminalCommandDisposition = "disposeBeforeNextTerminalAcquisition" | "preserve"
 
-/** Derive cleanup and reporting policy from the same unobserved-command snapshot. */
+/**
+ * Derive cleanup and reporting policy from the same unobserved-command snapshot.
+ *
+ * CellockAI: any unobserved command we still OWN (managed — not continued/detached)
+ * is auto-closed at the next terminal acquisition, regardless of source. We never
+ * reuse an unobserved terminal (shell-integration markers didn't fire, so its cwd
+ * can't be confirmed and it may be a nested/ssh shell), but closing it at the next
+ * acquisition — instead of preserving it forever — keeps exploratory sessions at a
+ * single visible terminal rather than accumulating orphan tabs. Continued/detached
+ * commands may still be user-owned and running, so those are preserved.
+ */
 export function getUnobservedTerminalCommandDisposition(
 	command: UnobservedTerminalCommand,
 ): UnobservedTerminalCommandDisposition {
-	return command.source === "sendText" && command.ownership === "managed" ? "disposeBeforeNextTerminalAcquisition" : "preserve"
+	return command.ownership === "managed" ? "disposeBeforeNextTerminalAcquisition" : "preserve"
 }
 
 export interface TerminalCompletionDetails {

@@ -2,6 +2,7 @@ import type { ProjectInfo } from "@shared/proto/cline/docs_index"
 import { useState } from "react"
 import CodebaseCard from "./docs-index/CodebaseCard"
 import ConnectionCard from "./docs-index/ConnectionCard"
+import CrawlsCard from "./docs-index/CrawlsCard"
 import DocumentsCard from "./docs-index/DocumentsCard"
 import IndexBatchCard from "./docs-index/IndexBatchCard"
 import IndexCard from "./docs-index/IndexCard"
@@ -70,7 +71,18 @@ export const DocsIndexSection = ({
 				serverUrl={serverUrl}
 			/>
 			<IndexBatchCard connected={connected} selectedProject={selectedProject} serverUrl={serverUrl} />
-			<IndexCard connected={connected} selectedProject={selectedProject} serverUrl={serverUrl} />
+			<IndexCard
+				connected={connected}
+				selectedProject={selectedProject}
+				serverUrl={serverUrl}
+				workspacePath={workspacePath}
+			/>
+			<CrawlsCard
+				connected={connected}
+				refreshSignal={refreshSignal}
+				selectedProject={selectedProject}
+				serverUrl={serverUrl}
+			/>
 			<CodebaseCard connected={connected} selectedProject={selectedProject} serverUrl={serverUrl} />
 			<SearchCard connected={connected} selectedProject={selectedProject} serverUrl={serverUrl} />
 			<TaskInspectorCard connected={connected} serverUrl={serverUrl} />
